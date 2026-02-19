@@ -25,7 +25,24 @@ conversation_history = []
 # ANSI color codes for terminal output
 GREEN = "\033[32m"
 CYAN = "\033[36m"
+DIM = "\033[2m"
 RESET = "\033[0m"
+
+# Model to use
+MODEL = "claude-sonnet-4-5"
+
+# Pricing per million tokens (USD)
+PRICING = {
+    "claude-sonnet-4-5": {"input": 3.00, "output": 15.00},
+    "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
+    "claude-haiku-4-5":  {"input": 0.80, "output": 4.00},
+    "claude-opus-4-6":   {"input": 15.00, "output": 75.00},
+}
+
+# Running session totals
+session_input_tokens = 0
+session_output_tokens = 0
+session_cost = 0.0
 
 # The system prompt sets Claude's behavior for the whole conversation.
 system_prompt = (
@@ -38,6 +55,12 @@ system_prompt = (
 
 CONVERSATIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "conversations")
 os.makedirs(CONVERSATIONS_DIR, exist_ok=True)
+
+def print_session_summary():
+    """Print a final cost summary for the session."""
+    if session_input_tokens or session_output_tokens:
+        print(f"{DIM}Session total: {session_input_tokens} in / {session_output_tokens} out — "
+              f"${session_cost:.4f}{RESET}")
 
 def save_conversation(history):
     """Save the conversation history to a timestamped text file."""
@@ -71,12 +94,14 @@ while True:
     except (EOFError, KeyboardInterrupt):
         # Handle Ctrl+D or Ctrl+C gracefully
         print()
+        print_session_summary()
         save_conversation(conversation_history)
         print("Goodbye!")
         break
 
     # Check if the user wants to quit
     if user_input.strip().lower() in ("quit", "exit"):
+        print_session_summary()
         save_conversation(conversation_history)
         print("Goodbye!")
         break
@@ -93,7 +118,7 @@ while True:
     print(f"\n{CYAN}Claude:{RESET} ", end="", flush=True)
 
     with client.messages.stream(
-        model="claude-sonnet-4-5",
+        model=MODEL,
         max_tokens=1024,
         system=system_prompt,
         messages=conversation_history,
@@ -106,8 +131,23 @@ while True:
             print(text, end="", flush=True)
             response_text += text
 
-    # Print a newline after the response is done
-    print("\n")
+        # Get token usage from the final message
+        final = stream.get_final_message()
+        input_tokens = final.usage.input_tokens
+        output_tokens = final.usage.output_tokens
+
+    # Calculate cost for this message
+    prices = PRICING.get(MODEL, {"input": 0, "output": 0})
+    msg_cost = (input_tokens * prices["input"] + output_tokens * prices["output"]) / 1_000_000
+
+    # Update session totals
+    session_input_tokens += input_tokens
+    session_output_tokens += output_tokens
+    session_cost += msg_cost
+
+    # Show cost in a dim line under the response
+    print(f"\n{DIM}  [{input_tokens} in / {output_tokens} out — ${msg_cost:.4f}]  "
+          f"session: ${session_cost:.4f}{RESET}\n")
 
     # Add Claude's response to the conversation history so it has
     # context for the next message
