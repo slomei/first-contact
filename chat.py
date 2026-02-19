@@ -10,6 +10,7 @@ Usage:
 """
 
 import anthropic
+import json
 import os
 from datetime import datetime
 
@@ -54,17 +55,39 @@ session_input_tokens = 0
 session_output_tokens = 0
 session_cost = 0.0
 
-# The system prompt sets Claude's behavior for the whole conversation.
-system_prompt = (
-    "You are a blunt, witty collaborator. You give honest, direct answers "
-    "without sugarcoating. You're not rude for the sake of it—you're just "
-    "efficient and real. If something is a bad idea, you say so. If someone's "
-    "on the right track, you tell them that too, briefly. You have a dry sense "
-    "of humor and zero patience for fluff."
-)
 
 CONVERSATIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "conversations")
 os.makedirs(CONVERSATIONS_DIR, exist_ok=True)
+
+MEMORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory.json")
+
+def load_memories():
+    """Load memories from the JSON file."""
+    if os.path.exists(MEMORY_FILE):
+        with open(MEMORY_FILE, "r") as f:
+            return json.load(f)
+    return []
+
+def save_memories(memories):
+    """Save memories to the JSON file."""
+    with open(MEMORY_FILE, "w") as f:
+        json.dump(memories, f, indent=2)
+
+def build_system_prompt(memories):
+    """Build the system prompt, including any stored memories."""
+    base = (
+        "You are a blunt, witty collaborator. You give honest, direct answers "
+        "without sugarcoating. You're not rude for the sake of it—you're just "
+        "efficient and real. If something is a bad idea, you say so. If someone's "
+        "on the right track, you tell them that too, briefly. You have a dry sense "
+        "of humor and zero patience for fluff."
+    )
+    if memories:
+        memory_block = "\n".join(f"- {m}" for m in memories)
+        base += f"\n\nThings the user has asked you to remember:\n{memory_block}"
+    return base
+
+memories = load_memories()
 
 def print_session_summary():
     """Print a final cost summary for the session."""
@@ -97,11 +120,16 @@ if existing:
 HELP_TEXT = f"""{DIM}Available commands:
   /help              Show this help message
   /read <path>       Load a file into the conversation
+  /remember <fact>   Save a fact to persistent memory
+  /forget <fact>     Remove a fact from memory
+  /memories          List all stored memories
   /opus              Switch to Claude Opus
   /sonnet            Switch to Claude Sonnet
   /haiku             Switch to Claude Haiku
   quit / exit        End the conversation{RESET}"""
 
+if memories:
+    print(f"Loaded {len(memories)} memor{'y' if len(memories) == 1 else 'ies'} from memory.json")
 print("Chatbot ready! Type your message and press Enter.")
 print("Type /help to see available commands.\n")
 
@@ -156,6 +184,36 @@ while True:
             print(f"{DIM}Cannot read binary file: {filepath}{RESET}\n")
         continue
 
+    if command_lower.startswith("/remember "):
+        fact = command[10:].strip()
+        if fact:
+            memories.append(fact)
+            save_memories(memories)
+            print(f"{DIM}Remembered: {fact}{RESET}\n")
+        else:
+            print(f"{DIM}Usage: /remember <fact>{RESET}\n")
+        continue
+
+    if command_lower.startswith("/forget "):
+        fact = command[8:].strip()
+        if fact in memories:
+            memories.remove(fact)
+            save_memories(memories)
+            print(f"{DIM}Forgot: {fact}{RESET}\n")
+        else:
+            print(f"{DIM}No matching memory found. Use /memories to see stored facts.{RESET}\n")
+        continue
+
+    if command_lower == "/memories":
+        if memories:
+            print(f"{DIM}Stored memories:")
+            for i, m in enumerate(memories, 1):
+                print(f"  {i}. {m}")
+            print(RESET)
+        else:
+            print(f"{DIM}No memories stored. Use /remember <fact> to add one.{RESET}\n")
+        continue
+
     # Skip empty messages
     if not command:
         continue
@@ -170,7 +228,7 @@ while True:
     with client.messages.stream(
         model=active_model,
         max_tokens=1024,
-        system=system_prompt,
+        system=build_system_prompt(memories),
         messages=conversation_history,
     ) as stream:
         # Collect the full response so we can save it to history
