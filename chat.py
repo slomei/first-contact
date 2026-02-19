@@ -20,6 +20,12 @@ import webbrowser
 from datetime import datetime
 from ddgs import DDGS
 import pdfplumber
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+import base64
+import email as email_lib
 
 # Create the Anthropic client.
 # By default, it reads your API key from the ANTHROPIC_API_KEY environment variable.
@@ -262,6 +268,61 @@ TOOLS = [
             "required": ["query"],
         },
     },
+    {
+        "name": "check_email",
+        "description": (
+            "Check for recent unread emails. Use when the user asks about "
+            "their email or inbox."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of emails to return (default: 10)",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "read_email",
+        "description": (
+            "Read the full body of a specific email by its index number "
+            "from the last email listing."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {
+                    "type": "string",
+                    "description": "The Gmail message ID to read",
+                },
+            },
+            "required": ["message_id"],
+        },
+    },
+    {
+        "name": "search_email",
+        "description": (
+            "Search emails by keyword. Use when the user asks to find "
+            "specific emails."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Gmail search query (e.g. 'from:example@gmail.com', 'subject:invoice')",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of results (default: 10)",
+                },
+            },
+            "required": ["query"],
+        },
+    },
 ]
 
 # Running session totals
@@ -271,6 +332,10 @@ session_cost = 0.0
 
 # Last job search results (for /jobs save)
 last_job_results = []
+
+# Email safeguard state
+_email_content_loaded = False    # True once any email body has been loaded in session
+_last_email_results = []         # Store last check/search results for /email read <#>
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -714,6 +779,34 @@ def web_search(query, max_results=5):
 
 def execute_tool(name, tool_input):
     """Execute a tool and return (result_string, is_error)."""
+    global _email_content_loaded, _last_email_results
+
+    # Email safety safeguards
+    if _email_content_loaded and name in ("web_search", "run_python", "write_file"):
+        if name == "web_search":
+            query = tool_input.get("query", "")
+            if re.search(r'https?://|@.*\.', query):
+                return "BLOCKED: Web search cannot contain URLs or email addresses from email content.", True
+            if len(query) > 150:
+                return "BLOCKED: Web search query too long. Use only generic terms like company names or job titles.", True
+
+        print(f"\n{CYAN}\u26a0 Email safety:{RESET} Claude wants to use {name} while email content is loaded.")
+        if name == "web_search":
+            print(f"  Query: {tool_input.get('query', '')}")
+        elif name == "write_file":
+            print(f"  File: {tool_input.get('filename', '')}")
+        elif name == "run_python":
+            code = tool_input.get("code", "")
+            preview = code[:200] + "..." if len(code) > 200 else code
+            print(f"  Code: {preview}")
+        try:
+            confirm = input(f"{DIM}Allow this? [y/N]: {RESET}").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return f"User denied {name} while email content is in context.", True
+        if confirm != "y":
+            return f"User denied {name} while email content is in context.", True
+
     if name == "web_search":
         query = tool_input["query"]
         max_results = tool_input.get("max_results", 5)
@@ -800,6 +893,52 @@ def execute_tool(name, tool_input):
         except Exception as e:
             return f"Job search failed: {e}", True
 
+    elif name == "check_email":
+        max_results = tool_input.get("max_results", 10)
+        result = gmail_check(max_results)
+        if result is None:
+            return "Gmail not authenticated. User needs to run /email setup first.", True
+        if isinstance(result, str):
+            return result, True
+        _last_email_results.clear()
+        _last_email_results.extend(result)
+        if not result:
+            return "No unread emails.", False
+        lines = []
+        for i, e in enumerate(result, 1):
+            lines.append(f"{i}. From: {e['sender']}\n   Subject: {e['subject']}\n   Date: {e['date']}\n   {e['snippet']}")
+        return "\n".join(lines), False
+
+    elif name == "read_email":
+        message_id = tool_input["message_id"]
+        # Support index references (e.g. "1", "2") from last listing
+        if message_id.isdigit():
+            idx = int(message_id) - 1
+            if 0 <= idx < len(_last_email_results):
+                message_id = _last_email_results[idx]["id"]
+        body = gmail_read(message_id)
+        if body is None:
+            return "Gmail not authenticated. User needs to run /email setup first.", True
+        _email_content_loaded = True
+        return body, False
+
+    elif name == "search_email":
+        query = tool_input["query"]
+        max_results = tool_input.get("max_results", 10)
+        result = gmail_search(query, max_results)
+        if result is None:
+            return "Gmail not authenticated. User needs to run /email setup first.", True
+        if isinstance(result, str):
+            return result, True
+        _last_email_results.clear()
+        _last_email_results.extend(result)
+        if not result:
+            return "No emails found matching that query.", False
+        lines = []
+        for i, e in enumerate(result, 1):
+            lines.append(f"{i}. From: {e['sender']}\n   Subject: {e['subject']}\n   Date: {e['date']}\n   {e['snippet']}")
+        return "\n".join(lines), False
+
     return f"Unknown tool: {name}", True
 
 def print_tool_status(name, tool_input):
@@ -813,6 +952,9 @@ def print_tool_status(name, tool_input):
         "list_memories": "Listing memories",
         "run_python": "Running Python code",
         "job_search": f"Searching jobs: \"{tool_input.get('query', '')}\"",
+        "check_email": "Checking email inbox",
+        "read_email": f"Reading email: {tool_input.get('message_id', '')}",
+        "search_email": f"Searching email: \"{tool_input.get('query', '')}\"",
     }
     label = labels.get(name, f"Using tool: {name}")
     print(f"\n{DIM}⟡ {label}{RESET}")
@@ -1249,6 +1391,165 @@ def get_resume_path():
     return os.path.join(PROJECTS_DIR, JOB_SEARCH_PROJECT, "resume.md")
 
 
+# --- Gmail integration ---
+GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+GMAIL_CLIENT_SECRET = os.path.join(BASE_DIR, "gmail_client_secret.json")
+GMAIL_CREDENTIALS = os.path.join(BASE_DIR, "gmail_credentials.json")
+
+
+def get_gmail_service():
+    """Load saved OAuth token and return a Gmail API service object.
+
+    Returns None if not authenticated (no credentials file or expired
+    and unrefreshable token).
+    """
+    if not os.path.exists(GMAIL_CREDENTIALS):
+        return None
+    try:
+        creds = Credentials.from_authorized_user_file(GMAIL_CREDENTIALS, GMAIL_SCOPES)
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            with open(GMAIL_CREDENTIALS, "w") as f:
+                f.write(creds.to_json())
+        if not creds or not creds.valid:
+            return None
+        return build("gmail", "v1", credentials=creds)
+    except Exception:
+        return None
+
+
+def gmail_setup():
+    """Run the OAuth2 flow to authenticate with Gmail.
+
+    Requires gmail_client_secret.json (downloaded from Google Cloud Console)
+    in the project root. Saves the token to gmail_credentials.json.
+    """
+    if not os.path.exists(GMAIL_CLIENT_SECRET):
+        print(f"{DIM}Missing {GMAIL_CLIENT_SECRET}")
+        print("Download OAuth client credentials from Google Cloud Console")
+        print(f"and save as gmail_client_secret.json in the project root.{RESET}\n")
+        return False
+    try:
+        flow = InstalledAppFlow.from_client_secrets_file(GMAIL_CLIENT_SECRET, GMAIL_SCOPES)
+        creds = flow.run_local_server(port=0)
+        with open(GMAIL_CREDENTIALS, "w") as f:
+            f.write(creds.to_json())
+        print(f"{DIM}Gmail authenticated successfully. Token saved to {GMAIL_CREDENTIALS}{RESET}\n")
+        return True
+    except Exception as e:
+        print(f"{DIM}Gmail setup failed: {e}{RESET}\n")
+        return False
+
+
+def gmail_check(max_results=10):
+    """List recent unread emails.
+
+    Returns a list of dicts with id, sender, subject, date, snippet.
+    """
+    service = get_gmail_service()
+    if not service:
+        return None
+    try:
+        results = service.users().messages().list(
+            userId="me", q="is:unread", maxResults=max_results
+        ).execute()
+        messages = results.get("messages", [])
+        if not messages:
+            return []
+        emails = []
+        for msg in messages:
+            detail = service.users().messages().get(
+                userId="me", id=msg["id"], format="metadata",
+                metadataHeaders=["From", "Subject", "Date"],
+            ).execute()
+            headers = {h["name"]: h["value"] for h in detail.get("payload", {}).get("headers", [])}
+            emails.append({
+                "id": msg["id"],
+                "sender": headers.get("From", "Unknown"),
+                "subject": headers.get("Subject", "(no subject)"),
+                "date": headers.get("Date", ""),
+                "snippet": detail.get("snippet", ""),
+            })
+        return emails
+    except Exception as e:
+        return f"Gmail error: {e}"
+
+
+def gmail_read(message_id):
+    """Get the full email body by message ID.
+
+    Decodes base64, handles multipart messages. Returns plain text body.
+    """
+    service = get_gmail_service()
+    if not service:
+        return None
+    try:
+        detail = service.users().messages().get(
+            userId="me", id=message_id, format="full"
+        ).execute()
+        payload = detail.get("payload", {})
+
+        def extract_body(part):
+            """Recursively extract plain text from message parts."""
+            mime = part.get("mimeType", "")
+            if mime == "text/plain":
+                data = part.get("body", {}).get("data", "")
+                if data:
+                    return base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
+            if "parts" in part:
+                texts = []
+                for sub in part["parts"]:
+                    t = extract_body(sub)
+                    if t:
+                        texts.append(t)
+                return "\n".join(texts)
+            return ""
+
+        body = extract_body(payload)
+        if not body:
+            # Fallback: try top-level body
+            data = payload.get("body", {}).get("data", "")
+            if data:
+                body = base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
+        return body or "(empty email body)"
+    except Exception as e:
+        return f"Gmail error: {e}"
+
+
+def gmail_search(query, max_results=10):
+    """Search emails using Gmail query syntax.
+
+    Returns same format as gmail_check: list of dicts with id, sender, subject, date, snippet.
+    """
+    service = get_gmail_service()
+    if not service:
+        return None
+    try:
+        results = service.users().messages().list(
+            userId="me", q=query, maxResults=max_results
+        ).execute()
+        messages = results.get("messages", [])
+        if not messages:
+            return []
+        emails = []
+        for msg in messages:
+            detail = service.users().messages().get(
+                userId="me", id=msg["id"], format="metadata",
+                metadataHeaders=["From", "Subject", "Date"],
+            ).execute()
+            headers = {h["name"]: h["value"] for h in detail.get("payload", {}).get("headers", [])}
+            emails.append({
+                "id": msg["id"],
+                "sender": headers.get("From", "Unknown"),
+                "subject": headers.get("Subject", "(no subject)"),
+                "date": headers.get("Date", ""),
+                "snippet": detail.get("snippet", ""),
+            })
+        return emails
+    except Exception as e:
+        return f"Gmail error: {e}"
+
+
 def load_jobs():
     """Load saved jobs from the job-search project."""
     path = get_jobs_file()
@@ -1427,6 +1728,10 @@ if __name__ == "__main__":
       /jobs status       Show tracked jobs grouped by status
       /resume              Show loaded resume status
       /resume <path>       Load a resume file (txt, md, pdf, docx)
+      /email setup         Authenticate with Gmail (OAuth2)
+      /email check         Show recent unread emails
+      /email read <#>      Read full email by number
+      /email search <q>    Search emails by keyword
       /delegates         Show specialist agents and their models
       /billing           Show billing link for API credits
       /load              Load a previous conversation into context
@@ -1749,6 +2054,101 @@ if __name__ == "__main__":
                 print(f"  {CYAN}{name:<12}{RESET} {spec['description']}")
                 print(f"  {DIM}{'':12} model: {spec['model']} ({spec['label']}){RESET}")
             print(f"\n{DIM}The director (Sonnet) routes tasks to specialists automatically.{RESET}\n")
+            continue
+
+        if command_lower == "/email" or command_lower.startswith("/email "):
+            email_arg = command[6:].strip() if len(command) > 6 else ""
+            email_arg_lower = email_arg.lower()
+
+            if not email_arg:
+                print(f"{DIM}Usage: /email setup | /email check | /email read <#> | /email search <query>{RESET}\n")
+                continue
+
+            if email_arg_lower == "setup":
+                gmail_setup()
+
+            elif email_arg_lower == "check":
+                service = get_gmail_service()
+                if not service:
+                    print(f"{DIM}Gmail not authenticated. Run /email setup first.{RESET}\n")
+                    continue
+                print(f"{DIM}Checking inbox...{RESET}")
+                result = gmail_check()
+                if isinstance(result, str):
+                    print(f"{DIM}{result}{RESET}\n")
+                    continue
+                if result is None:
+                    print(f"{DIM}Gmail not authenticated. Run /email setup first.{RESET}\n")
+                    continue
+                _last_email_results.clear()
+                _last_email_results.extend(result)
+                if not result:
+                    print(f"{DIM}No unread emails.{RESET}\n")
+                    continue
+                for i, e in enumerate(result, 1):
+                    print(f"\n  {CYAN}{i}. {e['subject']}{RESET}")
+                    print(f"     {DIM}From: {e['sender']}")
+                    print(f"     Date: {e['date']}")
+                    print(f"     {e['snippet'][:150]}{RESET}")
+                print(f"\n{DIM}Found {len(result)} unread email(s). Use /email read <#> to read one.{RESET}\n")
+
+            elif email_arg_lower.startswith("read "):
+                num_str = email_arg[5:].strip()
+                try:
+                    idx = int(num_str) - 1
+                    if idx < 0 or idx >= len(_last_email_results):
+                        raise ValueError
+                except ValueError:
+                    print(f"{DIM}Invalid number. Use /email check or /email search first.{RESET}\n")
+                    continue
+                msg = _last_email_results[idx]
+                print(f"{DIM}Reading: {msg['subject']}...{RESET}")
+                body = gmail_read(msg["id"])
+                if body is None:
+                    print(f"{DIM}Gmail not authenticated. Run /email setup first.{RESET}\n")
+                    continue
+                _email_content_loaded = True
+                print(f"\n{CYAN}From:{RESET} {msg['sender']}")
+                print(f"{CYAN}Subject:{RESET} {msg['subject']}")
+                print(f"{CYAN}Date:{RESET} {msg['date']}")
+                print(f"\n{body}\n")
+                # Inject into conversation so Claude can discuss it
+                conversation_history.append({"role": "user", "content":
+                    f"[Email loaded]\nFrom: {msg['sender']}\nSubject: {msg['subject']}\n"
+                    f"Date: {msg['date']}\n\n{body}"})
+
+            elif email_arg_lower.startswith("search "):
+                query = email_arg[7:].strip()
+                if not query:
+                    print(f"{DIM}Usage: /email search <query>{RESET}\n")
+                    continue
+                service = get_gmail_service()
+                if not service:
+                    print(f"{DIM}Gmail not authenticated. Run /email setup first.{RESET}\n")
+                    continue
+                print(f"{DIM}Searching emails: {query}...{RESET}")
+                result = gmail_search(query)
+                if isinstance(result, str):
+                    print(f"{DIM}{result}{RESET}\n")
+                    continue
+                if result is None:
+                    print(f"{DIM}Gmail not authenticated. Run /email setup first.{RESET}\n")
+                    continue
+                _last_email_results.clear()
+                _last_email_results.extend(result)
+                if not result:
+                    print(f"{DIM}No emails found matching: {query}{RESET}\n")
+                    continue
+                for i, e in enumerate(result, 1):
+                    print(f"\n  {CYAN}{i}. {e['subject']}{RESET}")
+                    print(f"     {DIM}From: {e['sender']}")
+                    print(f"     Date: {e['date']}")
+                    print(f"     {e['snippet'][:150]}{RESET}")
+                print(f"\n{DIM}Found {len(result)} email(s). Use /email read <#> to read one.{RESET}\n")
+
+            else:
+                print(f"{DIM}Unknown /email subcommand: {email_arg}")
+                print(f"  Use: setup, check, read <#>, search <query>{RESET}\n")
             continue
 
         if command_lower == "/resume" or command_lower.startswith("/resume "):
