@@ -13,7 +13,7 @@ import anthropic
 import json
 import os
 from datetime import datetime
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 # Create the Anthropic client.
 # By default, it reads your API key from the ANTHROPIC_API_KEY environment variable.
