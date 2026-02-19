@@ -51,6 +51,9 @@ PRICING = {
 # Reverse lookup: model ID -> short name
 MODEL_SHORT_NAMES = {v: k.lstrip("/") for k, v in MODELS.items()}
 
+# Context window compression threshold (estimated tokens)
+TOKEN_THRESHOLD = 20_000
+
 # Tool definitions for the Anthropic API
 TOOLS = [
     {
@@ -232,6 +235,184 @@ def extract_code_block(text):
     if match:
         return match.group(1).strip()
     return text
+
+def estimate_conversation_tokens():
+    """Estimate total tokens in conversation history (~4 chars per token)."""
+    total = 0
+    for msg in conversation_history:
+        content = msg["content"]
+        if isinstance(content, str):
+            total += len(content) // 4
+        elif isinstance(content, list):
+            total += len(json.dumps(content)) // 4
+    return total
+
+
+def extract_text_from_message(msg):
+    """Extract only conversational text from a message, stripping tool blocks."""
+    content = msg["content"]
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        texts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                texts.append(block["text"])
+        return "\n".join(texts) if texts else None
+    return None
+
+
+def group_into_exchanges(messages):
+    """Group conversation messages into exchanges.
+
+    An exchange starts with a user text message and includes all subsequent
+    messages (tool use rounds) until the next user text message.
+    Returns list of (start_idx, end_idx) tuples (inclusive).
+    """
+    exchanges = []
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        if msg["role"] == "user":
+            content = msg["content"]
+            is_tool_result = isinstance(content, list) and all(
+                isinstance(b, dict) and b.get("type") == "tool_result"
+                for b in content
+            )
+            if not is_tool_result:
+                start = i
+                i += 1
+                while i < len(messages):
+                    next_msg = messages[i]
+                    if next_msg["role"] == "user":
+                        next_content = next_msg["content"]
+                        is_next_tool = isinstance(next_content, list) and all(
+                            isinstance(b, dict) and b.get("type") == "tool_result"
+                            for b in next_content
+                        )
+                        if not is_next_tool:
+                            break
+                    i += 1
+                exchanges.append((start, i - 1))
+                continue
+        i += 1
+    return exchanges
+
+
+def clean_exchange(messages, start, end):
+    """Extract a clean user/assistant pair from an exchange, stripping tool blocks."""
+    user_text = extract_text_from_message(messages[start])
+    assistant_text = None
+    for i in range(end, start - 1, -1):
+        if messages[i]["role"] == "assistant":
+            assistant_text = extract_text_from_message(messages[i])
+            if assistant_text:
+                break
+    if user_text and assistant_text:
+        return [
+            {"role": "user", "content": user_text},
+            {"role": "assistant", "content": assistant_text},
+        ]
+    return []
+
+
+def compress_conversation():
+    """Compress conversation history when tokens exceed threshold.
+
+    Keeps the first 3, middle 5, and last 5 exchanges (with tool blocks stripped),
+    summarizes the rest using Haiku, and rebuilds the history.
+    """
+    global conversation_history, session_input_tokens, session_output_tokens, session_cost
+
+    tokens = estimate_conversation_tokens()
+    if tokens < TOKEN_THRESHOLD:
+        return
+
+    exchanges = group_into_exchanges(conversation_history)
+    n = len(exchanges)
+    if n <= 13:
+        return
+
+    # Determine which exchanges to keep
+    first = set(range(3))
+    last = set(range(n - 5, n))
+    mid_center = n // 2
+    mid_start = max(3, mid_center - 2)
+    mid_end = min(n - 5, mid_start + 5)
+    mid_start = max(3, mid_end - 5)
+    middle = set(range(mid_start, mid_end))
+    keep = first | middle | last
+    remove = sorted(set(range(n)) - keep)
+
+    if not remove:
+        return
+
+    # Collect text from removed exchanges for summarization
+    summary_parts = []
+    for i in remove:
+        start, end = exchanges[i]
+        for msg in conversation_history[start:end + 1]:
+            text = extract_text_from_message(msg)
+            if text:
+                role = "User" if msg["role"] == "user" else "Assistant"
+                if len(text) > 500:
+                    text = text[:500] + "..."
+                summary_parts.append(f"{role}: {text}")
+
+    if not summary_parts:
+        return
+
+    # Summarize using Haiku
+    combined = "\n\n".join(summary_parts)
+    summary_response = client.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=300,
+        messages=[{"role": "user", "content":
+            "Summarize this conversation excerpt into 2-3 concise sentences. "
+            "Capture key topics, decisions, and important context:\n\n" + combined}],
+    )
+    summary = summary_response.content[0].text
+
+    # Track summary cost
+    s_in = summary_response.usage.input_tokens
+    s_out = summary_response.usage.output_tokens
+    s_prices = PRICING.get("claude-haiku-4-5", {"input": 0.80, "output": 4.00})
+    s_cost = (s_in * s_prices["input"] + s_out * s_prices["output"]) / 1_000_000
+    session_input_tokens += s_in
+    session_output_tokens += s_out
+    session_cost += s_cost
+
+    # Rebuild conversation history
+    new_history = []
+    summary_inserted = False
+
+    for i in sorted(keep):
+        # Insert summary at first gap between kept exchanges
+        if not summary_inserted and i > min(keep) and (i - 1) not in keep:
+            new_history.append({"role": "user",
+                "content": f"[Summary of earlier conversation: {summary}]"})
+            new_history.append({"role": "assistant",
+                "content": "Understood, I have the context from our earlier conversation."})
+            summary_inserted = True
+
+        start, end = exchanges[i]
+        cleaned = clean_exchange(conversation_history, start, end)
+        new_history.extend(cleaned)
+
+    # If summary wasn't inserted (no gap detected), prepend it
+    if not summary_inserted:
+        new_history.insert(0, {"role": "user",
+            "content": f"[Summary of earlier conversation: {summary}]"})
+        new_history.insert(1, {"role": "assistant",
+            "content": "Understood, I have the context from our earlier conversation."})
+
+    old_tokens = tokens
+    conversation_history = new_history
+    new_tokens = estimate_conversation_tokens()
+
+    print(f"\n{DIM}⟡ Context compressed: ~{old_tokens:,} → ~{new_tokens:,} tokens "
+          f"({len(remove)} exchanges summarized, {len(keep)} kept){RESET}")
+
 
 def web_search(query, max_results=5):
     """Search the web using DuckDuckGo and return formatted results."""
@@ -450,6 +631,7 @@ HELP_TEXT = f"""{DIM}Available commands:
   /remember <fact>   Save a fact to persistent memory
   /forget <fact>     Remove a fact from memory
   /memories          List all stored memories
+  /tokens            Show conversation size and compression status
   /opus              Switch to Claude Opus
   /sonnet            Switch to Claude Sonnet
   /haiku             Switch to Claude Haiku
@@ -532,6 +714,7 @@ while True:
         conversation_history.append({"role": "user", "content": search_message})
         # Get Claude's take on the results
         chat_turn()
+        compress_conversation()
         continue
 
     if command_lower.startswith("/write "):
@@ -600,6 +783,21 @@ while True:
             print(f"{DIM}No memories stored. Use /remember <fact> to add one.{RESET}\n")
         continue
 
+    if command_lower == "/tokens":
+        tokens = estimate_conversation_tokens()
+        exchanges = group_into_exchanges(conversation_history)
+        pct = min(100, int(tokens / TOKEN_THRESHOLD * 100))
+        bar_len = 20
+        filled = int(bar_len * pct / 100)
+        bar = "█" * filled + "░" * (bar_len - filled)
+        print(f"{DIM}Conversation: ~{tokens:,} / {TOKEN_THRESHOLD:,} tokens ({pct}%)")
+        print(f"  [{bar}]")
+        print(f"  {len(exchanges)} exchanges, {len(conversation_history)} messages")
+        if tokens >= TOKEN_THRESHOLD:
+            print(f"  ⚠ Above threshold — will compress on next response")
+        print(RESET)
+        continue
+
     # Skip empty messages
     if not command:
         continue
@@ -609,3 +807,4 @@ while True:
 
     # Send the conversation to Claude with tool use support
     chat_turn()
+    compress_conversation()
