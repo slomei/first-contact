@@ -1,5 +1,7 @@
 venv/
 workspace/
+__pycache__/
+conversations/
 .env
 *.env
 .env.*

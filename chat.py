@@ -830,328 +830,329 @@ def load_conversation(filepath):
     print(f"{DIM}{summary}{RESET}\n")
 
 
-# Show previous conversations if any exist
-existing = list_conversations()
-if existing:
-    print("Previous conversations:")
-    print_conversations(existing)
-    print()
-
-HELP_TEXT = f"""{DIM}Available commands:
-  /help              Show this help message
-  /read <path>       Load a file into the conversation
-  /web <query>       Search the web and discuss results
-  /write <file>      Save last response to workspace/<file>
-  /run               Run the code block from Claude's last response
-  /remember <fact>   Save a fact to persistent memory
-  /forget <fact>     Remove a fact from memory
-  /memories          List all stored memories
-  /persona           List available personas
-  /persona <name>    Switch persona (default, writer, coder, critic)
-  /persona custom <desc>  Create a custom persona
-  /persona model <name> <model>  Set a persona's default model
-  /load              Load a previous conversation into context
-  /conversations     List previous conversations
-  /tokens            Show conversation size and compression status
-  /opus              Switch to Claude Opus
-  /sonnet            Switch to Claude Sonnet
-  /haiku             Switch to Claude Haiku
-  quit / exit        End the conversation
-
-Claude also uses tools autonomously (web search, file read/write, memory, code execution).{RESET}"""
-
-if memories:
-    print(f"Loaded {len(memories)} memor{'y' if len(memories) == 1 else 'ies'} from memory.json")
-print("Chatbot ready! Type your message and press Enter.")
-print("Type /help to see available commands.\n")
-
-while True:
-    # Get input from the user
-    short_name = MODEL_SHORT_NAMES.get(active_model, active_model)
-    persona_tag = f"/{active_persona}" if active_persona != "default" else ""
-    try:
-        user_input = input(f"{GREEN}You {DIM}[{short_name}{persona_tag}]{RESET}{GREEN}: {RESET}")
-    except (EOFError, KeyboardInterrupt):
-        # Handle Ctrl+D or Ctrl+C gracefully
+if __name__ == "__main__":
+    # Show previous conversations if any exist
+    existing = list_conversations()
+    if existing:
+        print("Previous conversations:")
+        print_conversations(existing)
         print()
-        print_session_summary()
-        save_conversation(conversation_history)
-        print("Goodbye!")
-        break
 
-    # Check if the user wants to quit
-    if user_input.strip().lower() in ("quit", "exit"):
-        print_session_summary()
-        save_conversation(conversation_history)
-        print("Goodbye!")
-        break
+    HELP_TEXT = f"""{DIM}Available commands:
+      /help              Show this help message
+      /read <path>       Load a file into the conversation
+      /web <query>       Search the web and discuss results
+      /write <file>      Save last response to workspace/<file>
+      /run               Run the code block from Claude's last response
+      /remember <fact>   Save a fact to persistent memory
+      /forget <fact>     Remove a fact from memory
+      /memories          List all stored memories
+      /persona           List available personas
+      /persona <name>    Switch persona (default, writer, coder, critic)
+      /persona custom <desc>  Create a custom persona
+      /persona model <name> <model>  Set a persona's default model
+      /load              Load a previous conversation into context
+      /conversations     List previous conversations
+      /tokens            Show conversation size and compression status
+      /opus              Switch to Claude Opus
+      /sonnet            Switch to Claude Sonnet
+      /haiku             Switch to Claude Haiku
+      quit / exit        End the conversation
 
-    # Check for commands
-    command = user_input.strip()
-    command_lower = command.lower()
+    Claude also uses tools autonomously (web search, file read/write, memory, code execution).{RESET}"""
 
-    if command_lower == "/help":
-        print(HELP_TEXT)
-        continue
+    if memories:
+        print(f"Loaded {len(memories)} memor{'y' if len(memories) == 1 else 'ies'} from memory.json")
+    print("Chatbot ready! Type your message and press Enter.")
+    print("Type /help to see available commands.\n")
 
-    if command_lower in MODELS:
-        active_model = MODELS[command_lower]
-        print(f"{DIM}Switched to {active_model}{RESET}\n")
-        continue
-
-    if command_lower.startswith("/read "):
-        filepath = command[6:].strip()  # preserve original case for path
+    while True:
+        # Get input from the user
+        short_name = MODEL_SHORT_NAMES.get(active_model, active_model)
+        persona_tag = f"/{active_persona}" if active_persona != "default" else ""
         try:
-            with open(filepath, "r") as f:
-                contents = f.read()
-            line_count = contents.count("\n") + (1 if contents and not contents.endswith("\n") else 0)
-            filename = os.path.basename(filepath)
-            print(f"{DIM}Loaded {filename} ({line_count} lines){RESET}\n")
-            file_message = f"[File: {filepath}]\n```\n{contents}\n```"
-            conversation_history.append({"role": "user", "content": file_message})
-        except FileNotFoundError:
-            print(f"{DIM}File not found: {filepath}{RESET}\n")
-        except IsADirectoryError:
-            print(f"{DIM}Path is a directory: {filepath}{RESET}\n")
-        except UnicodeDecodeError:
-            print(f"{DIM}Cannot read binary file: {filepath}{RESET}\n")
-        continue
+            user_input = input(f"{GREEN}You {DIM}[{short_name}{persona_tag}]{RESET}{GREEN}: {RESET}")
+        except (EOFError, KeyboardInterrupt):
+            # Handle Ctrl+D or Ctrl+C gracefully
+            print()
+            print_session_summary()
+            save_conversation(conversation_history)
+            print("Goodbye!")
+            break
 
-    if command_lower.startswith("/web "):
-        query = command[5:].strip()
-        if not query:
-            print(f"{DIM}Usage: /web <search query>{RESET}\n")
-            continue
-        print(f"{DIM}Searching: {query}...{RESET}")
-        try:
-            results = web_search(query)
-        except Exception as e:
-            print(f"{DIM}Search failed: {e}{RESET}\n")
-            continue
-        if not results:
-            print(f"{DIM}No results found.{RESET}\n")
-            continue
-        print(f"{DIM}{results}{RESET}\n")
-        search_message = f"[Web search: {query}]\n{results}\n\nUsing these search results, answer my question: {query}"
-        conversation_history.append({"role": "user", "content": search_message})
-        # Get Claude's take on the results
-        chat_turn()
-        compress_conversation()
-        continue
+        # Check if the user wants to quit
+        if user_input.strip().lower() in ("quit", "exit"):
+            print_session_summary()
+            save_conversation(conversation_history)
+            print("Goodbye!")
+            break
 
-    if command_lower.startswith("/write "):
-        filename = command[7:].strip()
-        if not filename:
-            print(f"{DIM}Usage: /write <filename>{RESET}\n")
+        # Check for commands
+        command = user_input.strip()
+        command_lower = command.lower()
+
+        if command_lower == "/help":
+            print(HELP_TEXT)
             continue
-        # Prevent path traversal outside workspace
-        if ".." in filename or filename.startswith("/"):
-            print(f"{DIM}Filename must be relative and stay inside workspace/{RESET}\n")
+
+        if command_lower in MODELS:
+            active_model = MODELS[command_lower]
+            print(f"{DIM}Switched to {active_model}{RESET}\n")
             continue
-        filepath = os.path.join(WORKSPACE_DIR, filename)
-        # Create subdirectories if the filename includes them
-        os.makedirs(os.path.dirname(filepath) or WORKSPACE_DIR, exist_ok=True)
-        # Check for overwrite
-        if os.path.exists(filepath):
+
+        if command_lower.startswith("/read "):
+            filepath = command[6:].strip()  # preserve original case for path
             try:
-                confirm = input(f"{DIM}workspace/{filename} already exists. Overwrite? [y/N]: {RESET}")
-            except (EOFError, KeyboardInterrupt):
-                print(f"\n{DIM}Cancelled.{RESET}\n")
-                continue
-            if confirm.strip().lower() != "y":
-                print(f"{DIM}Cancelled.{RESET}\n")
-                continue
-        # Get content from last Claude response
-        last = get_last_response()
-        if not last:
-            print(f"{DIM}No Claude response to save yet.{RESET}\n")
+                with open(filepath, "r") as f:
+                    contents = f.read()
+                line_count = contents.count("\n") + (1 if contents and not contents.endswith("\n") else 0)
+                filename = os.path.basename(filepath)
+                print(f"{DIM}Loaded {filename} ({line_count} lines){RESET}\n")
+                file_message = f"[File: {filepath}]\n```\n{contents}\n```"
+                conversation_history.append({"role": "user", "content": file_message})
+            except FileNotFoundError:
+                print(f"{DIM}File not found: {filepath}{RESET}\n")
+            except IsADirectoryError:
+                print(f"{DIM}Path is a directory: {filepath}{RESET}\n")
+            except UnicodeDecodeError:
+                print(f"{DIM}Cannot read binary file: {filepath}{RESET}\n")
             continue
-        content = extract_code_block(last)
-        with open(filepath, "w") as f:
-            f.write(content)
-            if not content.endswith("\n"):
-                f.write("\n")
-        line_count = content.count("\n") + 1
-        print(f"{DIM}Wrote {line_count} lines to workspace/{filename}{RESET}\n")
-        continue
 
-    if command_lower.startswith("/remember "):
-        fact = command[10:].strip()
-        if fact:
-            memories.append(fact)
-            save_memories(memories)
-            print(f"{DIM}Remembered: {fact}{RESET}\n")
-        else:
-            print(f"{DIM}Usage: /remember <fact>{RESET}\n")
-        continue
+        if command_lower.startswith("/web "):
+            query = command[5:].strip()
+            if not query:
+                print(f"{DIM}Usage: /web <search query>{RESET}\n")
+                continue
+            print(f"{DIM}Searching: {query}...{RESET}")
+            try:
+                results = web_search(query)
+            except Exception as e:
+                print(f"{DIM}Search failed: {e}{RESET}\n")
+                continue
+            if not results:
+                print(f"{DIM}No results found.{RESET}\n")
+                continue
+            print(f"{DIM}{results}{RESET}\n")
+            search_message = f"[Web search: {query}]\n{results}\n\nUsing these search results, answer my question: {query}"
+            conversation_history.append({"role": "user", "content": search_message})
+            # Get Claude's take on the results
+            chat_turn()
+            compress_conversation()
+            continue
 
-    if command_lower.startswith("/forget "):
-        fact = command[8:].strip()
-        if fact in memories:
-            memories.remove(fact)
-            save_memories(memories)
-            print(f"{DIM}Forgot: {fact}{RESET}\n")
-        else:
-            print(f"{DIM}No matching memory found. Use /memories to see stored facts.{RESET}\n")
-        continue
+        if command_lower.startswith("/write "):
+            filename = command[7:].strip()
+            if not filename:
+                print(f"{DIM}Usage: /write <filename>{RESET}\n")
+                continue
+            # Prevent path traversal outside workspace
+            if ".." in filename or filename.startswith("/"):
+                print(f"{DIM}Filename must be relative and stay inside workspace/{RESET}\n")
+                continue
+            filepath = os.path.join(WORKSPACE_DIR, filename)
+            # Create subdirectories if the filename includes them
+            os.makedirs(os.path.dirname(filepath) or WORKSPACE_DIR, exist_ok=True)
+            # Check for overwrite
+            if os.path.exists(filepath):
+                try:
+                    confirm = input(f"{DIM}workspace/{filename} already exists. Overwrite? [y/N]: {RESET}")
+                except (EOFError, KeyboardInterrupt):
+                    print(f"\n{DIM}Cancelled.{RESET}\n")
+                    continue
+                if confirm.strip().lower() != "y":
+                    print(f"{DIM}Cancelled.{RESET}\n")
+                    continue
+            # Get content from last Claude response
+            last = get_last_response()
+            if not last:
+                print(f"{DIM}No Claude response to save yet.{RESET}\n")
+                continue
+            content = extract_code_block(last)
+            with open(filepath, "w") as f:
+                f.write(content)
+                if not content.endswith("\n"):
+                    f.write("\n")
+            line_count = content.count("\n") + 1
+            print(f"{DIM}Wrote {line_count} lines to workspace/{filename}{RESET}\n")
+            continue
 
-    if command_lower == "/memories":
-        if memories:
-            print(f"{DIM}Stored memories:")
-            for i, m in enumerate(memories, 1):
-                print(f"  {i}. {m}")
-            print(RESET)
-        else:
-            print(f"{DIM}No memories stored. Use /remember <fact> to add one.{RESET}\n")
-        continue
-
-    if command_lower == "/persona" or command_lower.startswith("/persona "):
-        arg = command[8:].strip()  # everything after "/persona"
-        if not arg:
-            # List all personas, highlight active
-            print(f"{DIM}Available personas:")
-            all_personas = list(BUILTIN_PERSONAS.keys()) + [
-                k for k in custom_personas if k not in BUILTIN_PERSONAS
-                and "description" in custom_personas[k]
-            ]
-            for name in all_personas:
-                marker = " ←" if name == active_persona else ""
-                source = "custom" if name in custom_personas and name not in BUILTIN_PERSONAS else "built-in"
-                model_name = MODEL_SHORT_NAMES.get(get_persona_model(name), get_persona_model(name))
-                print(f"  {name} ({source}, {model_name}){marker}")
-            print(RESET)
-        elif arg.lower().startswith("model "):
-            # Set a persona's default model: /persona model <name> <model>
-            parts = arg[6:].strip().split()
-            model_map = {"opus": "claude-opus-4-6", "sonnet": "claude-sonnet-4-6", "haiku": "claude-haiku-4-5"}
-            if len(parts) != 2:
-                print(f"{DIM}Usage: /persona model <name> <opus|sonnet|haiku>{RESET}\n")
+        if command_lower.startswith("/remember "):
+            fact = command[10:].strip()
+            if fact:
+                memories.append(fact)
+                save_memories(memories)
+                print(f"{DIM}Remembered: {fact}{RESET}\n")
             else:
-                pname = parts[0].lower()
-                model_arg = parts[1].lower()
-                persona_exists = (pname in BUILTIN_PERSONAS or
-                    (pname in custom_personas and "description" in custom_personas[pname]))
-                if model_arg not in model_map:
-                    print(f"{DIM}Unknown model: {model_arg}. Use opus, sonnet, or haiku.{RESET}\n")
-                elif not persona_exists:
-                    print(f"{DIM}Unknown persona: {pname}{RESET}\n")
-                else:
-                    if pname not in custom_personas:
-                        custom_personas[pname] = {}
-                    custom_personas[pname]["model"] = model_map[model_arg]
-                    save_personas(custom_personas)
-                    if pname == active_persona:
-                        active_model = model_map[model_arg]
-                    print(f"{DIM}Set {pname}'s default model to {model_arg}.{RESET}\n")
-        elif arg.lower().startswith("custom "):
-            # Create/overwrite the "custom" persona
-            description = arg[7:].strip()
-            if not description:
-                print(f"{DIM}Usage: /persona custom <description>{RESET}\n")
+                print(f"{DIM}Usage: /remember <fact>{RESET}\n")
+            continue
+
+        if command_lower.startswith("/forget "):
+            fact = command[8:].strip()
+            if fact in memories:
+                memories.remove(fact)
+                save_memories(memories)
+                print(f"{DIM}Forgot: {fact}{RESET}\n")
             else:
-                # Preserve existing model preference if any
-                existing_model = custom_personas.get("custom", {}).get("model")
-                custom_personas["custom"] = {"description": description}
-                if existing_model:
-                    custom_personas["custom"]["model"] = existing_model
-                save_personas(custom_personas)
-                active_persona = "custom"
-                active_model = get_persona_model("custom")
-                model_name = MODEL_SHORT_NAMES.get(active_model, active_model)
-                print(f"{DIM}Custom persona set and activated (model: {model_name}).{RESET}\n")
-        else:
-            # Switch to a named persona
-            name = arg.lower()
-            persona_exists = (name in BUILTIN_PERSONAS or
-                (name in custom_personas and "description" in custom_personas[name]))
-            if persona_exists:
-                active_persona = name
-                active_model = get_persona_model(name)
-                model_name = MODEL_SHORT_NAMES.get(active_model, active_model)
-                print(f"{DIM}Switched to persona: {name} (model: {model_name}){RESET}\n")
+                print(f"{DIM}No matching memory found. Use /memories to see stored facts.{RESET}\n")
+            continue
+
+        if command_lower == "/memories":
+            if memories:
+                print(f"{DIM}Stored memories:")
+                for i, m in enumerate(memories, 1):
+                    print(f"  {i}. {m}")
+                print(RESET)
             else:
-                available = list(BUILTIN_PERSONAS.keys()) + [
+                print(f"{DIM}No memories stored. Use /remember <fact> to add one.{RESET}\n")
+            continue
+
+        if command_lower == "/persona" or command_lower.startswith("/persona "):
+            arg = command[8:].strip()  # everything after "/persona"
+            if not arg:
+                # List all personas, highlight active
+                print(f"{DIM}Available personas:")
+                all_personas = list(BUILTIN_PERSONAS.keys()) + [
                     k for k in custom_personas if k not in BUILTIN_PERSONAS
                     and "description" in custom_personas[k]
                 ]
-                print(f"{DIM}Unknown persona: {name}")
-                print(f"  Available: {', '.join(available)}{RESET}\n")
-        continue
+                for name in all_personas:
+                    marker = " ←" if name == active_persona else ""
+                    source = "custom" if name in custom_personas and name not in BUILTIN_PERSONAS else "built-in"
+                    model_name = MODEL_SHORT_NAMES.get(get_persona_model(name), get_persona_model(name))
+                    print(f"  {name} ({source}, {model_name}){marker}")
+                print(RESET)
+            elif arg.lower().startswith("model "):
+                # Set a persona's default model: /persona model <name> <model>
+                parts = arg[6:].strip().split()
+                model_map = {"opus": "claude-opus-4-6", "sonnet": "claude-sonnet-4-6", "haiku": "claude-haiku-4-5"}
+                if len(parts) != 2:
+                    print(f"{DIM}Usage: /persona model <name> <opus|sonnet|haiku>{RESET}\n")
+                else:
+                    pname = parts[0].lower()
+                    model_arg = parts[1].lower()
+                    persona_exists = (pname in BUILTIN_PERSONAS or
+                        (pname in custom_personas and "description" in custom_personas[pname]))
+                    if model_arg not in model_map:
+                        print(f"{DIM}Unknown model: {model_arg}. Use opus, sonnet, or haiku.{RESET}\n")
+                    elif not persona_exists:
+                        print(f"{DIM}Unknown persona: {pname}{RESET}\n")
+                    else:
+                        if pname not in custom_personas:
+                            custom_personas[pname] = {}
+                        custom_personas[pname]["model"] = model_map[model_arg]
+                        save_personas(custom_personas)
+                        if pname == active_persona:
+                            active_model = model_map[model_arg]
+                        print(f"{DIM}Set {pname}'s default model to {model_arg}.{RESET}\n")
+            elif arg.lower().startswith("custom "):
+                # Create/overwrite the "custom" persona
+                description = arg[7:].strip()
+                if not description:
+                    print(f"{DIM}Usage: /persona custom <description>{RESET}\n")
+                else:
+                    # Preserve existing model preference if any
+                    existing_model = custom_personas.get("custom", {}).get("model")
+                    custom_personas["custom"] = {"description": description}
+                    if existing_model:
+                        custom_personas["custom"]["model"] = existing_model
+                    save_personas(custom_personas)
+                    active_persona = "custom"
+                    active_model = get_persona_model("custom")
+                    model_name = MODEL_SHORT_NAMES.get(active_model, active_model)
+                    print(f"{DIM}Custom persona set and activated (model: {model_name}).{RESET}\n")
+            else:
+                # Switch to a named persona
+                name = arg.lower()
+                persona_exists = (name in BUILTIN_PERSONAS or
+                    (name in custom_personas and "description" in custom_personas[name]))
+                if persona_exists:
+                    active_persona = name
+                    active_model = get_persona_model(name)
+                    model_name = MODEL_SHORT_NAMES.get(active_model, active_model)
+                    print(f"{DIM}Switched to persona: {name} (model: {model_name}){RESET}\n")
+                else:
+                    available = list(BUILTIN_PERSONAS.keys()) + [
+                        k for k in custom_personas if k not in BUILTIN_PERSONAS
+                        and "description" in custom_personas[k]
+                    ]
+                    print(f"{DIM}Unknown persona: {name}")
+                    print(f"  Available: {', '.join(available)}{RESET}\n")
+            continue
 
-    if command_lower == "/conversations":
-        files = list_conversations()
-        if files:
+        if command_lower == "/conversations":
+            files = list_conversations()
+            if files:
+                print(f"{DIM}Previous conversations:")
+                print_conversations(files)
+                print(RESET)
+            else:
+                print(f"{DIM}No saved conversations yet.{RESET}\n")
+            continue
+
+        if command_lower == "/load":
+            files = list_conversations()
+            if not files:
+                print(f"{DIM}No saved conversations to load.{RESET}\n")
+                continue
             print(f"{DIM}Previous conversations:")
             print_conversations(files)
             print(RESET)
-        else:
-            print(f"{DIM}No saved conversations yet.{RESET}\n")
-        continue
-
-    if command_lower == "/load":
-        files = list_conversations()
-        if not files:
-            print(f"{DIM}No saved conversations to load.{RESET}\n")
+            try:
+                choice = input(f"{DIM}Load conversation #: {RESET}")
+            except (EOFError, KeyboardInterrupt):
+                print(f"\n{DIM}Cancelled.{RESET}\n")
+                continue
+            try:
+                idx = int(choice.strip()) - 1
+                if idx < 0 or idx >= len(files):
+                    raise ValueError
+            except ValueError:
+                print(f"{DIM}Invalid choice.{RESET}\n")
+                continue
+            filepath = os.path.join(CONVERSATIONS_DIR, files[idx])
+            load_conversation(filepath)
             continue
-        print(f"{DIM}Previous conversations:")
-        print_conversations(files)
-        print(RESET)
-        try:
-            choice = input(f"{DIM}Load conversation #: {RESET}")
-        except (EOFError, KeyboardInterrupt):
-            print(f"\n{DIM}Cancelled.{RESET}\n")
+
+        if command_lower == "/tokens":
+            tokens = estimate_conversation_tokens()
+            exchanges = group_into_exchanges(conversation_history)
+            pct = min(100, int(tokens / TOKEN_THRESHOLD * 100))
+            bar_len = 20
+            filled = int(bar_len * pct / 100)
+            bar = "█" * filled + "░" * (bar_len - filled)
+            print(f"{DIM}Conversation: ~{tokens:,} / {TOKEN_THRESHOLD:,} tokens ({pct}%)")
+            print(f"  [{bar}]")
+            print(f"  {len(exchanges)} exchanges, {len(conversation_history)} messages")
+            if tokens >= TOKEN_THRESHOLD:
+                print(f"  ⚠ Above threshold — will compress on next response")
+            print(RESET)
             continue
-        try:
-            idx = int(choice.strip()) - 1
-            if idx < 0 or idx >= len(files):
-                raise ValueError
-        except ValueError:
-            print(f"{DIM}Invalid choice.{RESET}\n")
+
+        if command_lower == "/run":
+            last = get_last_response()
+            if not last:
+                print(f"{DIM}No Claude response to extract code from.{RESET}\n")
+                continue
+            code = extract_python_block(last)
+            if not code:
+                print(f"{DIM}No code block found in last response.{RESET}\n")
+                continue
+            print(f"{CYAN}Running:{RESET}")
+            print(f"{CYAN}{code}{RESET}\n")
+            output, is_error = run_code_in_workspace(code)
+            if is_error:
+                print(f"{DIM}Error:{RESET}\n{output}\n")
+            else:
+                print(f"{output}\n")
             continue
-        filepath = os.path.join(CONVERSATIONS_DIR, files[idx])
-        load_conversation(filepath)
-        continue
 
-    if command_lower == "/tokens":
-        tokens = estimate_conversation_tokens()
-        exchanges = group_into_exchanges(conversation_history)
-        pct = min(100, int(tokens / TOKEN_THRESHOLD * 100))
-        bar_len = 20
-        filled = int(bar_len * pct / 100)
-        bar = "█" * filled + "░" * (bar_len - filled)
-        print(f"{DIM}Conversation: ~{tokens:,} / {TOKEN_THRESHOLD:,} tokens ({pct}%)")
-        print(f"  [{bar}]")
-        print(f"  {len(exchanges)} exchanges, {len(conversation_history)} messages")
-        if tokens >= TOKEN_THRESHOLD:
-            print(f"  ⚠ Above threshold — will compress on next response")
-        print(RESET)
-        continue
-
-    if command_lower == "/run":
-        last = get_last_response()
-        if not last:
-            print(f"{DIM}No Claude response to extract code from.{RESET}\n")
+        # Skip empty messages
+        if not command:
             continue
-        code = extract_python_block(last)
-        if not code:
-            print(f"{DIM}No code block found in last response.{RESET}\n")
-            continue
-        print(f"{CYAN}Running:{RESET}")
-        print(f"{CYAN}{code}{RESET}\n")
-        output, is_error = run_code_in_workspace(code)
-        if is_error:
-            print(f"{DIM}Error:{RESET}\n{output}\n")
-        else:
-            print(f"{output}\n")
-        continue
 
-    # Skip empty messages
-    if not command:
-        continue
+        # Add the user's message to the conversation history
+        conversation_history.append({"role": "user", "content": user_input})
 
-    # Add the user's message to the conversation history
-    conversation_history.append({"role": "user", "content": user_input})
-
-    # Send the conversation to Claude with tool use support
-    chat_turn()
-    compress_conversation()
+        # Send the conversation to Claude with tool use support
+        chat_turn()
+        compress_conversation()
