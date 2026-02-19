@@ -62,6 +62,53 @@ PRICING = {
 # Reverse lookup: model ID -> short name
 MODEL_SHORT_NAMES = {v: k.lstrip("/") for k, v in MODELS.items()}
 
+# Director model for routing decisions (always Sonnet, regardless of active model)
+DIRECTOR_MODEL = "claude-sonnet-4-6"
+
+# Specialist agents — add new specialists by adding entries here
+SPECIALISTS = {
+    "researcher": {
+        "model": "claude-haiku-4-5",
+        "label": "haiku",
+        "description": "Web research and summarization",
+        "system_prompt": (
+            "You are a research specialist. Focus on finding accurate information, "
+            "synthesizing sources, and providing clear, well-organized summaries. "
+            "Be thorough but concise. Cite sources when possible."
+        ),
+    },
+    "writer": {
+        "model": "claude-opus-4-6",
+        "label": "opus",
+        "description": "Creative writing, cover letters, polished prose",
+        "system_prompt": (
+            "You are a writing specialist. Focus on producing polished, compelling prose. "
+            "Pay attention to tone, style, flow, and persuasiveness. Adapt your voice to "
+            "the task at hand. Prioritize clarity and impact."
+        ),
+    },
+    "coder": {
+        "model": "claude-sonnet-4-6",
+        "label": "sonnet",
+        "description": "Code generation and debugging",
+        "system_prompt": (
+            "You are a coding specialist. Focus on writing clean, correct, well-structured "
+            "code. Provide clear explanations of your approach. Debug methodically. "
+            "Follow best practices for the language in use."
+        ),
+    },
+    "analyst": {
+        "model": "claude-sonnet-4-6",
+        "label": "sonnet",
+        "description": "Problem analysis, finding flaws, critical thinking",
+        "system_prompt": (
+            "You are an analysis specialist. Break down problems systematically. "
+            "Identify assumptions, find flaws in reasoning, and evaluate trade-offs. "
+            "Be rigorous and precise. Present your analysis in a structured way."
+        ),
+    },
+}
+
 # Context window compression threshold (estimated tokens)
 TOKEN_THRESHOLD = 20_000
 
@@ -371,7 +418,15 @@ def build_system_prompt(memories):
         "code. Don't ask permission—just use the tools."
     )
 
-    base = personality + "\n\n" + tools_paragraph
+    specialist_paragraph = (
+        "You also have specialist agents that handle tasks on your behalf. "
+        "When a specialist has been consulted, their output will appear in the "
+        "conversation as [Specialist result from <name>]. Synthesize their output "
+        "into a coherent response for the user — you may present it as-is if it's "
+        "already well-formatted, or add context, framing, and polish as needed."
+    )
+
+    base = personality + "\n\n" + tools_paragraph + "\n\n" + specialist_paragraph
     if memories:
         memory_block = "\n".join(f"- {m}" for m in memories)
         base += f"\n\nThings the user has asked you to remember:\n{memory_block}"
@@ -731,6 +786,97 @@ def print_tool_status(name, tool_input):
     }
     label = labels.get(name, f"Using tool: {name}")
     print(f"\n{DIM}⟡ {label}{RESET}")
+
+def route_message(user_message):
+    """Use Sonnet to decide if a message should be delegated to a specialist.
+
+    Returns a dict: {"action": "direct"} or {"action": "delegate", "specialist": "<name>", "task": "<description>"}.
+    Always uses DIRECTOR_MODEL regardless of active_model.
+    """
+    global session_input_tokens, session_output_tokens, session_cost
+
+    specialist_list = "\n".join(
+        f"- {name}: {spec['description']}" for name, spec in SPECIALISTS.items()
+    )
+
+    routing_prompt = (
+        "You are a routing agent. Given the user's message, decide whether to handle it "
+        "directly or delegate to a specialist.\n\n"
+        f"Available specialists:\n{specialist_list}\n\n"
+        "Respond with ONLY valid JSON (no markdown, no explanation):\n"
+        '- To handle directly: {"action": "direct"}\n'
+        '- To delegate: {"action": "delegate", "specialist": "<name>", "task": "<specific task description>"}\n\n'
+        "Only delegate when the task clearly and substantially matches a specialist's focus. "
+        "For general conversation, simple questions, greetings, and short tasks, use direct. "
+        "Delegate when the user is asking for significant creative writing, in-depth research, "
+        "substantial code generation, or rigorous analysis."
+    )
+
+    response = client.messages.create(
+        model=DIRECTOR_MODEL,
+        max_tokens=200,
+        system=routing_prompt,
+        messages=[{"role": "user", "content": user_message}],
+    )
+
+    # Track routing cost
+    r_in = response.usage.input_tokens
+    r_out = response.usage.output_tokens
+    prices = PRICING.get(DIRECTOR_MODEL, {"input": 3.00, "output": 15.00})
+    r_cost = (r_in * prices["input"] + r_out * prices["output"]) / 1_000_000
+    session_input_tokens += r_in
+    session_output_tokens += r_out
+    session_cost += r_cost
+
+    text = response.content[0].text.strip()
+    # Strip markdown fences if the model wraps in ```json
+    if text.startswith("```"):
+        text = re.sub(r"^```\w*\n?", "", text)
+        text = re.sub(r"\n?```$", "", text)
+        text = text.strip()
+    try:
+        result = json.loads(text)
+        if result.get("action") == "delegate" and result.get("specialist") in SPECIALISTS:
+            return result
+    except (json.JSONDecodeError, AttributeError):
+        pass
+    return {"action": "direct"}
+
+
+def delegate_to_specialist(specialist_name, task):
+    """Delegate a task to a specialist agent and return the result text.
+
+    Makes a focused API call with the specialist's model and system prompt.
+    Tracks tokens and cost in the session totals.
+    """
+    global session_input_tokens, session_output_tokens, session_cost
+
+    spec = SPECIALISTS[specialist_name]
+    model = spec["model"]
+    label = spec["label"]
+
+    print(f"\n{DIM}◇ Delegating to {specialist_name} ({label})...{RESET}")
+
+    response = client.messages.create(
+        model=model,
+        max_tokens=4096,
+        system=spec["system_prompt"],
+        messages=[{"role": "user", "content": task}],
+    )
+
+    # Track specialist cost
+    s_in = response.usage.input_tokens
+    s_out = response.usage.output_tokens
+    prices = PRICING.get(model, {"input": 3.00, "output": 15.00})
+    s_cost = (s_in * prices["input"] + s_out * prices["output"]) / 1_000_000
+    session_input_tokens += s_in
+    session_output_tokens += s_out
+    session_cost += s_cost
+
+    print(f"{DIM}  ↳ {specialist_name} finished [{s_in} in / {s_out} out — ${s_cost:.4f}]{RESET}")
+
+    return response.content[0].text
+
 
 def chat_turn():
     """Run a chat turn with tool use support. Streams response, handles tool calls in a loop."""
@@ -1243,6 +1389,7 @@ if __name__ == "__main__":
       /jobs apply <#>    Open listing + generate cover letter to jobs/<slug>/
       /jobs track <#> <status>  Set status (applied, interviewing, rejected, offer)
       /jobs status       Show tracked jobs grouped by status
+      /delegates         Show specialist agents and their models
       /billing           Show billing link for API credits
       /load              Load a previous conversation into context
       /conversations     List previous conversations
@@ -1558,6 +1705,14 @@ if __name__ == "__main__":
             print(f"  \033[4mhttps://platform.claude.com/settings/billing\033[0m\n")
             continue
 
+        if command_lower == "/delegates":
+            print(f"\n{CYAN}Specialist agents:{RESET}")
+            for name, spec in SPECIALISTS.items():
+                print(f"  {CYAN}{name:<12}{RESET} {spec['description']}")
+                print(f"  {DIM}{'':12} model: {spec['model']} ({spec['label']}){RESET}")
+            print(f"\n{DIM}The director (Sonnet) routes tasks to specialists automatically.{RESET}\n")
+            continue
+
         if command_lower == "/jobs" or command_lower.startswith("/jobs "):
             arg = command[5:].strip() if len(command) > 5 else ""
             arg_lower = arg.lower()
@@ -1840,6 +1995,23 @@ if __name__ == "__main__":
 
         # Add the user's message to the conversation history
         conversation_history.append({"role": "user", "content": user_input})
+
+        # Route: let the director decide if a specialist should handle this
+        routing = route_message(user_input)
+        if routing.get("action") == "delegate":
+            specialist_name = routing["specialist"]
+            task = routing.get("task", user_input)
+            specialist_result = delegate_to_specialist(specialist_name, task)
+
+            # Augment the user message so the director can synthesize the specialist's output
+            conversation_history[-1]["content"] = (
+                f"{user_input}\n\n"
+                f"[Specialist result from {specialist_name}:]\n\n"
+                f"{specialist_result}\n\n"
+                f"[Synthesize this specialist output into your response. "
+                f"Present it naturally — add context or framing as needed, "
+                f"or present it as-is if it's already well-formatted.]"
+            )
 
         # Send the conversation to Claude with tool use support
         chat_turn()
