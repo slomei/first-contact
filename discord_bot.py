@@ -9,6 +9,9 @@ Imports core logic from chat.py — run with:
 import asyncio
 import json
 import os
+import re
+import shutil
+from datetime import datetime
 
 import discord
 
@@ -31,6 +34,8 @@ class ChannelState:
         self.conversation_history = []
         self.active_model = "claude-sonnet-4-6"
         self.active_persona = "default"
+        self.active_project = "general"
+        self.last_job_results = []
         self.input_tokens = 0
         self.output_tokens = 0
         self.cost = 0.0
@@ -45,6 +50,13 @@ def get_state(channel_id):
     if channel_id not in channel_states:
         channel_states[channel_id] = ChannelState()
     return channel_states[channel_id]
+
+
+def sync_state(state):
+    """Sync chat.py globals with this channel's state before operations."""
+    chat.active_project = state.active_project
+    chat.active_persona = state.active_persona
+    chat.memories = chat.load_memories()
 
 
 def execute_tool_discord(name, tool_input):
@@ -65,6 +77,7 @@ def tool_status_text(name, tool_input):
         "forget": f'Forgetting: "{tool_input.get("fact", "")}"',
         "list_memories": "Listing memories",
         "run_python": "Running Python code",
+        "job_search": f'Searching jobs: "{tool_input.get("query", "")}"',
     }
     return labels.get(name, f"Using tool: {name}")
 
@@ -108,7 +121,7 @@ async def get_response(state, channel):
 
     Returns the final text response with cost footer appended.
     """
-    chat.active_persona = state.active_persona
+    sync_state(state)
 
     total_input = 0
     total_output = 0
@@ -208,6 +221,25 @@ def build_help_text():
         "`!persona` — List available personas\n"
         "`!persona <name>` — Switch persona\n"
         "`!memories` — List stored memories\n"
+        "`!remember <fact>` — Save a fact to memory\n"
+        "`!forget <fact>` — Remove a fact from memory\n"
+        "`!project` — List projects\n"
+        "`!project <name>` — Switch project (creates if needed)\n"
+        "`!watch <topic>` — Add a topic to the watchlist\n"
+        "`!watch list` — Show watched topics\n"
+        "`!watch remove <topic>` — Remove a watched topic\n"
+        "`!digest` — Generate a digest from watched topics\n"
+        "`!jobs search <query>` — Search job listings\n"
+        "`!jobs save` — Save last search results\n"
+        "`!jobs list` — Show saved listings\n"
+        "`!jobs remove <#>` — Remove a saved listing\n"
+        "`!jobs apply <#>` — Generate cover letter\n"
+        "`!jobs track <#> <status>` — Set job status\n"
+        "`!jobs status` — Show tracked jobs by status\n"
+        "`!delegates` — Show specialist agents\n"
+        "`!billing` — Show billing link\n"
+        "`!conversations` — List saved conversations\n"
+        "`!load <#>` — Load a previous conversation\n"
         "`!tokens` — Show conversation size\n"
         "`!web <query>` — Search web + get Claude's take\n"
         "`!new` — Reset conversation history\n\n"
@@ -236,12 +268,13 @@ def build_persona_list(state):
     return "\n".join(lines)
 
 
-def build_memories_text():
+def build_memories_text(state):
     """Build formatted memories list."""
+    sync_state(state)
     mems = chat.load_memories()
     if not mems:
-        return "No memories stored."
-    lines = ["**Stored memories:**"]
+        return f"No memories stored ({state.active_project})."
+    lines = [f"**Stored memories ({state.active_project}):**"]
     for i, m in enumerate(mems, 1):
         lines.append(f"{i}. {m}")
     return "\n".join(lines)
@@ -272,6 +305,144 @@ def build_tokens_text(state):
     if total >= chat.TOKEN_THRESHOLD:
         lines.append("Warning: Above threshold — will compress on next response")
     return "\n".join(lines)
+
+
+def build_project_list(state):
+    """Build a formatted project list with active marker."""
+    sync_state(state)
+    projects = chat.list_projects()
+    lines = ["**Projects:**"]
+    for p in projects:
+        marker = " **<<**" if p == state.active_project else ""
+        lines.append(f"`{p}`{marker}")
+    return "\n".join(lines)
+
+
+def build_conversations_list(state):
+    """Build a numbered conversation list."""
+    sync_state(state)
+    files = chat.list_conversations()
+    if not files:
+        return f"No saved conversations ({state.active_project})."
+    lines = [f"**Previous conversations ({state.active_project}):**"]
+    for i, filename in enumerate(files, 1):
+        name = filename.removesuffix(".txt")
+        parts = name.split("_", 1)
+        if len(parts) == 2:
+            date_part, title_slug = parts
+            title = title_slug.replace("-", " ").title()
+            lines.append(f"{i}. {date_part}  {title}")
+        else:
+            lines.append(f"{i}. {name}")
+    return "\n".join(lines)
+
+
+def build_delegates_text():
+    """Build specialist agents display."""
+    lines = ["**Specialist agents:**"]
+    for name, spec in chat.SPECIALISTS.items():
+        lines.append(f"`{name}` — {spec['description']} ({spec['label']})")
+    lines.append("\n*The director (Sonnet) routes tasks to specialists automatically.*")
+    return "\n".join(lines)
+
+
+def build_watchlist_text(state):
+    """Build watched topics list."""
+    sync_state(state)
+    topics = chat.load_watchlist()
+    if not topics:
+        return f"No watched topics ({state.active_project}). Use `!watch <topic>` to add one."
+    lines = [f"**Watched topics ({state.active_project}):**"]
+    for i, t in enumerate(topics, 1):
+        lines.append(f"{i}. {t}")
+    return "\n".join(lines)
+
+
+async def run_digest_discord(state, channel):
+    """Run watchlist digest for Discord (sends progress messages)."""
+    sync_state(state)
+    topics = chat.load_watchlist()
+    if not topics:
+        return "No topics in watchlist. Use `!watch <topic>` to add one."
+
+    await channel.send(f"*Generating digest for {len(topics)} topic(s)...*")
+
+    all_results = []
+    for topic in topics:
+        await channel.send(f"*Searching: {topic}...*")
+        try:
+            results = await asyncio.to_thread(chat.web_search, topic, 3)
+            if results:
+                all_results.append(f"## {topic}\n{results}")
+            else:
+                all_results.append(f"## {topic}\nNo results found.")
+        except Exception as e:
+            all_results.append(f"## {topic}\nSearch failed: {e}")
+
+    combined = "\n\n".join(all_results)
+
+    await channel.send("*Summarizing findings...*")
+    try:
+        response = await asyncio.to_thread(
+            chat.client.messages.create,
+            model="claude-haiku-4-5",
+            max_tokens=1500,
+            messages=[{"role": "user", "content":
+                "You are a research digest writer. Summarize the following web search results "
+                "into a clear, organized digest. Group by topic, highlight key developments, "
+                "and note anything particularly notable. Be concise but thorough.\n\n" + combined}],
+        )
+        digest = response.content[0].text
+    except Exception as e:
+        digest = f"Summarization failed: {e}\n\n{combined}"
+
+    # Save to workspace
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    filename = f"digest-{date_str}.md"
+    workspace = chat.get_workspace_dir()
+    filepath = os.path.join(workspace, filename)
+
+    header = f"# Digest — {date_str}\n\nTopics: {', '.join(topics)}\n\n---\n\n"
+    with open(filepath, "w") as f:
+        f.write(header + digest + "\n")
+
+    return f"{digest}\n\n*Saved to {state.active_project}/workspace/{filename}*"
+
+
+async def load_conversation_discord(state, filepath, channel):
+    """Load a conversation file, summarize it, and inject into channel state."""
+    sync_state(state)
+
+    with open(filepath, "r") as f:
+        raw = f.read()
+
+    if not raw.strip():
+        return "*Conversation file is empty.*"
+
+    if len(raw) > 30_000:
+        raw = raw[:30_000] + "\n...[truncated]"
+
+    await channel.send("*Summarizing previous conversation...*")
+    try:
+        summary_response = await asyncio.to_thread(
+            chat.client.messages.create,
+            model="claude-haiku-4-5",
+            max_tokens=500,
+            messages=[{"role": "user", "content":
+                "Summarize this conversation into a concise recap (3-5 sentences). "
+                "Capture the key topics discussed, any decisions made, and important "
+                "context that would help continue the conversation:\n\n" + raw}],
+        )
+        summary = summary_response.content[0].text
+    except Exception as e:
+        return f"*Failed to summarize conversation: {e}*"
+
+    state.conversation_history.append({"role": "user",
+        "content": f"[Loaded previous conversation summary]\n{summary}"})
+    state.conversation_history.append({"role": "assistant",
+        "content": "Got it — I have context from our previous conversation. What would you like to pick up on?"})
+
+    return f"*Loaded conversation summary:*\n{summary}"
 
 
 # Set up Discord bot
@@ -361,7 +532,7 @@ async def on_message(message):
         return
 
     if command_lower == "!memories":
-        await message.channel.send(build_memories_text())
+        await message.channel.send(build_memories_text(state))
         return
 
     if command_lower == "!tokens":
@@ -397,6 +568,356 @@ async def on_message(message):
 
         for chunk in split_message(reply):
             await message.channel.send(chunk)
+        return
+
+    # --- Project management ---
+    if command_lower == "!project" or command_lower.startswith("!project "):
+        arg = content[8:].strip() if len(content) > 8 else ""
+        if not arg or arg.lower() == "list":
+            await message.channel.send(build_project_list(state))
+        else:
+            name = re.sub(r'[^\w-]', '-', arg.lower()).strip('-')
+            if not name:
+                await message.channel.send("*Invalid project name.*")
+            else:
+                state.active_project = name
+                sync_state(state)
+                chat.switch_project(name)
+                mems = chat.load_memories()
+                mem_note = f"\nLoaded {len(mems)} memor{'y' if len(mems) == 1 else 'ies'}." if mems else ""
+                await message.channel.send(f"*Switched to project: {name}*{mem_note}")
+        return
+
+    # --- Remember / Forget ---
+    if command_lower.startswith("!remember "):
+        fact = content[10:].strip()
+        if not fact:
+            await message.channel.send("*Usage: `!remember <fact>`*")
+            return
+        sync_state(state)
+        chat.memories.append(fact)
+        chat.save_memories(chat.memories)
+        await message.channel.send(f"*Remembered: {fact}*")
+        return
+
+    if command_lower.startswith("!forget "):
+        fact = content[8:].strip()
+        sync_state(state)
+        if fact in chat.memories:
+            chat.memories.remove(fact)
+            chat.save_memories(chat.memories)
+            await message.channel.send(f"*Forgot: {fact}*")
+        else:
+            await message.channel.send("*No matching memory found. Use `!memories` to see stored facts.*")
+        return
+
+    # --- Watchlist ---
+    if command_lower == "!watch" or command_lower.startswith("!watch "):
+        arg = content[6:].strip() if len(content) > 6 else ""
+        if not arg or arg.lower() == "list":
+            await message.channel.send(build_watchlist_text(state))
+        elif arg.lower().startswith("remove "):
+            topic = arg[7:].strip()
+            sync_state(state)
+            topics = chat.load_watchlist()
+            if topic in topics:
+                topics.remove(topic)
+                chat.save_watchlist(topics)
+                await message.channel.send(f"*Removed: {topic}*")
+            else:
+                await message.channel.send(f"*Not found: {topic}. Use `!watch list` to see topics.*")
+        else:
+            topic = arg.strip()
+            sync_state(state)
+            topics = chat.load_watchlist()
+            if topic in topics:
+                await message.channel.send(f"*Already watching: {topic}*")
+            else:
+                topics.append(topic)
+                chat.save_watchlist(topics)
+                await message.channel.send(f"*Now watching: {topic}*")
+        return
+
+    # --- Digest ---
+    if command_lower == "!digest":
+        async with message.channel.typing():
+            result = await run_digest_discord(state, message.channel)
+        for chunk in split_message(result):
+            await message.channel.send(chunk)
+        return
+
+    # --- Billing ---
+    if command_lower == "!billing":
+        await message.channel.send(
+            "**Check your balance and add credits:**\n"
+            "https://platform.claude.com/settings/billing"
+        )
+        return
+
+    # --- Delegates ---
+    if command_lower == "!delegates":
+        await message.channel.send(build_delegates_text())
+        return
+
+    # --- Conversations ---
+    if command_lower == "!conversations":
+        await message.channel.send(build_conversations_list(state))
+        return
+
+    # --- Load conversation ---
+    if command_lower.startswith("!load "):
+        num_str = content[6:].strip()
+        try:
+            idx = int(num_str) - 1
+        except ValueError:
+            await message.channel.send("*Usage: `!load <#>` — use `!conversations` to see the list.*")
+            return
+        sync_state(state)
+        files = chat.list_conversations()
+        if not files:
+            await message.channel.send(f"*No saved conversations ({state.active_project}).*")
+            return
+        if idx < 0 or idx >= len(files):
+            await message.channel.send(f"*Invalid number. Use `!conversations` to see the list (1-{len(files)}).*")
+            return
+        filepath = os.path.join(chat.get_conversations_dir(), files[idx])
+        async with message.channel.typing():
+            result = await load_conversation_discord(state, filepath, message.channel)
+        for chunk in split_message(result):
+            await message.channel.send(chunk)
+        return
+
+    if command_lower == "!load":
+        await message.channel.send("*Usage: `!load <#>` — use `!conversations` to see the list.*")
+        return
+
+    # --- Jobs ---
+    if command_lower == "!jobs" or command_lower.startswith("!jobs "):
+        arg = content[5:].strip() if len(content) > 5 else ""
+        arg_lower = arg.lower()
+
+        if not arg:
+            await message.channel.send(
+                "**Usage:**\n"
+                "`!jobs search <query>` — Search job listings\n"
+                "`!jobs save` — Save last search results\n"
+                "`!jobs list` — Show saved listings\n"
+                "`!jobs remove <#>` — Remove a saved listing\n"
+                "`!jobs apply <#>` — Generate cover letter\n"
+                "`!jobs track <#> <status>` — Set job status\n"
+                "`!jobs status` — Show tracked jobs by status"
+            )
+            return
+
+        if arg_lower.startswith("search "):
+            query = arg[7:].strip()
+            if not query:
+                await message.channel.send("*Usage: `!jobs search <query>`*")
+                return
+            async with message.channel.typing():
+                await message.channel.send(f"*Searching jobs: {query}...*")
+                try:
+                    results = await asyncio.to_thread(chat.search_jobs, query)
+                    state.last_job_results = list(results)
+                except Exception as e:
+                    await message.channel.send(f"*Search failed: {e}*")
+                    return
+                if not results:
+                    await message.channel.send("*No results found.*")
+                    return
+                lines = []
+                for i, r in enumerate(results, 1):
+                    lines.append(f"**{i}. {r['title']}**\n{r['url']}\n{r['body'][:200]}")
+                reply = "\n\n".join(lines)
+                reply += f"\n\n*Found {len(results)} result(s). Use `!jobs save` to save these.*"
+            for chunk in split_message(reply):
+                await message.channel.send(chunk)
+
+        elif arg_lower == "save":
+            if not state.last_job_results:
+                await message.channel.send("*No search results to save. Run `!jobs search <query>` first.*")
+                return
+            jobs = chat.load_jobs()
+            existing_urls = {j["url"] for j in jobs}
+            added = 0
+            for r in state.last_job_results:
+                if r["url"] not in existing_urls:
+                    job_entry = {
+                        "title": r["title"],
+                        "url": r["url"],
+                        "body": r["body"],
+                        "saved_at": datetime.now().strftime("%Y-%m-%d"),
+                        "status": None,
+                        "folder": None,
+                    }
+                    chat.init_job_folder(job_entry)
+                    jobs.append(job_entry)
+                    added += 1
+            chat.save_jobs(jobs)
+            msg = f"*Saved {added} new listing(s) to job-search project ({len(jobs)} total).*"
+            if added:
+                msg += "\n*Job folders: job-search/workspace/jobs/*"
+            await message.channel.send(msg)
+
+        elif arg_lower == "list":
+            jobs = chat.load_jobs()
+            if not jobs:
+                await message.channel.send("*No saved jobs. Use `!jobs search <query>` then `!jobs save`.*")
+                return
+            lines = [f"**Saved job listings ({len(jobs)}):**"]
+            for i, j in enumerate(jobs, 1):
+                status_tag = f" [{j['status']}]" if j.get("status") else ""
+                has_letter = ""
+                if j.get("folder"):
+                    cl_path = os.path.join(chat.PROJECTS_DIR, chat.JOB_SEARCH_PROJECT,
+                                           "workspace", "jobs", j["folder"], "cover-letter.md")
+                    if os.path.exists(cl_path):
+                        has_letter = " [cover letter]"
+                folder_tag = f"  ->  jobs/{j['folder']}/" if j.get("folder") else ""
+                lines.append(
+                    f"**{i}. {j['title']}**{status_tag}{has_letter}\n"
+                    f"{j['url']}\n"
+                    f"Saved: {j['saved_at']}{folder_tag}"
+                )
+            reply = "\n\n".join(lines)
+            for chunk in split_message(reply):
+                await message.channel.send(chunk)
+
+        elif arg_lower.startswith("remove "):
+            num_str = arg[7:].strip()
+            try:
+                idx = int(num_str) - 1
+                jobs = chat.load_jobs()
+                if idx < 0 or idx >= len(jobs):
+                    raise ValueError
+                removed = jobs.pop(idx)
+                if removed.get("folder"):
+                    folder_path = os.path.join(chat.PROJECTS_DIR, chat.JOB_SEARCH_PROJECT,
+                                               "workspace", "jobs", removed["folder"])
+                    if os.path.exists(folder_path):
+                        shutil.rmtree(folder_path)
+                chat.save_jobs(jobs)
+                await message.channel.send(f"*Removed: {removed['title']}*")
+            except ValueError:
+                await message.channel.send("*Invalid number. Use `!jobs list` to see listings.*")
+
+        elif arg_lower.startswith("apply "):
+            num_str = arg[6:].strip()
+            try:
+                idx = int(num_str) - 1
+                jobs = chat.load_jobs()
+                if idx < 0 or idx >= len(jobs):
+                    raise ValueError
+            except ValueError:
+                await message.channel.send("*Invalid number. Use `!jobs list` to see listings.*")
+                return
+            job = jobs[idx]
+
+            async with message.channel.typing():
+                await message.channel.send(
+                    f"**{job['title']}**\n{job['url']}\n\n*Generating cover letter (Opus)...*"
+                )
+                # Gather memories from current project + general + job-search
+                sync_state(state)
+                all_memories = list(chat.memories)
+                if state.active_project != "general":
+                    general_mem = os.path.join(chat.PROJECTS_DIR, "general", "memory.json")
+                    if os.path.exists(general_mem):
+                        with open(general_mem, "r") as f:
+                            all_memories.extend(json.load(f))
+                js_mem = os.path.join(chat.PROJECTS_DIR, chat.JOB_SEARCH_PROJECT, "memory.json")
+                if js_mem != chat.get_memory_file() and os.path.exists(js_mem):
+                    with open(js_mem, "r") as f:
+                        all_memories.extend(json.load(f))
+                all_memories = list(dict.fromkeys(all_memories))
+
+                try:
+                    letter, cost = await asyncio.to_thread(
+                        chat.generate_cover_letter, job, all_memories
+                    )
+
+                    # Save cover letter to job folder
+                    folder = chat.get_job_folder(job)
+                    cl_path = os.path.join(folder, "cover-letter.md")
+                    with open(cl_path, "w") as f:
+                        f.write(f"# Cover Letter — {job['title']}\n\n")
+                        f.write(f"**Position:** {job['title']}\n")
+                        f.write(f"**URL:** {job['url']}\n")
+                        f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n---\n\n")
+                        f.write(letter + "\n")
+
+                    # Update listing.json
+                    listing_path = os.path.join(folder, "listing.json")
+                    with open(listing_path, "w") as f:
+                        json.dump({
+                            "title": job["title"],
+                            "url": job["url"],
+                            "description": job["body"],
+                            "saved_at": job.get("saved_at"),
+                            "status": job.get("status"),
+                            "cover_letter_generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        }, f, indent=2)
+
+                    chat.save_jobs(jobs)
+
+                    reply = (
+                        f"**Cover Letter — {job['title']}**\n\n"
+                        f"{letter}\n\n"
+                        f"*Saved to: jobs/{job['folder']}/cover-letter.md [${cost:.4f}]*"
+                    )
+                except Exception as e:
+                    reply = f"*Failed to generate cover letter: {e}*"
+
+            for chunk in split_message(reply):
+                await message.channel.send(chunk)
+
+        elif arg_lower.startswith("track "):
+            parts = arg[6:].strip().split(None, 1)
+            if len(parts) != 2:
+                await message.channel.send(
+                    "*Usage: `!jobs track <#> <status>`*\n"
+                    "*Statuses: applied, interviewing, rejected, offer*"
+                )
+                return
+            num_str, status = parts
+            try:
+                idx = int(num_str) - 1
+                jobs = chat.load_jobs()
+                if idx < 0 or idx >= len(jobs):
+                    raise ValueError
+            except ValueError:
+                await message.channel.send("*Invalid number. Use `!jobs list` to see listings.*")
+                return
+            jobs[idx]["status"] = status.lower()
+            chat.save_jobs(jobs)
+            await message.channel.send(f"*Updated: {jobs[idx]['title']} -> {status.lower()}*")
+
+        elif arg_lower == "status":
+            jobs = chat.load_jobs()
+            tracked = [j for j in jobs if j.get("status")]
+            if not tracked:
+                await message.channel.send("*No tracked jobs. Use `!jobs track <#> <status>` to set a status.*")
+                return
+            groups = {}
+            for j in tracked:
+                s = j["status"]
+                if s not in groups:
+                    groups[s] = []
+                groups[s].append(j)
+            lines = ["**Tracked jobs:**"]
+            for status in sorted(groups.keys()):
+                lines.append(f"\n**{status.upper()}**")
+                for j in groups[status]:
+                    lines.append(f"  {j['title']}\n  {j['url']}")
+            reply = "\n".join(lines)
+            for chunk in split_message(reply):
+                await message.channel.send(chunk)
+
+        else:
+            await message.channel.send(
+                f"*Unknown subcommand: {arg}*\n"
+                "*Use: search, save, list, remove, apply, track, status*"
+            )
         return
 
     # --- Regular message (not a command) ---
