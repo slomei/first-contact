@@ -12,6 +12,7 @@ Usage:
 import anthropic
 import json
 import os
+import re
 import subprocess
 import tempfile
 from datetime import datetime
@@ -44,6 +45,9 @@ active_model = "claude-sonnet-4-6"
 
 # Active persona (default: default)
 active_persona = "default"
+
+# Active project (default: general)
+active_project = "general"
 
 # Pricing per million tokens (USD)
 PRICING = {
@@ -103,7 +107,7 @@ TOOLS = [
     {
         "name": "write_file",
         "description": (
-            "Write content to a file in the workspace/ directory. Use this when "
+            "Write content to a file in the project's workspace/ directory. Use this when "
             "the user asks you to create, save, or write a file."
         ),
         "input_schema": {
@@ -171,7 +175,7 @@ TOOLS = [
     {
         "name": "run_python",
         "description": (
-            "Run Python code in the workspace/ directory. Use this when the user "
+            "Run Python code in the project's workspace/ directory. Use this when the user "
             "asks you to execute, run, or test code. The code runs in a sandboxed "
             "environment with a 30-second timeout."
         ),
@@ -196,14 +200,41 @@ session_cost = 0.0
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-CONVERSATIONS_DIR = os.path.join(BASE_DIR, "conversations")
-os.makedirs(CONVERSATIONS_DIR, exist_ok=True)
+PROJECTS_DIR = os.path.join(BASE_DIR, "projects")
 
-WORKSPACE_DIR = os.path.join(BASE_DIR, "workspace")
-os.makedirs(WORKSPACE_DIR, exist_ok=True)
-
-MEMORY_FILE = os.path.join(BASE_DIR, "memory.json")
 PERSONAS_FILE = os.path.join(BASE_DIR, "personas.json")
+
+
+def get_project_dir():
+    """Return the directory for the active project, creating it if needed."""
+    d = os.path.join(PROJECTS_DIR, active_project)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def get_conversations_dir():
+    """Return the conversations directory for the active project."""
+    d = os.path.join(get_project_dir(), "conversations")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def get_workspace_dir():
+    """Return the workspace directory for the active project."""
+    d = os.path.join(get_project_dir(), "workspace")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def get_memory_file():
+    """Return the memory file path for the active project."""
+    return os.path.join(get_project_dir(), "memory.json")
+
+
+def get_watchlist_file():
+    """Return the watchlist file path for the active project."""
+    return os.path.join(get_project_dir(), "watchlist.json")
+
 
 BUILTIN_PERSONAS = {
     "default": (
@@ -280,15 +311,17 @@ def get_persona_model(name):
 
 
 def load_memories():
-    """Load memories from the JSON file."""
-    if os.path.exists(MEMORY_FILE):
-        with open(MEMORY_FILE, "r") as f:
+    """Load memories from the active project's memory file."""
+    path = get_memory_file()
+    if os.path.exists(path):
+        with open(path, "r") as f:
             return json.load(f)
     return []
 
 def save_memories(memories):
-    """Save memories to the JSON file."""
-    with open(MEMORY_FILE, "w") as f:
+    """Save memories to the active project's memory file."""
+    path = get_memory_file()
+    with open(path, "w") as f:
         json.dump(memories, f, indent=2)
 
 def build_system_prompt(memories):
@@ -334,7 +367,6 @@ def get_last_response():
 
 def extract_code_block(text):
     """Extract the first fenced code block from text, or return the full text."""
-    import re
     match = re.search(r"```(?:\w*\n)?(.*?)```", text, re.DOTALL)
     if match:
         return match.group(1).strip()
@@ -343,7 +375,6 @@ def extract_code_block(text):
 def extract_python_block(text):
     """Extract a Python code block from text. Prefers ```python blocks, falls back to any fenced block.
     Returns None if no code block found."""
-    import re
     # Try ```python first
     match = re.search(r"```python\n(.*?)```", text, re.DOTALL)
     if match:
@@ -355,15 +386,16 @@ def extract_python_block(text):
     return None
 
 def run_code_in_workspace(code):
-    """Run Python code in a temp file inside workspace/. Returns (output, is_error)."""
+    """Run Python code in a temp file inside the project's workspace/."""
+    workspace = get_workspace_dir()
     tmp_path = None
     try:
-        fd, tmp_path = tempfile.mkstemp(suffix=".py", dir=WORKSPACE_DIR)
+        fd, tmp_path = tempfile.mkstemp(suffix=".py", dir=workspace)
         with os.fdopen(fd, "w") as f:
             f.write(code)
         result = subprocess.run(
             ["python3", tmp_path],
-            capture_output=True, text=True, timeout=30, cwd=WORKSPACE_DIR,
+            capture_output=True, text=True, timeout=30, cwd=workspace,
         )
         output = result.stdout
         if result.stderr:
@@ -599,13 +631,14 @@ def execute_tool(name, tool_input):
         content = tool_input["content"]
         if ".." in filename or filename.startswith("/"):
             return "Filename must be relative and stay inside workspace/", True
-        filepath = os.path.join(WORKSPACE_DIR, filename)
-        os.makedirs(os.path.dirname(filepath) or WORKSPACE_DIR, exist_ok=True)
+        workspace = get_workspace_dir()
+        filepath = os.path.join(workspace, filename)
+        os.makedirs(os.path.dirname(filepath) or workspace, exist_ok=True)
         with open(filepath, "w") as f:
             f.write(content)
             if not content.endswith("\n"):
                 f.write("\n")
-        return f"Wrote to workspace/{filename}", False
+        return f"Wrote to {active_project}/workspace/{filename}", False
 
     elif name == "remember":
         fact = tool_input["fact"]
@@ -646,7 +679,7 @@ def print_tool_status(name, tool_input):
     labels = {
         "web_search": f"Searching the web: \"{tool_input.get('query', '')}\"",
         "read_file": f"Reading file: {tool_input.get('path', '')}",
-        "write_file": f"Writing file: workspace/{tool_input.get('filename', '')}",
+        "write_file": f"Writing file: {active_project}/workspace/{tool_input.get('filename', '')}",
         "remember": f"Remembering: \"{tool_input.get('fact', '')}\"",
         "forget": f"Forgetting: \"{tool_input.get('fact', '')}\"",
         "list_memories": "Listing memories",
@@ -741,12 +774,72 @@ def print_session_summary():
         print(f"{DIM}Session total: {session_input_tokens} in / {session_output_tokens} out — "
               f"${session_cost:.4f}{RESET}")
 
+
+def slugify(text):
+    """Convert text to a filename-safe slug."""
+    text = text.lower().strip()
+    text = re.sub(r'[^\w\s-]', '', text)
+    text = re.sub(r'[\s_]+', '-', text)
+    text = re.sub(r'-+', '-', text)
+    return text.strip('-')[:60]
+
+
+def generate_title(history):
+    """Use Haiku to generate a short title for a conversation."""
+    global session_input_tokens, session_output_tokens, session_cost
+
+    parts = []
+    for msg in history:
+        text = extract_text_from_message(msg)
+        if text:
+            role = "User" if msg["role"] == "user" else "Assistant"
+            snippet = text[:300] + "..." if len(text) > 300 else text
+            parts.append(f"{role}: {snippet}")
+
+    if not parts:
+        return "untitled conversation"
+
+    combined = "\n".join(parts[:20])
+    if len(combined) > 5000:
+        combined = combined[:5000] + "..."
+
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=30,
+            messages=[{"role": "user", "content":
+                "Generate a short descriptive title (5-8 words) for this conversation. "
+                "Reply with ONLY the title, no quotes or punctuation:\n\n" + combined}],
+        )
+        title = response.content[0].text.strip().strip('"\'')
+
+        s_in = response.usage.input_tokens
+        s_out = response.usage.output_tokens
+        s_prices = PRICING.get("claude-haiku-4-5", {"input": 0.80, "output": 4.00})
+        s_cost = (s_in * s_prices["input"] + s_out * s_prices["output"]) / 1_000_000
+        session_input_tokens += s_in
+        session_output_tokens += s_out
+        session_cost += s_cost
+
+        return title
+    except Exception:
+        return "untitled conversation"
+
+
 def save_conversation(history):
-    """Save the conversation history to a timestamped text file."""
+    """Save conversation with auto-generated title."""
     if not history:
         return
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filepath = os.path.join(CONVERSATIONS_DIR, f"{timestamp}.txt")
+
+    print(f"{DIM}Generating conversation title...{RESET}")
+    title = generate_title(history)
+    slug = slugify(title)
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    filename = f"{date_str}_{slug}.txt"
+
+    conversations_dir = get_conversations_dir()
+    filepath = os.path.join(conversations_dir, filename)
+
     with open(filepath, "w") as f:
         for msg in history:
             role = "You" if msg["role"] == "user" else "Claude"
@@ -769,20 +862,31 @@ def save_conversation(history):
                             parts.append(f"[tool result: {snippet}]")
                 if parts:
                     f.write(f"{role}: {' '.join(parts)}\n\n")
-    print(f"Conversation saved to {filepath}")
+
+    print(f"Conversation saved: {title}")
+    print(f"{DIM}  → {active_project}/conversations/{filename}{RESET}")
 
 
 def list_conversations():
     """Return sorted list of conversation filenames, or empty list."""
-    files = [f for f in sorted(os.listdir(CONVERSATIONS_DIR)) if f.endswith(".txt")]
+    conversations_dir = get_conversations_dir()
+    files = [f for f in sorted(os.listdir(conversations_dir)) if f.endswith(".txt")]
     return files
 
 
 def print_conversations(files):
-    """Print a numbered list of conversation files."""
+    """Print a numbered list of conversation files with titles."""
     for i, filename in enumerate(files, 1):
         name = filename.removesuffix(".txt")
-        print(f"  {i}. {name}")
+        # Parse "YYYY-MM-DD_title-slug" or "YYYY-MM-DD_HH-MM-SS" format
+        parts = name.split("_", 1)
+        if len(parts) == 2:
+            date_part, title_slug = parts
+            # Convert slug back to readable title
+            title = title_slug.replace("-", " ").title()
+            print(f"  {i}. {date_part}  {title}")
+        else:
+            print(f"  {i}. {name}")
 
 
 def load_conversation(filepath):
@@ -830,11 +934,116 @@ def load_conversation(filepath):
     print(f"{DIM}{summary}{RESET}\n")
 
 
+def load_watchlist():
+    """Load watchlist from the active project's watchlist.json."""
+    path = get_watchlist_file()
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            return json.load(f)
+    return []
+
+
+def save_watchlist(topics):
+    """Save watchlist to the active project's watchlist.json."""
+    path = get_watchlist_file()
+    with open(path, "w") as f:
+        json.dump(topics, f, indent=2)
+
+
+def run_digest():
+    """Search web for all watched topics and generate a digest."""
+    global session_input_tokens, session_output_tokens, session_cost
+
+    topics = load_watchlist()
+    if not topics:
+        print(f"{DIM}No topics in watchlist. Use /watch <topic> to add one.{RESET}\n")
+        return
+
+    print(f"{DIM}Generating digest for {len(topics)} topic(s)...{RESET}")
+
+    all_results = []
+    for topic in topics:
+        print(f"{DIM}  Searching: {topic}...{RESET}")
+        try:
+            results = web_search(topic, max_results=3)
+            if results:
+                all_results.append(f"## {topic}\n{results}")
+            else:
+                all_results.append(f"## {topic}\nNo results found.")
+        except Exception as e:
+            all_results.append(f"## {topic}\nSearch failed: {e}")
+
+    combined = "\n\n".join(all_results)
+
+    print(f"{DIM}  Summarizing findings...{RESET}")
+    cost_str = "$0.0000"
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=1500,
+            messages=[{"role": "user", "content":
+                "You are a research digest writer. Summarize the following web search results "
+                "into a clear, organized digest. Group by topic, highlight key developments, "
+                "and note anything particularly notable. Be concise but thorough.\n\n" + combined}],
+        )
+        digest = response.content[0].text
+
+        s_in = response.usage.input_tokens
+        s_out = response.usage.output_tokens
+        s_prices = PRICING.get("claude-haiku-4-5", {"input": 0.80, "output": 4.00})
+        s_cost = (s_in * s_prices["input"] + s_out * s_prices["output"]) / 1_000_000
+        session_input_tokens += s_in
+        session_output_tokens += s_out
+        session_cost += s_cost
+        cost_str = f"${s_cost:.4f}"
+    except Exception as e:
+        print(f"{DIM}Summarization failed: {e}{RESET}")
+        digest = combined
+
+    # Save to workspace
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    filename = f"digest-{date_str}.md"
+    workspace = get_workspace_dir()
+    filepath = os.path.join(workspace, filename)
+
+    header = f"# Digest — {date_str}\n\nTopics: {', '.join(topics)}\n\n---\n\n"
+    with open(filepath, "w") as f:
+        f.write(header + digest + "\n")
+
+    print(f"\n{digest}")
+    print(f"\n{DIM}Digest saved to {active_project}/workspace/{filename} ({cost_str}){RESET}\n")
+
+
+def switch_project(name):
+    """Switch to a project, creating it if needed."""
+    global active_project, memories
+    active_project = name
+    # Ensure project directories exist
+    get_conversations_dir()
+    get_workspace_dir()
+    # Reload memories for this project
+    memories = load_memories()
+
+
+def list_projects():
+    """List all project names."""
+    if not os.path.exists(PROJECTS_DIR):
+        return ["general"]
+    projects = sorted([
+        d for d in os.listdir(PROJECTS_DIR)
+        if os.path.isdir(os.path.join(PROJECTS_DIR, d))
+    ])
+    return projects if projects else ["general"]
+
+
 if __name__ == "__main__":
+    # Initialize project system
+    switch_project("general")
+
     # Show previous conversations if any exist
     existing = list_conversations()
     if existing:
-        print("Previous conversations:")
+        print(f"Previous conversations ({active_project}):")
         print_conversations(existing)
         print()
 
@@ -851,6 +1060,13 @@ if __name__ == "__main__":
       /persona <name>    Switch persona (default, writer, coder, critic)
       /persona custom <desc>  Create a custom persona
       /persona model <name> <model>  Set a persona's default model
+      /project           Create a new project (prompts for name)
+      /project <name>    Switch to a project (creates if needed)
+      /project list      List all projects
+      /watch <topic>     Add a topic to the watchlist
+      /watch list        Show all watched topics
+      /watch remove <topic>  Remove a topic from the watchlist
+      /digest            Search web for watched topics and save a digest
       /load              Load a previous conversation into context
       /conversations     List previous conversations
       /tokens            Show conversation size and compression status
@@ -862,7 +1078,7 @@ if __name__ == "__main__":
     Claude also uses tools autonomously (web search, file read/write, memory, code execution).{RESET}"""
 
     if memories:
-        print(f"Loaded {len(memories)} memor{'y' if len(memories) == 1 else 'ies'} from memory.json")
+        print(f"Loaded {len(memories)} memor{'y' if len(memories) == 1 else 'ies'} from {active_project}/memory.json")
     print("Chatbot ready! Type your message and press Enter.")
     print("Type /help to see available commands.\n")
 
@@ -871,7 +1087,7 @@ if __name__ == "__main__":
         short_name = MODEL_SHORT_NAMES.get(active_model, active_model)
         persona_tag = f"/{active_persona}" if active_persona != "default" else ""
         try:
-            user_input = input(f"{GREEN}You {DIM}[{short_name}{persona_tag}]{RESET}{GREEN}: {RESET}")
+            user_input = input(f"{GREEN}You {DIM}[{short_name}{persona_tag}/{active_project}]{RESET}{GREEN}: {RESET}")
         except (EOFError, KeyboardInterrupt):
             # Handle Ctrl+D or Ctrl+C gracefully
             print()
@@ -949,13 +1165,14 @@ if __name__ == "__main__":
             if ".." in filename or filename.startswith("/"):
                 print(f"{DIM}Filename must be relative and stay inside workspace/{RESET}\n")
                 continue
-            filepath = os.path.join(WORKSPACE_DIR, filename)
+            workspace = get_workspace_dir()
+            filepath = os.path.join(workspace, filename)
             # Create subdirectories if the filename includes them
-            os.makedirs(os.path.dirname(filepath) or WORKSPACE_DIR, exist_ok=True)
+            os.makedirs(os.path.dirname(filepath) or workspace, exist_ok=True)
             # Check for overwrite
             if os.path.exists(filepath):
                 try:
-                    confirm = input(f"{DIM}workspace/{filename} already exists. Overwrite? [y/N]: {RESET}")
+                    confirm = input(f"{DIM}{active_project}/workspace/{filename} already exists. Overwrite? [y/N]: {RESET}")
                 except (EOFError, KeyboardInterrupt):
                     print(f"\n{DIM}Cancelled.{RESET}\n")
                     continue
@@ -973,7 +1190,7 @@ if __name__ == "__main__":
                 if not content.endswith("\n"):
                     f.write("\n")
             line_count = content.count("\n") + 1
-            print(f"{DIM}Wrote {line_count} lines to workspace/{filename}{RESET}\n")
+            print(f"{DIM}Wrote {line_count} lines to {active_project}/workspace/{filename}{RESET}\n")
             continue
 
         if command_lower.startswith("/remember "):
@@ -998,7 +1215,7 @@ if __name__ == "__main__":
 
         if command_lower == "/memories":
             if memories:
-                print(f"{DIM}Stored memories:")
+                print(f"{DIM}Stored memories ({active_project}):")
                 for i, m in enumerate(memories, 1):
                     print(f"  {i}. {m}")
                 print(RESET)
@@ -1079,10 +1296,90 @@ if __name__ == "__main__":
                     print(f"  Available: {', '.join(available)}{RESET}\n")
             continue
 
+        if command_lower == "/project" or command_lower.startswith("/project "):
+            arg = command[8:].strip() if len(command) > 8 else ""
+            if not arg:
+                # No argument — prompt for a new project name
+                try:
+                    name = input(f"{DIM}New project name: {RESET}").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    print(f"\n{DIM}Cancelled.{RESET}\n")
+                    continue
+                if not name:
+                    print(f"{DIM}Cancelled.{RESET}\n")
+                    continue
+                name = re.sub(r'[^\w-]', '-', name).strip('-')
+                if not name:
+                    print(f"{DIM}Invalid project name.{RESET}\n")
+                    continue
+                switch_project(name)
+                print(f"{DIM}Switched to project: {active_project}{RESET}")
+                if memories:
+                    print(f"{DIM}Loaded {len(memories)} memor{'y' if len(memories) == 1 else 'ies'}{RESET}")
+                print()
+            elif arg.lower() == "list":
+                projects = list_projects()
+                print(f"{DIM}Projects:")
+                for p in projects:
+                    marker = " ←" if p == active_project else ""
+                    print(f"  {p}{marker}")
+                print(RESET)
+            else:
+                # Switch to named project
+                name = re.sub(r'[^\w-]', '-', arg.lower()).strip('-')
+                if not name:
+                    print(f"{DIM}Invalid project name.{RESET}\n")
+                    continue
+                switch_project(name)
+                print(f"{DIM}Switched to project: {active_project}{RESET}")
+                if memories:
+                    print(f"{DIM}Loaded {len(memories)} memor{'y' if len(memories) == 1 else 'ies'}{RESET}")
+                print()
+            continue
+
+        if command_lower == "/watch" or command_lower.startswith("/watch "):
+            arg = command[6:].strip() if len(command) > 6 else ""
+            if not arg:
+                print(f"{DIM}Usage: /watch <topic> | /watch list | /watch remove <topic>{RESET}\n")
+                continue
+            if arg.lower() == "list":
+                topics = load_watchlist()
+                if topics:
+                    print(f"{DIM}Watched topics ({active_project}):")
+                    for i, t in enumerate(topics, 1):
+                        print(f"  {i}. {t}")
+                    print(RESET)
+                else:
+                    print(f"{DIM}No watched topics. Use /watch <topic> to add one.{RESET}\n")
+            elif arg.lower().startswith("remove "):
+                topic = arg[7:].strip()
+                topics = load_watchlist()
+                if topic in topics:
+                    topics.remove(topic)
+                    save_watchlist(topics)
+                    print(f"{DIM}Removed: {topic}{RESET}\n")
+                else:
+                    print(f"{DIM}Not found: {topic}. Use /watch list to see topics.{RESET}\n")
+            else:
+                # Add a topic
+                topic = arg.strip()
+                topics = load_watchlist()
+                if topic in topics:
+                    print(f"{DIM}Already watching: {topic}{RESET}\n")
+                else:
+                    topics.append(topic)
+                    save_watchlist(topics)
+                    print(f"{DIM}Now watching: {topic}{RESET}\n")
+            continue
+
+        if command_lower == "/digest":
+            run_digest()
+            continue
+
         if command_lower == "/conversations":
             files = list_conversations()
             if files:
-                print(f"{DIM}Previous conversations:")
+                print(f"{DIM}Previous conversations ({active_project}):")
                 print_conversations(files)
                 print(RESET)
             else:
@@ -1094,7 +1391,7 @@ if __name__ == "__main__":
             if not files:
                 print(f"{DIM}No saved conversations to load.{RESET}\n")
                 continue
-            print(f"{DIM}Previous conversations:")
+            print(f"{DIM}Previous conversations ({active_project}):")
             print_conversations(files)
             print(RESET)
             try:
@@ -1109,7 +1406,7 @@ if __name__ == "__main__":
             except ValueError:
                 print(f"{DIM}Invalid choice.{RESET}\n")
                 continue
-            filepath = os.path.join(CONVERSATIONS_DIR, files[idx])
+            filepath = os.path.join(get_conversations_dir(), files[idx])
             load_conversation(filepath)
             continue
 
