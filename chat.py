@@ -1164,15 +1164,17 @@ def generate_cover_letter(job, memories_list):
         "not generic. Address it to 'Hiring Manager' unless a name is in the listing."
     )
 
+    cover_letter_model = "claude-opus-4-6"
+
     response = client.messages.create(
-        model=active_model,
+        model=cover_letter_model,
         max_tokens=1000,
         messages=[{"role": "user", "content": prompt}],
     )
 
     s_in = response.usage.input_tokens
     s_out = response.usage.output_tokens
-    prices = PRICING.get(active_model, {"input": 0, "output": 0})
+    prices = PRICING.get(cover_letter_model, {"input": 15.00, "output": 75.00})
     s_cost = (s_in * prices["input"] + s_out * prices["output"]) / 1_000_000
     session_input_tokens += s_in
     session_output_tokens += s_out
@@ -1670,6 +1672,7 @@ if __name__ == "__main__":
                 except Exception:
                     print(f"{DIM}  (Could not open browser — copy the URL above){RESET}")
 
+                print(f"{DIM}Using Opus for cover letter generation{RESET}")
                 print(f"{DIM}Generating cover letter for: {job['title']}...{RESET}")
                 # Gather memories from current project + general for background
                 all_memories = list(memories)
