@@ -13,8 +13,10 @@ import anthropic
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
+import webbrowser
 from datetime import datetime
 from ddgs import DDGS
 
@@ -1091,6 +1093,59 @@ def search_jobs(query, max_results=10):
     return [{"title": r["title"], "url": r["href"], "body": r["body"]} for r in results]
 
 
+def get_job_folder(job):
+    """Get or create a job's subfolder in the job-search workspace.
+
+    Each job gets: jobs/<slug>/listing.json, cover-letter.md, notes.md
+    The folder name is stored in the job entry for stable references.
+    """
+    jobs_dir = os.path.join(PROJECTS_DIR, JOB_SEARCH_PROJECT, "workspace", "jobs")
+    os.makedirs(jobs_dir, exist_ok=True)
+
+    if job.get("folder"):
+        folder_path = os.path.join(jobs_dir, job["folder"])
+        os.makedirs(folder_path, exist_ok=True)
+        return folder_path
+
+    # Create a new folder with collision handling
+    base = slugify(job["title"]) or "untitled"
+    folder_name = base
+    if os.path.exists(os.path.join(jobs_dir, folder_name)):
+        i = 2
+        while os.path.exists(os.path.join(jobs_dir, f"{folder_name}-{i}")):
+            i += 1
+        folder_name = f"{folder_name}-{i}"
+
+    job["folder"] = folder_name
+    folder_path = os.path.join(jobs_dir, folder_name)
+    os.makedirs(folder_path, exist_ok=True)
+    return folder_path
+
+
+def init_job_folder(job):
+    """Create a job's subfolder and write listing.json and notes.md."""
+    folder = get_job_folder(job)
+
+    # Write listing.json
+    listing_path = os.path.join(folder, "listing.json")
+    with open(listing_path, "w") as f:
+        json.dump({
+            "title": job["title"],
+            "url": job["url"],
+            "description": job["body"],
+            "saved_at": job.get("saved_at", datetime.now().strftime("%Y-%m-%d")),
+            "status": job.get("status"),
+        }, f, indent=2)
+
+    # Create notes.md if it doesn't exist
+    notes_path = os.path.join(folder, "notes.md")
+    if not os.path.exists(notes_path):
+        with open(notes_path, "w") as f:
+            f.write(f"# {job['title']}\n\n{job['url']}\n\n## Notes\n\n")
+
+    return folder
+
+
 def generate_cover_letter(job, memories_list):
     """Use Claude to generate a tailored cover letter for a job listing."""
     global session_input_tokens, session_output_tokens, session_cost
@@ -1183,7 +1238,7 @@ if __name__ == "__main__":
       /jobs save         Save last search results to job-search project
       /jobs list         Show all saved job listings
       /jobs remove <#>   Remove a saved listing
-      /jobs apply <#>    Generate a cover letter for a saved listing
+      /jobs apply <#>    Open listing + generate cover letter to jobs/<slug>/
       /jobs track <#> <status>  Set status (applied, interviewing, rejected, offer)
       /jobs status       Show tracked jobs grouped by status
       /billing           Show billing link for API credits
@@ -1541,16 +1596,23 @@ if __name__ == "__main__":
                 added = 0
                 for r in last_job_results:
                     if r["url"] not in existing_urls:
-                        jobs.append({
+                        job_entry = {
                             "title": r["title"],
                             "url": r["url"],
                             "body": r["body"],
                             "saved_at": datetime.now().strftime("%Y-%m-%d"),
                             "status": None,
-                        })
+                            "folder": None,
+                        }
+                        folder = init_job_folder(job_entry)
+                        jobs.append(job_entry)
                         added += 1
                 save_jobs(jobs)
-                print(f"{DIM}Saved {added} new listing(s) to job-search project ({len(jobs)} total).{RESET}\n")
+                print(f"{DIM}Saved {added} new listing(s) to job-search project ({len(jobs)} total).")
+                if added:
+                    print(f"  Job folders: job-search/workspace/jobs/{RESET}\n")
+                else:
+                    print(RESET)
 
             elif arg_lower == "list":
                 jobs = load_jobs()
@@ -1560,9 +1622,15 @@ if __name__ == "__main__":
                 print(f"{DIM}Saved job listings ({len(jobs)}):{RESET}")
                 for i, j in enumerate(jobs, 1):
                     status_tag = f" [{j['status']}]" if j.get("status") else ""
-                    print(f"  {CYAN}{i}. {j['title']}{RESET}{DIM}{status_tag}")
+                    has_letter = ""
+                    if j.get("folder"):
+                        cl_path = os.path.join(PROJECTS_DIR, JOB_SEARCH_PROJECT, "workspace", "jobs", j["folder"], "cover-letter.md")
+                        if os.path.exists(cl_path):
+                            has_letter = " [cover letter]"
+                    print(f"  {CYAN}{i}. {j['title']}{RESET}{DIM}{status_tag}{has_letter}")
                     print(f"     {j['url']}")
-                    print(f"     Saved: {j['saved_at']}{RESET}")
+                    folder_tag = f"  →  jobs/{j['folder']}/" if j.get("folder") else ""
+                    print(f"     Saved: {j['saved_at']}{folder_tag}{RESET}")
                 print()
 
             elif arg_lower.startswith("remove "):
@@ -1573,6 +1641,11 @@ if __name__ == "__main__":
                     if idx < 0 or idx >= len(jobs):
                         raise ValueError
                     removed = jobs.pop(idx)
+                    # Clean up the job's folder
+                    if removed.get("folder"):
+                        folder_path = os.path.join(PROJECTS_DIR, JOB_SEARCH_PROJECT, "workspace", "jobs", removed["folder"])
+                        if os.path.exists(folder_path):
+                            shutil.rmtree(folder_path)
                     save_jobs(jobs)
                     print(f"{DIM}Removed: {removed['title']}{RESET}\n")
                 except ValueError:
@@ -1589,6 +1662,14 @@ if __name__ == "__main__":
                     print(f"{DIM}Invalid number. Use /jobs list to see listings.{RESET}\n")
                     continue
                 job = jobs[idx]
+
+                # Open the job URL in the default browser
+                print(f"{DIM}Opening: {job['url']}{RESET}")
+                try:
+                    webbrowser.open(job["url"])
+                except Exception:
+                    print(f"{DIM}  (Could not open browser — copy the URL above){RESET}")
+
                 print(f"{DIM}Generating cover letter for: {job['title']}...{RESET}")
                 # Gather memories from current project + general for background
                 all_memories = list(memories)
@@ -1606,9 +1687,35 @@ if __name__ == "__main__":
                 all_memories = list(dict.fromkeys(all_memories))
                 try:
                     letter, cost = generate_cover_letter(job, all_memories)
+
+                    # Save cover letter to the job's subfolder
+                    folder = get_job_folder(job)
+                    cl_path = os.path.join(folder, "cover-letter.md")
+                    with open(cl_path, "w") as f:
+                        f.write(f"# Cover Letter — {job['title']}\n\n")
+                        f.write(f"**Position:** {job['title']}\n")
+                        f.write(f"**URL:** {job['url']}\n")
+                        f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n---\n\n")
+                        f.write(letter + "\n")
+
+                    # Update listing.json with latest status
+                    listing_path = os.path.join(folder, "listing.json")
+                    with open(listing_path, "w") as f:
+                        json.dump({
+                            "title": job["title"],
+                            "url": job["url"],
+                            "description": job["body"],
+                            "saved_at": job.get("saved_at"),
+                            "status": job.get("status"),
+                            "cover_letter_generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        }, f, indent=2)
+
+                    save_jobs(jobs)
+
                     print(f"\n{CYAN}Cover Letter — {job['title']}{RESET}\n")
                     print(letter)
-                    print(f"\n{DIM}  [${cost:.4f}] session: ${session_cost:.4f}{RESET}\n")
+                    print(f"\n{DIM}  Saved to: jobs/{job['folder']}/cover-letter.md")
+                    print(f"  [${cost:.4f}] session: ${session_cost:.4f}{RESET}\n")
                 except Exception as e:
                     print(f"{DIM}Failed to generate cover letter: {e}{RESET}\n")
 
