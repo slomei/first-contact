@@ -613,14 +613,70 @@ def save_conversation(history):
                     f.write(f"{role}: {' '.join(parts)}\n\n")
     print(f"Conversation saved to {filepath}")
 
+
+def list_conversations():
+    """Return sorted list of conversation filenames, or empty list."""
+    files = [f for f in sorted(os.listdir(CONVERSATIONS_DIR)) if f.endswith(".txt")]
+    return files
+
+
+def print_conversations(files):
+    """Print a numbered list of conversation files."""
+    for i, filename in enumerate(files, 1):
+        name = filename.removesuffix(".txt")
+        print(f"  {i}. {name}")
+
+
+def load_conversation(filepath):
+    """Load a conversation file, summarize it with Haiku, and inject into history."""
+    global session_input_tokens, session_output_tokens, session_cost
+
+    with open(filepath, "r") as f:
+        raw = f.read()
+
+    if not raw.strip():
+        print(f"{DIM}Conversation file is empty.{RESET}\n")
+        return
+
+    # Truncate if very long to stay within Haiku's context
+    if len(raw) > 30_000:
+        raw = raw[:30_000] + "\n...[truncated]"
+
+    print(f"{DIM}Summarizing previous conversation...{RESET}")
+    summary_response = client.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=500,
+        messages=[{"role": "user", "content":
+            "Summarize this conversation into a concise recap (3-5 sentences). "
+            "Capture the key topics discussed, any decisions made, and important "
+            "context that would help continue the conversation:\n\n" + raw}],
+    )
+    summary = summary_response.content[0].text
+
+    # Track cost
+    s_in = summary_response.usage.input_tokens
+    s_out = summary_response.usage.output_tokens
+    s_prices = PRICING.get("claude-haiku-4-5", {"input": 0.80, "output": 4.00})
+    s_cost = (s_in * s_prices["input"] + s_out * s_prices["output"]) / 1_000_000
+    session_input_tokens += s_in
+    session_output_tokens += s_out
+    session_cost += s_cost
+
+    # Inject summary into conversation history
+    conversation_history.append({"role": "user",
+        "content": f"[Loaded previous conversation summary]\n{summary}"})
+    conversation_history.append({"role": "assistant",
+        "content": "Got it — I have context from our previous conversation. What would you like to pick up on?"})
+
+    print(f"{DIM}⟡ Loaded conversation summary ({s_in} in / {s_out} out — ${s_cost:.4f}){RESET}")
+    print(f"{DIM}{summary}{RESET}\n")
+
+
 # Show previous conversations if any exist
-existing = sorted(os.listdir(CONVERSATIONS_DIR))
+existing = list_conversations()
 if existing:
     print("Previous conversations:")
-    for filename in existing:
-        # Display a readable version of the timestamp from the filename
-        name = filename.removesuffix(".txt")
-        print(f"  - {name}")
+    print_conversations(existing)
     print()
 
 HELP_TEXT = f"""{DIM}Available commands:
@@ -631,6 +687,8 @@ HELP_TEXT = f"""{DIM}Available commands:
   /remember <fact>   Save a fact to persistent memory
   /forget <fact>     Remove a fact from memory
   /memories          List all stored memories
+  /load              Load a previous conversation into context
+  /conversations     List previous conversations
   /tokens            Show conversation size and compression status
   /opus              Switch to Claude Opus
   /sonnet            Switch to Claude Sonnet
@@ -781,6 +839,40 @@ while True:
             print(RESET)
         else:
             print(f"{DIM}No memories stored. Use /remember <fact> to add one.{RESET}\n")
+        continue
+
+    if command_lower == "/conversations":
+        files = list_conversations()
+        if files:
+            print(f"{DIM}Previous conversations:")
+            print_conversations(files)
+            print(RESET)
+        else:
+            print(f"{DIM}No saved conversations yet.{RESET}\n")
+        continue
+
+    if command_lower == "/load":
+        files = list_conversations()
+        if not files:
+            print(f"{DIM}No saved conversations to load.{RESET}\n")
+            continue
+        print(f"{DIM}Previous conversations:")
+        print_conversations(files)
+        print(RESET)
+        try:
+            choice = input(f"{DIM}Load conversation #: {RESET}")
+        except (EOFError, KeyboardInterrupt):
+            print(f"\n{DIM}Cancelled.{RESET}\n")
+            continue
+        try:
+            idx = int(choice.strip()) - 1
+            if idx < 0 or idx >= len(files):
+                raise ValueError
+        except ValueError:
+            print(f"{DIM}Invalid choice.{RESET}\n")
+            continue
+        filepath = os.path.join(CONVERSATIONS_DIR, files[idx])
+        load_conversation(filepath)
         continue
 
     if command_lower == "/tokens":
