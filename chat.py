@@ -94,9 +94,16 @@ if existing:
         print(f"  - {name}")
     print()
 
+HELP_TEXT = f"""{DIM}Available commands:
+  /help              Show this help message
+  /read <path>       Load a file into the conversation
+  /opus              Switch to Claude Opus
+  /sonnet            Switch to Claude Sonnet
+  /haiku             Switch to Claude Haiku
+  quit / exit        End the conversation{RESET}"""
+
 print("Chatbot ready! Type your message and press Enter.")
-print("Type 'quit' or 'exit' to end the conversation.")
-print("Type /opus, /sonnet, or /haiku to switch models.\n")
+print("Type /help to see available commands.\n")
 
 while True:
     # Get input from the user
@@ -118,15 +125,39 @@ while True:
         print("Goodbye!")
         break
 
-    # Check for model switching commands
-    command = user_input.strip().lower()
-    if command in MODELS:
-        active_model = MODELS[command]
+    # Check for commands
+    command = user_input.strip()
+    command_lower = command.lower()
+
+    if command_lower == "/help":
+        print(HELP_TEXT)
+        continue
+
+    if command_lower in MODELS:
+        active_model = MODELS[command_lower]
         print(f"{DIM}Switched to {active_model}{RESET}\n")
         continue
 
+    if command_lower.startswith("/read "):
+        filepath = command[6:].strip()  # preserve original case for path
+        try:
+            with open(filepath, "r") as f:
+                contents = f.read()
+            line_count = contents.count("\n") + (1 if contents and not contents.endswith("\n") else 0)
+            filename = os.path.basename(filepath)
+            print(f"{DIM}Loaded {filename} ({line_count} lines){RESET}\n")
+            file_message = f"[File: {filepath}]\n```\n{contents}\n```"
+            conversation_history.append({"role": "user", "content": file_message})
+        except FileNotFoundError:
+            print(f"{DIM}File not found: {filepath}{RESET}\n")
+        except IsADirectoryError:
+            print(f"{DIM}Path is a directory: {filepath}{RESET}\n")
+        except UnicodeDecodeError:
+            print(f"{DIM}Cannot read binary file: {filepath}{RESET}\n")
+        continue
+
     # Skip empty messages
-    if not user_input.strip():
+    if not command:
         continue
 
     # Add the user's message to the conversation history
