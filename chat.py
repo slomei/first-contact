@@ -19,6 +19,7 @@ import tempfile
 import webbrowser
 from datetime import datetime
 from ddgs import DDGS
+import pdfplumber
 
 # Create the Anthropic client.
 # By default, it reads your API key from the ANTHROPIC_API_KEY environment variable.
@@ -277,6 +278,30 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECTS_DIR = os.path.join(BASE_DIR, "projects")
 
 PERSONAS_FILE = os.path.join(BASE_DIR, "personas.json")
+
+
+def _is_wsl():
+    """Detect if running inside Windows Subsystem for Linux."""
+    try:
+        with open("/proc/version", "r") as f:
+            return "microsoft" in f.read().lower()
+    except OSError:
+        return False
+
+IS_WSL = _is_wsl()
+
+
+def open_url(url):
+    """Open a URL in the default browser, with WSL support."""
+    if IS_WSL:
+        # Use Windows browser via cmd.exe; empty string avoids quoting issues
+        subprocess.Popen(
+            ["cmd.exe", "/c", "start", "", url],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    else:
+        webbrowser.open(url)
 
 
 def get_project_dir():
@@ -1219,6 +1244,11 @@ def get_jobs_file():
     return os.path.join(d, "jobs.json")
 
 
+def get_resume_path():
+    """Return the path to the extracted resume markdown file."""
+    return os.path.join(PROJECTS_DIR, JOB_SEARCH_PROJECT, "resume.md")
+
+
 def load_jobs():
     """Load saved jobs from the job-search project."""
     path = get_jobs_file()
@@ -1297,7 +1327,7 @@ def init_job_folder(job):
     return folder
 
 
-def generate_cover_letter(job, memories_list):
+def generate_cover_letter(job, memories_list, resume_text=""):
     """Use Claude to generate a tailored cover letter for a job listing."""
     global session_input_tokens, session_output_tokens, session_cost
 
@@ -1309,7 +1339,8 @@ def generate_cover_letter(job, memories_list):
         f"Title: {job['title']}\n"
         f"URL: {job['url']}\n"
         f"Description: {job['body']}\n\n"
-        f"Applicant's background:\n{memory_block}\n\n"
+        f"Applicant's resume:\n{resume_text or 'No resume loaded.'}\n\n"
+        f"Applicant's additional background:\n{memory_block}\n\n"
         "Write a professional, concise cover letter (3-4 paragraphs) that connects "
         "the applicant's experience to the job requirements. Be specific and genuine, "
         "not generic. Address it to 'Hiring Manager' unless a name is in the listing."
@@ -1394,6 +1425,8 @@ if __name__ == "__main__":
       /jobs apply <#>    Open listing + generate cover letter to jobs/<slug>/
       /jobs track <#> <status>  Set status (applied, interviewing, rejected, offer)
       /jobs status       Show tracked jobs grouped by status
+      /resume              Show loaded resume status
+      /resume <path>       Load a resume file (txt, md, pdf, docx)
       /delegates         Show specialist agents and their models
       /billing           Show billing link for API credits
       /load              Load a previous conversation into context
@@ -1718,6 +1751,75 @@ if __name__ == "__main__":
             print(f"\n{DIM}The director (Sonnet) routes tasks to specialists automatically.{RESET}\n")
             continue
 
+        if command_lower == "/resume" or command_lower.startswith("/resume "):
+            resume_arg = command[7:].strip() if len(command) > 7 else ""
+            resume_path = get_resume_path()
+
+            if not resume_arg:
+                # Show status
+                if os.path.exists(resume_path):
+                    with open(resume_path, "r") as f:
+                        content = f.read()
+                    lines = content.splitlines()
+                    print(f"{DIM}Resume loaded: {resume_path} ({len(lines)} lines)")
+                    preview = "\n".join(lines[:10])
+                    print(f"\nPreview:\n{preview}")
+                    if len(lines) > 10:
+                        print(f"  ... ({len(lines) - 10} more lines)")
+                    print(f"{RESET}\n")
+                else:
+                    print(f"{DIM}No resume loaded. Use /resume <path> to load one.{RESET}\n")
+                continue
+
+            # Load a resume file
+            src = os.path.expanduser(resume_arg)
+            if not os.path.exists(src):
+                print(f"{DIM}File not found: {src}{RESET}\n")
+                continue
+
+            ext = os.path.splitext(src)[1].lower()
+            try:
+                if ext == ".pdf":
+                    with pdfplumber.open(src) as pdf:
+                        text = "\n\n".join(
+                            page.extract_text() or "" for page in pdf.pages
+                        )
+                elif ext == ".docx":
+                    import zipfile
+                    import xml.etree.ElementTree as ET
+                    with zipfile.ZipFile(src) as z:
+                        xml_content = z.read("word/document.xml")
+                    tree = ET.fromstring(xml_content)
+                    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+                    paragraphs = tree.findall(".//w:p", ns)
+                    text = "\n".join(
+                        "".join(node.text or "" for node in p.findall(".//w:t", ns))
+                        for p in paragraphs
+                    )
+                elif ext in (".txt", ".md"):
+                    with open(src, "r") as f:
+                        text = f.read()
+                else:
+                    print(f"{DIM}Unsupported format: {ext}. Use .txt, .md, .pdf, or .docx{RESET}\n")
+                    continue
+
+                text = text.strip()
+                if not text:
+                    print(f"{DIM}No text could be extracted from {src}{RESET}\n")
+                    continue
+
+                # Ensure directory exists and save
+                os.makedirs(os.path.dirname(resume_path), exist_ok=True)
+                with open(resume_path, "w") as f:
+                    f.write(text)
+
+                line_count = text.count("\n") + 1
+                print(f"{DIM}Resume saved to {resume_path} ({line_count} lines){RESET}\n")
+
+            except Exception as e:
+                print(f"{DIM}Error loading resume: {e}{RESET}\n")
+            continue
+
         if command_lower == "/jobs" or command_lower.startswith("/jobs "):
             arg = command[5:].strip() if len(command) > 5 else ""
             arg_lower = arg.lower()
@@ -1828,7 +1930,7 @@ if __name__ == "__main__":
                 # Open the job URL in the default browser
                 print(f"{DIM}Opening: {job['url']}{RESET}")
                 try:
-                    webbrowser.open(job["url"])
+                    open_url(job["url"])
                 except Exception:
                     print(f"{DIM}  (Could not open browser — copy the URL above){RESET}")
 
@@ -1854,8 +1956,14 @@ if __name__ == "__main__":
                         all_memories.extend(json.load(f))
                 # Deduplicate while preserving order
                 all_memories = list(dict.fromkeys(all_memories))
+                # Load resume if available
+                resume_path = get_resume_path()
+                resume_text = ""
+                if os.path.exists(resume_path):
+                    with open(resume_path, "r") as f:
+                        resume_text = f.read()
                 try:
-                    letter, cost = generate_cover_letter(job, all_memories)
+                    letter, cost = generate_cover_letter(job, all_memories, resume_text=resume_text)
 
                     # Save cover letter to the job's subfolder
                     folder = get_job_folder(job)
