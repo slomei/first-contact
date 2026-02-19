@@ -13,6 +13,7 @@ import anthropic
 import json
 import os
 from datetime import datetime
+from duckduckgo_search import DDGS
 
 # Create the Anthropic client.
 # By default, it reads your API key from the ANTHROPIC_API_KEY environment variable.
@@ -89,6 +90,16 @@ def build_system_prompt(memories):
 
 memories = load_memories()
 
+def web_search(query, max_results=5):
+    """Search the web using DuckDuckGo and return formatted results."""
+    results = DDGS().text(query, max_results=max_results)
+    if not results:
+        return None
+    lines = []
+    for r in results:
+        lines.append(f"- {r['title']}\n  {r['href']}\n  {r['body']}")
+    return "\n".join(lines)
+
 def print_session_summary():
     """Print a final cost summary for the session."""
     if session_input_tokens or session_output_tokens:
@@ -120,6 +131,7 @@ if existing:
 HELP_TEXT = f"""{DIM}Available commands:
   /help              Show this help message
   /read <path>       Load a file into the conversation
+  /web <query>       Search the web and discuss results
   /remember <fact>   Save a fact to persistent memory
   /forget <fact>     Remove a fact from memory
   /memories          List all stored memories
@@ -182,6 +194,48 @@ while True:
             print(f"{DIM}Path is a directory: {filepath}{RESET}\n")
         except UnicodeDecodeError:
             print(f"{DIM}Cannot read binary file: {filepath}{RESET}\n")
+        continue
+
+    if command_lower.startswith("/web "):
+        query = command[5:].strip()
+        if not query:
+            print(f"{DIM}Usage: /web <search query>{RESET}\n")
+            continue
+        print(f"{DIM}Searching: {query}...{RESET}")
+        try:
+            results = web_search(query)
+        except Exception as e:
+            print(f"{DIM}Search failed: {e}{RESET}\n")
+            continue
+        if not results:
+            print(f"{DIM}No results found.{RESET}\n")
+            continue
+        print(f"{DIM}{results}{RESET}\n")
+        search_message = f"[Web search: {query}]\n{results}\n\nUsing these search results, answer my question: {query}"
+        conversation_history.append({"role": "user", "content": search_message})
+        # Immediately get Claude's take on the results
+        print(f"{CYAN}Claude:{RESET} ", end="", flush=True)
+        with client.messages.stream(
+            model=active_model,
+            max_tokens=1024,
+            system=build_system_prompt(memories),
+            messages=conversation_history,
+        ) as stream:
+            response_text = ""
+            for text in stream.text_stream:
+                print(text, end="", flush=True)
+                response_text += text
+            final = stream.get_final_message()
+            input_tokens = final.usage.input_tokens
+            output_tokens = final.usage.output_tokens
+        prices = PRICING.get(active_model, {"input": 0, "output": 0})
+        msg_cost = (input_tokens * prices["input"] + output_tokens * prices["output"]) / 1_000_000
+        session_input_tokens += input_tokens
+        session_output_tokens += output_tokens
+        session_cost += msg_cost
+        print(f"\n{DIM}  [{input_tokens} in / {output_tokens} out — ${msg_cost:.4f}]  "
+              f"session: ${session_cost:.4f}{RESET}\n")
+        conversation_history.append({"role": "assistant", "content": response_text})
         continue
 
     if command_lower.startswith("/remember "):
