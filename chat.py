@@ -51,6 +51,117 @@ PRICING = {
 # Reverse lookup: model ID -> short name
 MODEL_SHORT_NAMES = {v: k.lstrip("/") for k, v in MODELS.items()}
 
+# Tool definitions for the Anthropic API
+TOOLS = [
+    {
+        "name": "web_search",
+        "description": (
+            "Search the web using DuckDuckGo. Use this when the user asks about "
+            "current events, recent news, or anything you're unsure about that "
+            "could benefit from up-to-date information."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of results (default: 5)",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "read_file",
+        "description": (
+            "Read the contents of a file from the local filesystem. Use this when "
+            "the user references a file or asks about file contents."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "The file path to read",
+                },
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "write_file",
+        "description": (
+            "Write content to a file in the workspace/ directory. Use this when "
+            "the user asks you to create, save, or write a file."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "description": "Filename relative to workspace/. Can include subdirectories.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "The content to write to the file",
+                },
+            },
+            "required": ["filename", "content"],
+        },
+    },
+    {
+        "name": "remember",
+        "description": (
+            "Save a fact to persistent memory. Use this when the user shares a "
+            "personal preference, important detail, or explicitly asks you to "
+            "remember something."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "fact": {
+                    "type": "string",
+                    "description": "The fact to remember",
+                },
+            },
+            "required": ["fact"],
+        },
+    },
+    {
+        "name": "forget",
+        "description": (
+            "Remove a fact from persistent memory. Use this when the user asks "
+            "you to forget something previously remembered."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "fact": {
+                    "type": "string",
+                    "description": "The exact fact to forget (must match a stored memory)",
+                },
+            },
+            "required": ["fact"],
+        },
+    },
+    {
+        "name": "list_memories",
+        "description": (
+            "List all facts stored in persistent memory. Use this when the user "
+            "asks what you remember about them."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+]
+
 # Running session totals
 session_input_tokens = 0
 session_output_tokens = 0
@@ -86,7 +197,13 @@ def build_system_prompt(memories):
         "without sugarcoating. You're not rude for the sake of it—you're just "
         "efficient and real. If something is a bad idea, you say so. If someone's "
         "on the right track, you tell them that too, briefly. You have a dry sense "
-        "of humor and zero patience for fluff."
+        "of humor and zero patience for fluff.\n\n"
+        "You have tools available: web search, file read/write, and memory. "
+        "Use them autonomously when appropriate. Search the web when asked about "
+        "current events or when you're unsure about something factual. Read files "
+        "when the user references them. Save facts to memory when the user shares "
+        "personal preferences or important details. Don't ask permission—just "
+        "use the tools."
     )
     if memories:
         memory_block = "\n".join(f"- {m}" for m in memories)
@@ -99,7 +216,13 @@ def get_last_response():
     """Get the last assistant response from conversation history."""
     for msg in reversed(conversation_history):
         if msg["role"] == "assistant":
-            return msg["content"]
+            content = msg["content"]
+            if isinstance(content, str):
+                return content
+            # List of content blocks — extract text
+            texts = [b["text"] for b in content
+                     if isinstance(b, dict) and b.get("type") == "text"]
+            return "\n".join(texts) if texts else None
     return None
 
 def extract_code_block(text):
@@ -120,6 +243,159 @@ def web_search(query, max_results=5):
         lines.append(f"- {r['title']}\n  {r['href']}\n  {r['body']}")
     return "\n".join(lines)
 
+def execute_tool(name, tool_input):
+    """Execute a tool and return (result_string, is_error)."""
+    if name == "web_search":
+        query = tool_input["query"]
+        max_results = tool_input.get("max_results", 5)
+        try:
+            results = web_search(query, max_results)
+            if results:
+                return results, False
+            return "No results found.", False
+        except Exception as e:
+            return f"Search failed: {e}", True
+
+    elif name == "read_file":
+        filepath = tool_input["path"]
+        try:
+            with open(filepath, "r") as f:
+                contents = f.read()
+            return contents, False
+        except FileNotFoundError:
+            return f"File not found: {filepath}", True
+        except IsADirectoryError:
+            return f"Path is a directory: {filepath}", True
+        except UnicodeDecodeError:
+            return f"Cannot read binary file: {filepath}", True
+
+    elif name == "write_file":
+        filename = tool_input["filename"]
+        content = tool_input["content"]
+        if ".." in filename or filename.startswith("/"):
+            return "Filename must be relative and stay inside workspace/", True
+        filepath = os.path.join(WORKSPACE_DIR, filename)
+        os.makedirs(os.path.dirname(filepath) or WORKSPACE_DIR, exist_ok=True)
+        with open(filepath, "w") as f:
+            f.write(content)
+            if not content.endswith("\n"):
+                f.write("\n")
+        return f"Wrote to workspace/{filename}", False
+
+    elif name == "remember":
+        fact = tool_input["fact"]
+        memories.append(fact)
+        save_memories(memories)
+        return f"Remembered: {fact}", False
+
+    elif name == "forget":
+        fact = tool_input["fact"]
+        if fact in memories:
+            memories.remove(fact)
+            save_memories(memories)
+            return f"Forgot: {fact}", False
+        return f"No matching memory found. Current memories: {memories}", True
+
+    elif name == "list_memories":
+        if memories:
+            return "\n".join(f"- {m}" for m in memories), False
+        return "No memories stored.", False
+
+    return f"Unknown tool: {name}", True
+
+def print_tool_status(name, tool_input):
+    """Print a dim status line showing what tool Claude is using."""
+    labels = {
+        "web_search": f"Searching the web: \"{tool_input.get('query', '')}\"",
+        "read_file": f"Reading file: {tool_input.get('path', '')}",
+        "write_file": f"Writing file: workspace/{tool_input.get('filename', '')}",
+        "remember": f"Remembering: \"{tool_input.get('fact', '')}\"",
+        "forget": f"Forgetting: \"{tool_input.get('fact', '')}\"",
+        "list_memories": "Listing memories",
+    }
+    label = labels.get(name, f"Using tool: {name}")
+    print(f"\n{DIM}⟡ {label}{RESET}")
+
+def chat_turn():
+    """Run a chat turn with tool use support. Streams response, handles tool calls in a loop."""
+    global session_input_tokens, session_output_tokens, session_cost
+
+    total_input = 0
+    total_output = 0
+    total_cost = 0
+
+    for turn in range(10):  # safety cap to prevent runaway loops
+        if turn == 0:
+            print(f"\n{CYAN}Claude:{RESET} ", end="", flush=True)
+
+        with client.messages.stream(
+            model=active_model,
+            max_tokens=4096,
+            system=build_system_prompt(memories),
+            messages=conversation_history,
+            tools=TOOLS,
+        ) as stream:
+            response_text = ""
+            for text in stream.text_stream:
+                print(text, end="", flush=True)
+                response_text += text
+
+            final = stream.get_final_message()
+
+        # Accumulate costs
+        input_tokens = final.usage.input_tokens
+        output_tokens = final.usage.output_tokens
+        prices = PRICING.get(active_model, {"input": 0, "output": 0})
+        msg_cost = (input_tokens * prices["input"] + output_tokens * prices["output"]) / 1_000_000
+        total_input += input_tokens
+        total_output += output_tokens
+        total_cost += msg_cost
+
+        if final.stop_reason == "tool_use":
+            # Store assistant message with full content blocks (needed by API)
+            assistant_content = []
+            for block in final.content:
+                if block.type == "text":
+                    assistant_content.append({"type": "text", "text": block.text})
+                elif block.type == "tool_use":
+                    assistant_content.append({
+                        "type": "tool_use",
+                        "id": block.id,
+                        "name": block.name,
+                        "input": block.input,
+                    })
+            conversation_history.append({"role": "assistant", "content": assistant_content})
+
+            # Execute each tool, show status, collect results
+            tool_results = []
+            for block in final.content:
+                if block.type == "tool_use":
+                    print_tool_status(block.name, block.input)
+                    result, is_error = execute_tool(block.name, block.input)
+                    tool_result = {
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": result,
+                    }
+                    if is_error:
+                        tool_result["is_error"] = True
+                    tool_results.append(tool_result)
+            conversation_history.append({"role": "user", "content": tool_results})
+            continue
+        else:
+            # end_turn or max_tokens — store final response as plain string
+            conversation_history.append({"role": "assistant", "content": response_text})
+            break
+
+    # Update session totals
+    session_input_tokens += total_input
+    session_output_tokens += total_output
+    session_cost += total_cost
+
+    # Show cost
+    print(f"\n{DIM}  [{total_input} in / {total_output} out — ${total_cost:.4f}]  "
+          f"session: ${session_cost:.4f}{RESET}\n")
+
 def print_session_summary():
     """Print a final cost summary for the session."""
     if session_input_tokens or session_output_tokens:
@@ -135,7 +411,25 @@ def save_conversation(history):
     with open(filepath, "w") as f:
         for msg in history:
             role = "You" if msg["role"] == "user" else "Claude"
-            f.write(f"{role}: {msg['content']}\n\n")
+            content = msg["content"]
+            if isinstance(content, str):
+                f.write(f"{role}: {content}\n\n")
+            elif isinstance(content, list):
+                parts = []
+                for block in content:
+                    if isinstance(block, dict):
+                        if block.get("type") == "text":
+                            parts.append(block["text"])
+                        elif block.get("type") == "tool_use":
+                            args = json.dumps(block.get("input", {}))
+                            parts.append(f"[tool call: {block['name']}({args})]")
+                        elif block.get("type") == "tool_result":
+                            snippet = block.get("content", "")
+                            if len(snippet) > 200:
+                                snippet = snippet[:200] + "..."
+                            parts.append(f"[tool result: {snippet}]")
+                if parts:
+                    f.write(f"{role}: {' '.join(parts)}\n\n")
     print(f"Conversation saved to {filepath}")
 
 # Show previous conversations if any exist
@@ -159,7 +453,9 @@ HELP_TEXT = f"""{DIM}Available commands:
   /opus              Switch to Claude Opus
   /sonnet            Switch to Claude Sonnet
   /haiku             Switch to Claude Haiku
-  quit / exit        End the conversation{RESET}"""
+  quit / exit        End the conversation
+
+Claude also uses tools autonomously (web search, file read/write, memory).{RESET}"""
 
 if memories:
     print(f"Loaded {len(memories)} memor{'y' if len(memories) == 1 else 'ies'} from memory.json")
@@ -234,29 +530,8 @@ while True:
         print(f"{DIM}{results}{RESET}\n")
         search_message = f"[Web search: {query}]\n{results}\n\nUsing these search results, answer my question: {query}"
         conversation_history.append({"role": "user", "content": search_message})
-        # Immediately get Claude's take on the results
-        print(f"{CYAN}Claude:{RESET} ", end="", flush=True)
-        with client.messages.stream(
-            model=active_model,
-            max_tokens=1024,
-            system=build_system_prompt(memories),
-            messages=conversation_history,
-        ) as stream:
-            response_text = ""
-            for text in stream.text_stream:
-                print(text, end="", flush=True)
-                response_text += text
-            final = stream.get_final_message()
-            input_tokens = final.usage.input_tokens
-            output_tokens = final.usage.output_tokens
-        prices = PRICING.get(active_model, {"input": 0, "output": 0})
-        msg_cost = (input_tokens * prices["input"] + output_tokens * prices["output"]) / 1_000_000
-        session_input_tokens += input_tokens
-        session_output_tokens += output_tokens
-        session_cost += msg_cost
-        print(f"\n{DIM}  [{input_tokens} in / {output_tokens} out — ${msg_cost:.4f}]  "
-              f"session: ${session_cost:.4f}{RESET}\n")
-        conversation_history.append({"role": "assistant", "content": response_text})
+        # Get Claude's take on the results
+        chat_turn()
         continue
 
     if command_lower.startswith("/write "):
@@ -332,42 +607,5 @@ while True:
     # Add the user's message to the conversation history
     conversation_history.append({"role": "user", "content": user_input})
 
-    # Send the conversation to Claude and stream the response.
-    # Streaming prints each word as it arrives instead of waiting for the full reply.
-    print(f"\n{CYAN}Claude:{RESET} ", end="", flush=True)
-
-    with client.messages.stream(
-        model=active_model,
-        max_tokens=1024,
-        system=build_system_prompt(memories),
-        messages=conversation_history,
-    ) as stream:
-        # Collect the full response so we can save it to history
-        response_text = ""
-
-        for text in stream.text_stream:
-            # Print each chunk of text as it arrives
-            print(text, end="", flush=True)
-            response_text += text
-
-        # Get token usage from the final message
-        final = stream.get_final_message()
-        input_tokens = final.usage.input_tokens
-        output_tokens = final.usage.output_tokens
-
-    # Calculate cost for this message
-    prices = PRICING.get(active_model, {"input": 0, "output": 0})
-    msg_cost = (input_tokens * prices["input"] + output_tokens * prices["output"]) / 1_000_000
-
-    # Update session totals
-    session_input_tokens += input_tokens
-    session_output_tokens += output_tokens
-    session_cost += msg_cost
-
-    # Show cost in a dim line under the response
-    print(f"\n{DIM}  [{input_tokens} in / {output_tokens} out — ${msg_cost:.4f}]  "
-          f"session: ${session_cost:.4f}{RESET}\n")
-
-    # Add Claude's response to the conversation history so it has
-    # context for the next message
-    conversation_history.append({"role": "assistant", "content": response_text})
+    # Send the conversation to Claude with tool use support
+    chat_turn()
