@@ -42,6 +42,9 @@ MODELS = {
 # Active model (default: sonnet)
 active_model = "claude-sonnet-4-6"
 
+# Active persona (default: default)
+active_persona = "default"
+
 # Pricing per million tokens (USD)
 PRICING = {
     "claude-sonnet-4-5": {"input": 3.00, "output": 15.00},
@@ -200,6 +203,49 @@ WORKSPACE_DIR = os.path.join(BASE_DIR, "workspace")
 os.makedirs(WORKSPACE_DIR, exist_ok=True)
 
 MEMORY_FILE = os.path.join(BASE_DIR, "memory.json")
+PERSONAS_FILE = os.path.join(BASE_DIR, "personas.json")
+
+BUILTIN_PERSONAS = {
+    "default": (
+        "You are a blunt, witty collaborator. You give honest, direct answers "
+        "without sugarcoating. You're not rude for the sake of it—you're just "
+        "efficient and real. If something is a bad idea, you say so. If someone's "
+        "on the right track, you tell them that too, briefly. You have a dry sense "
+        "of humor and zero patience for fluff."
+    ),
+    "writer": (
+        "You are a screenplay collaborator. You focus on dialogue, structure, "
+        "pacing, and character voice. You give feedback like a seasoned writer's "
+        "room partner—direct, constructive, and always in service of the story. "
+        "You think in terms of scenes, beats, and subtext."
+    ),
+    "coder": (
+        "You are a coding partner. You explain concepts clearly, write clean "
+        "and well-structured code, and think through edge cases. You prefer "
+        "practical solutions over clever ones. When reviewing code, you focus "
+        "on correctness, readability, and maintainability."
+    ),
+    "critic": (
+        "You are a brutally honest critic. You don't sugarcoat anything. You "
+        "find weaknesses, logical gaps, and mediocrity. Your feedback is harsh "
+        "but always specific and actionable. You have high standards and zero "
+        "tolerance for hand-waving or half-baked ideas."
+    ),
+}
+
+def load_personas():
+    """Load custom personas from the JSON file."""
+    if os.path.exists(PERSONAS_FILE):
+        with open(PERSONAS_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_personas(personas):
+    """Save custom personas to the JSON file."""
+    with open(PERSONAS_FILE, "w") as f:
+        json.dump(personas, f, indent=2)
+
+custom_personas = load_personas()
 
 def load_memories():
     """Load memories from the JSON file."""
@@ -215,12 +261,15 @@ def save_memories(memories):
 
 def build_system_prompt(memories):
     """Build the system prompt, including any stored memories."""
-    base = (
-        "You are a blunt, witty collaborator. You give honest, direct answers "
-        "without sugarcoating. You're not rude for the sake of it—you're just "
-        "efficient and real. If something is a bad idea, you say so. If someone's "
-        "on the right track, you tell them that too, briefly. You have a dry sense "
-        "of humor and zero patience for fluff.\n\n"
+    # Look up persona: built-in first, then custom, fall back to default
+    if active_persona in BUILTIN_PERSONAS:
+        personality = BUILTIN_PERSONAS[active_persona]
+    elif active_persona in custom_personas:
+        personality = custom_personas[active_persona]
+    else:
+        personality = BUILTIN_PERSONAS["default"]
+
+    tools_paragraph = (
         "You have tools available: web search, file read/write, memory, and "
         "Python code execution. Use them autonomously when appropriate. Search "
         "the web when asked about current events or when you're unsure about "
@@ -229,6 +278,8 @@ def build_system_prompt(memories):
         "Run Python code when the user asks you to execute, test, or demonstrate "
         "code. Don't ask permission—just use the tools."
     )
+
+    base = personality + "\n\n" + tools_paragraph
     if memories:
         memory_block = "\n".join(f"- {m}" for m in memories)
         base += f"\n\nThings the user has asked you to remember:\n{memory_block}"
@@ -763,6 +814,9 @@ HELP_TEXT = f"""{DIM}Available commands:
   /remember <fact>   Save a fact to persistent memory
   /forget <fact>     Remove a fact from memory
   /memories          List all stored memories
+  /persona           List available personas
+  /persona <name>    Switch persona (default, writer, coder, critic)
+  /persona custom <desc>  Create a custom persona
   /load              Load a previous conversation into context
   /conversations     List previous conversations
   /tokens            Show conversation size and compression status
@@ -781,8 +835,9 @@ print("Type /help to see available commands.\n")
 while True:
     # Get input from the user
     short_name = MODEL_SHORT_NAMES.get(active_model, active_model)
+    persona_tag = f"/{active_persona}" if active_persona != "default" else ""
     try:
-        user_input = input(f"{GREEN}You {DIM}[{short_name}]{RESET}{GREEN}: {RESET}")
+        user_input = input(f"{GREEN}You {DIM}[{short_name}{persona_tag}]{RESET}{GREEN}: {RESET}")
     except (EOFError, KeyboardInterrupt):
         # Handle Ctrl+D or Ctrl+C gracefully
         print()
@@ -915,6 +970,43 @@ while True:
             print(RESET)
         else:
             print(f"{DIM}No memories stored. Use /remember <fact> to add one.{RESET}\n")
+        continue
+
+    if command_lower == "/persona" or command_lower.startswith("/persona "):
+        arg = command[8:].strip()  # everything after "/persona"
+        if not arg:
+            # List all personas, highlight active
+            print(f"{DIM}Available personas:")
+            all_personas = list(BUILTIN_PERSONAS.keys()) + [
+                k for k in custom_personas if k not in BUILTIN_PERSONAS
+            ]
+            for name in all_personas:
+                marker = " ←" if name == active_persona else ""
+                source = "custom" if name in custom_personas and name not in BUILTIN_PERSONAS else "built-in"
+                print(f"  {name} ({source}){marker}")
+            print(RESET)
+        elif arg.lower().startswith("custom "):
+            # Create/overwrite the "custom" persona
+            description = arg[7:].strip()
+            if not description:
+                print(f"{DIM}Usage: /persona custom <description>{RESET}\n")
+            else:
+                custom_personas["custom"] = description
+                save_personas(custom_personas)
+                active_persona = "custom"
+                print(f"{DIM}Custom persona set and activated.{RESET}\n")
+        else:
+            # Switch to a named persona
+            name = arg.lower()
+            if name in BUILTIN_PERSONAS or name in custom_personas:
+                active_persona = name
+                print(f"{DIM}Switched to persona: {name}{RESET}\n")
+            else:
+                available = list(BUILTIN_PERSONAS.keys()) + [
+                    k for k in custom_personas if k not in BUILTIN_PERSONAS
+                ]
+                print(f"{DIM}Unknown persona: {name}")
+                print(f"  Available: {', '.join(available)}{RESET}\n")
         continue
 
     if command_lower == "/conversations":
