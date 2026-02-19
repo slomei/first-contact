@@ -385,10 +385,15 @@ def get_persona_model(name):
 
 
 def load_memories():
-    """Load memories from the active project's memory file."""
+    """Load memories from the active project's memory file, falling back to root."""
     path = get_memory_file()
     if os.path.exists(path):
         with open(path, "r") as f:
+            return json.load(f)
+    # Fall back to root-level memory.json (legacy location)
+    root_path = os.path.join(BASE_DIR, "memory.json")
+    if os.path.exists(root_path):
+        with open(root_path, "r") as f:
             return json.load(f)
     return []
 
@@ -1829,19 +1834,25 @@ if __name__ == "__main__":
 
                 print(f"{DIM}Using Opus for cover letter generation{RESET}")
                 print(f"{DIM}Generating cover letter for: {job['title']}...{RESET}")
-                # Gather memories from current project + general for background
+                # Gather memories from ALL sources for background
                 all_memories = list(memories)
+                # Always include root-level memory.json (legacy/shared)
+                root_mem = os.path.join(BASE_DIR, "memory.json")
+                if os.path.exists(root_mem):
+                    with open(root_mem, "r") as f:
+                        all_memories.extend(json.load(f))
+                # Include general project memories
                 if active_project != "general":
                     general_mem = os.path.join(PROJECTS_DIR, "general", "memory.json")
                     if os.path.exists(general_mem):
                         with open(general_mem, "r") as f:
                             all_memories.extend(json.load(f))
-                # Also pull from job-search project memories
+                # Include job-search project memories
                 js_mem = os.path.join(PROJECTS_DIR, JOB_SEARCH_PROJECT, "memory.json")
                 if js_mem != get_memory_file() and os.path.exists(js_mem):
                     with open(js_mem, "r") as f:
                         all_memories.extend(json.load(f))
-                # Deduplicate
+                # Deduplicate while preserving order
                 all_memories = list(dict.fromkeys(all_memories))
                 try:
                     letter, cost = generate_cover_letter(job, all_memories)
