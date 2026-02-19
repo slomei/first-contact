@@ -28,8 +28,15 @@ CYAN = "\033[36m"
 DIM = "\033[2m"
 RESET = "\033[0m"
 
-# Model to use
-MODEL = "claude-sonnet-4-5"
+# Available models and their shorthand commands
+MODELS = {
+    "/opus":   "claude-opus-4-6",
+    "/sonnet": "claude-sonnet-4-6",
+    "/haiku":  "claude-haiku-4-5",
+}
+
+# Active model (default: sonnet)
+active_model = "claude-sonnet-4-6"
 
 # Pricing per million tokens (USD)
 PRICING = {
@@ -38,6 +45,9 @@ PRICING = {
     "claude-haiku-4-5":  {"input": 0.80, "output": 4.00},
     "claude-opus-4-6":   {"input": 15.00, "output": 75.00},
 }
+
+# Reverse lookup: model ID -> short name
+MODEL_SHORT_NAMES = {v: k.lstrip("/") for k, v in MODELS.items()}
 
 # Running session totals
 session_input_tokens = 0
@@ -85,12 +95,14 @@ if existing:
     print()
 
 print("Chatbot ready! Type your message and press Enter.")
-print("Type 'quit' or 'exit' to end the conversation.\n")
+print("Type 'quit' or 'exit' to end the conversation.")
+print("Type /opus, /sonnet, or /haiku to switch models.\n")
 
 while True:
     # Get input from the user
+    short_name = MODEL_SHORT_NAMES.get(active_model, active_model)
     try:
-        user_input = input(f"{GREEN}You: {RESET}")
+        user_input = input(f"{GREEN}You {DIM}[{short_name}]{RESET}{GREEN}: {RESET}")
     except (EOFError, KeyboardInterrupt):
         # Handle Ctrl+D or Ctrl+C gracefully
         print()
@@ -106,6 +118,13 @@ while True:
         print("Goodbye!")
         break
 
+    # Check for model switching commands
+    command = user_input.strip().lower()
+    if command in MODELS:
+        active_model = MODELS[command]
+        print(f"{DIM}Switched to {active_model}{RESET}\n")
+        continue
+
     # Skip empty messages
     if not user_input.strip():
         continue
@@ -118,7 +137,7 @@ while True:
     print(f"\n{CYAN}Claude:{RESET} ", end="", flush=True)
 
     with client.messages.stream(
-        model=MODEL,
+        model=active_model,
         max_tokens=1024,
         system=system_prompt,
         messages=conversation_history,
@@ -137,7 +156,7 @@ while True:
         output_tokens = final.usage.output_tokens
 
     # Calculate cost for this message
-    prices = PRICING.get(MODEL, {"input": 0, "output": 0})
+    prices = PRICING.get(active_model, {"input": 0, "output": 0})
     msg_cost = (input_tokens * prices["input"] + output_tokens * prices["output"]) / 1_000_000
 
     # Update session totals
