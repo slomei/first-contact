@@ -57,10 +57,15 @@ session_output_tokens = 0
 session_cost = 0.0
 
 
-CONVERSATIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "conversations")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+CONVERSATIONS_DIR = os.path.join(BASE_DIR, "conversations")
 os.makedirs(CONVERSATIONS_DIR, exist_ok=True)
 
-MEMORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory.json")
+WORKSPACE_DIR = os.path.join(BASE_DIR, "workspace")
+os.makedirs(WORKSPACE_DIR, exist_ok=True)
+
+MEMORY_FILE = os.path.join(BASE_DIR, "memory.json")
 
 def load_memories():
     """Load memories from the JSON file."""
@@ -89,6 +94,21 @@ def build_system_prompt(memories):
     return base
 
 memories = load_memories()
+
+def get_last_response():
+    """Get the last assistant response from conversation history."""
+    for msg in reversed(conversation_history):
+        if msg["role"] == "assistant":
+            return msg["content"]
+    return None
+
+def extract_code_block(text):
+    """Extract the first fenced code block from text, or return the full text."""
+    import re
+    match = re.search(r"```(?:\w*\n)?(.*?)```", text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return text
 
 def web_search(query, max_results=5):
     """Search the web using DuckDuckGo and return formatted results."""
@@ -132,6 +152,7 @@ HELP_TEXT = f"""{DIM}Available commands:
   /help              Show this help message
   /read <path>       Load a file into the conversation
   /web <query>       Search the web and discuss results
+  /write <file>      Save last response to workspace/<file>
   /remember <fact>   Save a fact to persistent memory
   /forget <fact>     Remove a fact from memory
   /memories          List all stored memories
@@ -236,6 +257,42 @@ while True:
         print(f"\n{DIM}  [{input_tokens} in / {output_tokens} out — ${msg_cost:.4f}]  "
               f"session: ${session_cost:.4f}{RESET}\n")
         conversation_history.append({"role": "assistant", "content": response_text})
+        continue
+
+    if command_lower.startswith("/write "):
+        filename = command[7:].strip()
+        if not filename:
+            print(f"{DIM}Usage: /write <filename>{RESET}\n")
+            continue
+        # Prevent path traversal outside workspace
+        if ".." in filename or filename.startswith("/"):
+            print(f"{DIM}Filename must be relative and stay inside workspace/{RESET}\n")
+            continue
+        filepath = os.path.join(WORKSPACE_DIR, filename)
+        # Create subdirectories if the filename includes them
+        os.makedirs(os.path.dirname(filepath) or WORKSPACE_DIR, exist_ok=True)
+        # Check for overwrite
+        if os.path.exists(filepath):
+            try:
+                confirm = input(f"{DIM}workspace/{filename} already exists. Overwrite? [y/N]: {RESET}")
+            except (EOFError, KeyboardInterrupt):
+                print(f"\n{DIM}Cancelled.{RESET}\n")
+                continue
+            if confirm.strip().lower() != "y":
+                print(f"{DIM}Cancelled.{RESET}\n")
+                continue
+        # Get content from last Claude response
+        last = get_last_response()
+        if not last:
+            print(f"{DIM}No Claude response to save yet.{RESET}\n")
+            continue
+        content = extract_code_block(last)
+        with open(filepath, "w") as f:
+            f.write(content)
+            if not content.endswith("\n"):
+                f.write("\n")
+        line_count = content.count("\n") + 1
+        print(f"{DIM}Wrote {line_count} lines to workspace/{filename}{RESET}\n")
         continue
 
     if command_lower.startswith("/remember "):
