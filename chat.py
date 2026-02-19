@@ -12,6 +12,8 @@ Usage:
 import anthropic
 import json
 import os
+import subprocess
+import tempfile
 from datetime import datetime
 from ddgs import DDGS
 
@@ -163,6 +165,24 @@ TOOLS = [
             "required": [],
         },
     },
+    {
+        "name": "run_python",
+        "description": (
+            "Run Python code in the workspace/ directory. Use this when the user "
+            "asks you to execute, run, or test code. The code runs in a sandboxed "
+            "environment with a 30-second timeout."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "The Python code to execute",
+                },
+            },
+            "required": ["code"],
+        },
+    },
 ]
 
 # Running session totals
@@ -201,12 +221,13 @@ def build_system_prompt(memories):
         "efficient and real. If something is a bad idea, you say so. If someone's "
         "on the right track, you tell them that too, briefly. You have a dry sense "
         "of humor and zero patience for fluff.\n\n"
-        "You have tools available: web search, file read/write, and memory. "
-        "Use them autonomously when appropriate. Search the web when asked about "
-        "current events or when you're unsure about something factual. Read files "
-        "when the user references them. Save facts to memory when the user shares "
-        "personal preferences or important details. Don't ask permission—just "
-        "use the tools."
+        "You have tools available: web search, file read/write, memory, and "
+        "Python code execution. Use them autonomously when appropriate. Search "
+        "the web when asked about current events or when you're unsure about "
+        "something factual. Read files when the user references them. Save facts "
+        "to memory when the user shares personal preferences or important details. "
+        "Run Python code when the user asks you to execute, test, or demonstrate "
+        "code. Don't ask permission—just use the tools."
     )
     if memories:
         memory_block = "\n".join(f"- {m}" for m in memories)
@@ -235,6 +256,46 @@ def extract_code_block(text):
     if match:
         return match.group(1).strip()
     return text
+
+def extract_python_block(text):
+    """Extract a Python code block from text. Prefers ```python blocks, falls back to any fenced block.
+    Returns None if no code block found."""
+    import re
+    # Try ```python first
+    match = re.search(r"```python\n(.*?)```", text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    # Fall back to any fenced block
+    match = re.search(r"```(?:\w*\n)?(.*?)```", text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return None
+
+def run_code_in_workspace(code):
+    """Run Python code in a temp file inside workspace/. Returns (output, is_error)."""
+    tmp_path = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(suffix=".py", dir=WORKSPACE_DIR)
+        with os.fdopen(fd, "w") as f:
+            f.write(code)
+        result = subprocess.run(
+            ["python3", tmp_path],
+            capture_output=True, text=True, timeout=30, cwd=WORKSPACE_DIR,
+        )
+        output = result.stdout
+        if result.stderr:
+            output += result.stderr
+        output = output.strip()
+        if not output:
+            output = "(no output)"
+        return output, result.returncode != 0
+    except subprocess.TimeoutExpired:
+        return "Execution timed out (30s limit).", True
+    except Exception as e:
+        return f"Execution failed: {e}", True
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 def estimate_conversation_tokens():
     """Estimate total tokens in conversation history (~4 chars per token)."""
@@ -482,6 +543,19 @@ def execute_tool(name, tool_input):
             return "\n".join(f"- {m}" for m in memories), False
         return "No memories stored.", False
 
+    elif name == "run_python":
+        code = tool_input["code"]
+        print(f"\n{CYAN}Code to execute:{RESET}")
+        print(f"{CYAN}{code}{RESET}")
+        try:
+            confirm = input(f"\n{DIM}Run this code? [y/N]: {RESET}")
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return "User declined to run this code.", False
+        if confirm.strip().lower() != "y":
+            return "User declined to run this code.", False
+        return run_code_in_workspace(code)
+
     return f"Unknown tool: {name}", True
 
 def print_tool_status(name, tool_input):
@@ -493,6 +567,7 @@ def print_tool_status(name, tool_input):
         "remember": f"Remembering: \"{tool_input.get('fact', '')}\"",
         "forget": f"Forgetting: \"{tool_input.get('fact', '')}\"",
         "list_memories": "Listing memories",
+        "run_python": "Running Python code",
     }
     label = labels.get(name, f"Using tool: {name}")
     print(f"\n{DIM}⟡ {label}{RESET}")
@@ -684,6 +759,7 @@ HELP_TEXT = f"""{DIM}Available commands:
   /read <path>       Load a file into the conversation
   /web <query>       Search the web and discuss results
   /write <file>      Save last response to workspace/<file>
+  /run               Run the code block from Claude's last response
   /remember <fact>   Save a fact to persistent memory
   /forget <fact>     Remove a fact from memory
   /memories          List all stored memories
@@ -695,7 +771,7 @@ HELP_TEXT = f"""{DIM}Available commands:
   /haiku             Switch to Claude Haiku
   quit / exit        End the conversation
 
-Claude also uses tools autonomously (web search, file read/write, memory).{RESET}"""
+Claude also uses tools autonomously (web search, file read/write, memory, code execution).{RESET}"""
 
 if memories:
     print(f"Loaded {len(memories)} memor{'y' if len(memories) == 1 else 'ies'} from memory.json")
@@ -888,6 +964,24 @@ while True:
         if tokens >= TOKEN_THRESHOLD:
             print(f"  ⚠ Above threshold — will compress on next response")
         print(RESET)
+        continue
+
+    if command_lower == "/run":
+        last = get_last_response()
+        if not last:
+            print(f"{DIM}No Claude response to extract code from.{RESET}\n")
+            continue
+        code = extract_python_block(last)
+        if not code:
+            print(f"{DIM}No code block found in last response.{RESET}\n")
+            continue
+        print(f"{CYAN}Running:{RESET}")
+        print(f"{CYAN}{code}{RESET}\n")
+        output, is_error = run_code_in_workspace(code)
+        if is_error:
+            print(f"{DIM}Error:{RESET}\n{output}\n")
+        else:
+            print(f"{output}\n")
         continue
 
     # Skip empty messages
