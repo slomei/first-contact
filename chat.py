@@ -233,11 +233,31 @@ BUILTIN_PERSONAS = {
     ),
 }
 
+# Default models for built-in personas
+BUILTIN_PERSONA_MODELS = {
+    "default": "claude-sonnet-4-6",
+    "writer":  "claude-opus-4-6",
+    "coder":   "claude-opus-4-6",
+    "critic":  "claude-sonnet-4-6",
+}
+
 def load_personas():
-    """Load custom personas from the JSON file."""
+    """Load custom personas from the JSON file.
+
+    Supports both old format (string values) and new format (dict with
+    'description' and optional 'model' keys).
+    """
     if os.path.exists(PERSONAS_FILE):
         with open(PERSONAS_FILE, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+        # Migrate old format: bare string values become {"description": string}
+        migrated = {}
+        for k, v in data.items():
+            if isinstance(v, str):
+                migrated[k] = {"description": v}
+            else:
+                migrated[k] = v
+        return migrated
     return {}
 
 def save_personas(personas):
@@ -246,6 +266,18 @@ def save_personas(personas):
         json.dump(personas, f, indent=2)
 
 custom_personas = load_personas()
+
+
+def get_persona_model(name):
+    """Get the default model for a persona.
+
+    Checks for a user override in custom_personas first, then falls back
+    to the built-in default, then to sonnet.
+    """
+    if name in custom_personas and "model" in custom_personas[name]:
+        return custom_personas[name]["model"]
+    return BUILTIN_PERSONA_MODELS.get(name, "claude-sonnet-4-6")
+
 
 def load_memories():
     """Load memories from the JSON file."""
@@ -264,8 +296,8 @@ def build_system_prompt(memories):
     # Look up persona: built-in first, then custom, fall back to default
     if active_persona in BUILTIN_PERSONAS:
         personality = BUILTIN_PERSONAS[active_persona]
-    elif active_persona in custom_personas:
-        personality = custom_personas[active_persona]
+    elif active_persona in custom_personas and "description" in custom_personas[active_persona]:
+        personality = custom_personas[active_persona]["description"]
     else:
         personality = BUILTIN_PERSONAS["default"]
 
@@ -817,6 +849,7 @@ HELP_TEXT = f"""{DIM}Available commands:
   /persona           List available personas
   /persona <name>    Switch persona (default, writer, coder, critic)
   /persona custom <desc>  Create a custom persona
+  /persona model <name> <model>  Set a persona's default model
   /load              Load a previous conversation into context
   /conversations     List previous conversations
   /tokens            Show conversation size and compression status
@@ -979,31 +1012,67 @@ while True:
             print(f"{DIM}Available personas:")
             all_personas = list(BUILTIN_PERSONAS.keys()) + [
                 k for k in custom_personas if k not in BUILTIN_PERSONAS
+                and "description" in custom_personas[k]
             ]
             for name in all_personas:
                 marker = " ←" if name == active_persona else ""
                 source = "custom" if name in custom_personas and name not in BUILTIN_PERSONAS else "built-in"
-                print(f"  {name} ({source}){marker}")
+                model_name = MODEL_SHORT_NAMES.get(get_persona_model(name), get_persona_model(name))
+                print(f"  {name} ({source}, {model_name}){marker}")
             print(RESET)
+        elif arg.lower().startswith("model "):
+            # Set a persona's default model: /persona model <name> <model>
+            parts = arg[6:].strip().split()
+            model_map = {"opus": "claude-opus-4-6", "sonnet": "claude-sonnet-4-6", "haiku": "claude-haiku-4-5"}
+            if len(parts) != 2:
+                print(f"{DIM}Usage: /persona model <name> <opus|sonnet|haiku>{RESET}\n")
+            else:
+                pname = parts[0].lower()
+                model_arg = parts[1].lower()
+                persona_exists = (pname in BUILTIN_PERSONAS or
+                    (pname in custom_personas and "description" in custom_personas[pname]))
+                if model_arg not in model_map:
+                    print(f"{DIM}Unknown model: {model_arg}. Use opus, sonnet, or haiku.{RESET}\n")
+                elif not persona_exists:
+                    print(f"{DIM}Unknown persona: {pname}{RESET}\n")
+                else:
+                    if pname not in custom_personas:
+                        custom_personas[pname] = {}
+                    custom_personas[pname]["model"] = model_map[model_arg]
+                    save_personas(custom_personas)
+                    if pname == active_persona:
+                        active_model = model_map[model_arg]
+                    print(f"{DIM}Set {pname}'s default model to {model_arg}.{RESET}\n")
         elif arg.lower().startswith("custom "):
             # Create/overwrite the "custom" persona
             description = arg[7:].strip()
             if not description:
                 print(f"{DIM}Usage: /persona custom <description>{RESET}\n")
             else:
-                custom_personas["custom"] = description
+                # Preserve existing model preference if any
+                existing_model = custom_personas.get("custom", {}).get("model")
+                custom_personas["custom"] = {"description": description}
+                if existing_model:
+                    custom_personas["custom"]["model"] = existing_model
                 save_personas(custom_personas)
                 active_persona = "custom"
-                print(f"{DIM}Custom persona set and activated.{RESET}\n")
+                active_model = get_persona_model("custom")
+                model_name = MODEL_SHORT_NAMES.get(active_model, active_model)
+                print(f"{DIM}Custom persona set and activated (model: {model_name}).{RESET}\n")
         else:
             # Switch to a named persona
             name = arg.lower()
-            if name in BUILTIN_PERSONAS or name in custom_personas:
+            persona_exists = (name in BUILTIN_PERSONAS or
+                (name in custom_personas and "description" in custom_personas[name]))
+            if persona_exists:
                 active_persona = name
-                print(f"{DIM}Switched to persona: {name}{RESET}\n")
+                active_model = get_persona_model(name)
+                model_name = MODEL_SHORT_NAMES.get(active_model, active_model)
+                print(f"{DIM}Switched to persona: {name} (model: {model_name}){RESET}\n")
             else:
                 available = list(BUILTIN_PERSONAS.keys()) + [
                     k for k in custom_personas if k not in BUILTIN_PERSONAS
+                    and "description" in custom_personas[k]
                 ]
                 print(f"{DIM}Unknown persona: {name}")
                 print(f"  Available: {', '.join(available)}{RESET}\n")
