@@ -190,12 +190,37 @@ TOOLS = [
             "required": ["code"],
         },
     },
+    {
+        "name": "job_search",
+        "description": (
+            "Search for job listings using DuckDuckGo. Use this when the user asks "
+            "about job openings, hiring, career opportunities, or wants to find work. "
+            "Results are saved so the user can review and save them with /jobs save."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Job search query (e.g. 'video editor NYC', 'remote python developer')",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of results (default: 10)",
+                },
+            },
+            "required": ["query"],
+        },
+    },
 ]
 
 # Running session totals
 session_input_tokens = 0
 session_output_tokens = 0
 session_cost = 0.0
+
+# Last job search results (for /jobs save)
+last_job_results = []
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -672,6 +697,22 @@ def execute_tool(name, tool_input):
             return "User declined to run this code.", False
         return run_code_in_workspace(code)
 
+    elif name == "job_search":
+        query = tool_input["query"]
+        max_results = tool_input.get("max_results", 10)
+        try:
+            results = search_jobs(query, max_results)
+            last_job_results.clear()
+            last_job_results.extend(results)
+            if results:
+                lines = []
+                for i, r in enumerate(results, 1):
+                    lines.append(f"{i}. {r['title']}\n   {r['url']}\n   {r['body']}")
+                return "\n".join(lines), False
+            return "No job listings found.", False
+        except Exception as e:
+            return f"Job search failed: {e}", True
+
     return f"Unknown tool: {name}", True
 
 def print_tool_status(name, tool_input):
@@ -684,6 +725,7 @@ def print_tool_status(name, tool_input):
         "forget": f"Forgetting: \"{tool_input.get('fact', '')}\"",
         "list_memories": "Listing memories",
         "run_python": "Running Python code",
+        "job_search": f"Searching jobs: \"{tool_input.get('query', '')}\"",
     }
     label = labels.get(name, f"Using tool: {name}")
     print(f"\n{DIM}⟡ {label}{RESET}")
@@ -1014,6 +1056,76 @@ def run_digest():
     print(f"\n{DIM}Digest saved to {active_project}/workspace/{filename} ({cost_str}){RESET}\n")
 
 
+JOB_SEARCH_PROJECT = "job-search"
+
+
+def get_jobs_file():
+    """Return the jobs.json path, always in the job-search project."""
+    d = os.path.join(PROJECTS_DIR, JOB_SEARCH_PROJECT)
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, "jobs.json")
+
+
+def load_jobs():
+    """Load saved jobs from the job-search project."""
+    path = get_jobs_file()
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            return json.load(f)
+    return []
+
+
+def save_jobs(jobs):
+    """Save jobs to the job-search project."""
+    path = get_jobs_file()
+    with open(path, "w") as f:
+        json.dump(jobs, f, indent=2)
+
+
+def search_jobs(query, max_results=10):
+    """Search for job listings using DuckDuckGo."""
+    search_query = f"{query} jobs hiring"
+    results = DDGS().text(search_query, max_results=max_results)
+    if not results:
+        return []
+    return [{"title": r["title"], "url": r["href"], "body": r["body"]} for r in results]
+
+
+def generate_cover_letter(job, memories_list):
+    """Use Claude to generate a tailored cover letter for a job listing."""
+    global session_input_tokens, session_output_tokens, session_cost
+
+    memory_block = "\n".join(f"- {m}" for m in memories_list) if memories_list else "No background info stored."
+
+    prompt = (
+        "Generate a tailored cover letter for this job based on the applicant's background.\n\n"
+        f"Job listing:\n"
+        f"Title: {job['title']}\n"
+        f"URL: {job['url']}\n"
+        f"Description: {job['body']}\n\n"
+        f"Applicant's background:\n{memory_block}\n\n"
+        "Write a professional, concise cover letter (3-4 paragraphs) that connects "
+        "the applicant's experience to the job requirements. Be specific and genuine, "
+        "not generic. Address it to 'Hiring Manager' unless a name is in the listing."
+    )
+
+    response = client.messages.create(
+        model=active_model,
+        max_tokens=1000,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    s_in = response.usage.input_tokens
+    s_out = response.usage.output_tokens
+    prices = PRICING.get(active_model, {"input": 0, "output": 0})
+    s_cost = (s_in * prices["input"] + s_out * prices["output"]) / 1_000_000
+    session_input_tokens += s_in
+    session_output_tokens += s_out
+    session_cost += s_cost
+
+    return response.content[0].text, s_cost
+
+
 def switch_project(name):
     """Switch to a project, creating it if needed."""
     global active_project, memories
@@ -1067,6 +1179,14 @@ if __name__ == "__main__":
       /watch list        Show all watched topics
       /watch remove <topic>  Remove a topic from the watchlist
       /digest            Search web for watched topics and save a digest
+      /jobs search <q>   Search for job listings
+      /jobs save         Save last search results to job-search project
+      /jobs list         Show all saved job listings
+      /jobs remove <#>   Remove a saved listing
+      /jobs apply <#>    Generate a cover letter for a saved listing
+      /jobs track <#> <status>  Set status (applied, interviewing, rejected, offer)
+      /jobs status       Show tracked jobs grouped by status
+      /billing           Show billing link for API credits
       /load              Load a previous conversation into context
       /conversations     List previous conversations
       /tokens            Show conversation size and compression status
@@ -1374,6 +1494,167 @@ if __name__ == "__main__":
 
         if command_lower == "/digest":
             run_digest()
+            continue
+
+        if command_lower == "/billing":
+            print(f"\n{CYAN}Check your balance and add credits:{RESET}")
+            print(f"  \033[4mhttps://platform.claude.com/settings/billing\033[0m\n")
+            continue
+
+        if command_lower == "/jobs" or command_lower.startswith("/jobs "):
+            arg = command[5:].strip() if len(command) > 5 else ""
+            arg_lower = arg.lower()
+
+            if not arg:
+                print(f"{DIM}Usage: /jobs search <query> | /jobs save | /jobs list | /jobs remove <#>")
+                print(f"       /jobs apply <#> | /jobs track <#> <status> | /jobs status{RESET}\n")
+                continue
+
+            if arg_lower.startswith("search "):
+                query = arg[7:].strip()
+                if not query:
+                    print(f"{DIM}Usage: /jobs search <query>{RESET}\n")
+                    continue
+                print(f"{DIM}Searching jobs: {query}...{RESET}")
+                try:
+                    results = search_jobs(query)
+                    last_job_results.clear()
+                    last_job_results.extend(results)
+                except Exception as e:
+                    print(f"{DIM}Search failed: {e}{RESET}\n")
+                    continue
+                if not results:
+                    print(f"{DIM}No results found.{RESET}\n")
+                    continue
+                for i, r in enumerate(results, 1):
+                    print(f"\n  {CYAN}{i}. {r['title']}{RESET}")
+                    print(f"     {DIM}{r['url']}{RESET}")
+                    print(f"     {r['body'][:200]}")
+                print(f"\n{DIM}Found {len(results)} result(s). Use /jobs save to save these.{RESET}\n")
+
+            elif arg_lower == "save":
+                if not last_job_results:
+                    print(f"{DIM}No search results to save. Run /jobs search <query> first.{RESET}\n")
+                    continue
+                jobs = load_jobs()
+                existing_urls = {j["url"] for j in jobs}
+                added = 0
+                for r in last_job_results:
+                    if r["url"] not in existing_urls:
+                        jobs.append({
+                            "title": r["title"],
+                            "url": r["url"],
+                            "body": r["body"],
+                            "saved_at": datetime.now().strftime("%Y-%m-%d"),
+                            "status": None,
+                        })
+                        added += 1
+                save_jobs(jobs)
+                print(f"{DIM}Saved {added} new listing(s) to job-search project ({len(jobs)} total).{RESET}\n")
+
+            elif arg_lower == "list":
+                jobs = load_jobs()
+                if not jobs:
+                    print(f"{DIM}No saved jobs. Use /jobs search <query> then /jobs save.{RESET}\n")
+                    continue
+                print(f"{DIM}Saved job listings ({len(jobs)}):{RESET}")
+                for i, j in enumerate(jobs, 1):
+                    status_tag = f" [{j['status']}]" if j.get("status") else ""
+                    print(f"  {CYAN}{i}. {j['title']}{RESET}{DIM}{status_tag}")
+                    print(f"     {j['url']}")
+                    print(f"     Saved: {j['saved_at']}{RESET}")
+                print()
+
+            elif arg_lower.startswith("remove "):
+                num_str = arg[7:].strip()
+                try:
+                    idx = int(num_str) - 1
+                    jobs = load_jobs()
+                    if idx < 0 or idx >= len(jobs):
+                        raise ValueError
+                    removed = jobs.pop(idx)
+                    save_jobs(jobs)
+                    print(f"{DIM}Removed: {removed['title']}{RESET}\n")
+                except ValueError:
+                    print(f"{DIM}Invalid number. Use /jobs list to see listings.{RESET}\n")
+
+            elif arg_lower.startswith("apply "):
+                num_str = arg[6:].strip()
+                try:
+                    idx = int(num_str) - 1
+                    jobs = load_jobs()
+                    if idx < 0 or idx >= len(jobs):
+                        raise ValueError
+                except ValueError:
+                    print(f"{DIM}Invalid number. Use /jobs list to see listings.{RESET}\n")
+                    continue
+                job = jobs[idx]
+                print(f"{DIM}Generating cover letter for: {job['title']}...{RESET}")
+                # Gather memories from current project + general for background
+                all_memories = list(memories)
+                if active_project != "general":
+                    general_mem = os.path.join(PROJECTS_DIR, "general", "memory.json")
+                    if os.path.exists(general_mem):
+                        with open(general_mem, "r") as f:
+                            all_memories.extend(json.load(f))
+                # Also pull from job-search project memories
+                js_mem = os.path.join(PROJECTS_DIR, JOB_SEARCH_PROJECT, "memory.json")
+                if js_mem != get_memory_file() and os.path.exists(js_mem):
+                    with open(js_mem, "r") as f:
+                        all_memories.extend(json.load(f))
+                # Deduplicate
+                all_memories = list(dict.fromkeys(all_memories))
+                try:
+                    letter, cost = generate_cover_letter(job, all_memories)
+                    print(f"\n{CYAN}Cover Letter — {job['title']}{RESET}\n")
+                    print(letter)
+                    print(f"\n{DIM}  [${cost:.4f}] session: ${session_cost:.4f}{RESET}\n")
+                except Exception as e:
+                    print(f"{DIM}Failed to generate cover letter: {e}{RESET}\n")
+
+            elif arg_lower.startswith("track "):
+                parts = arg[6:].strip().split(None, 1)
+                if len(parts) != 2:
+                    print(f"{DIM}Usage: /jobs track <#> <status>{RESET}")
+                    print(f"{DIM}  Statuses: applied, interviewing, rejected, offer{RESET}\n")
+                    continue
+                num_str, status = parts
+                try:
+                    idx = int(num_str) - 1
+                    jobs = load_jobs()
+                    if idx < 0 or idx >= len(jobs):
+                        raise ValueError
+                except ValueError:
+                    print(f"{DIM}Invalid number. Use /jobs list to see listings.{RESET}\n")
+                    continue
+                jobs[idx]["status"] = status.lower()
+                save_jobs(jobs)
+                print(f"{DIM}Updated: {jobs[idx]['title']} → {status.lower()}{RESET}\n")
+
+            elif arg_lower == "status":
+                jobs = load_jobs()
+                tracked = [j for j in jobs if j.get("status")]
+                if not tracked:
+                    print(f"{DIM}No tracked jobs. Use /jobs track <#> <status> to set a status.{RESET}\n")
+                    continue
+                # Group by status
+                groups = {}
+                for j in tracked:
+                    s = j["status"]
+                    if s not in groups:
+                        groups[s] = []
+                    groups[s].append(j)
+                print(f"{DIM}Tracked jobs:{RESET}")
+                for status in sorted(groups.keys()):
+                    print(f"\n  {CYAN}{status.upper()}{RESET}")
+                    for j in groups[status]:
+                        print(f"    {j['title']}")
+                        print(f"    {DIM}{j['url']}{RESET}")
+                print()
+
+            else:
+                print(f"{DIM}Unknown /jobs subcommand: {arg}")
+                print(f"  Use: search, save, list, remove, apply, track, status{RESET}\n")
             continue
 
         if command_lower == "/conversations":
