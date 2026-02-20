@@ -1,17 +1,20 @@
 """
 Gradio web GUI for the chatbot.
 
-Imports core logic from chat.py — run with:
+Imports core logic from memory, models, tools — run with:
     python gui.py
 """
 
 import json
 import gradio as gr
-import chat
+
+import memory
+import models
+import tools
 
 
 class SessionState:
-    """Per-session state to avoid mutating chat.py globals."""
+    """Per-session state to avoid mutating module globals."""
 
     def __init__(self):
         self.conversation_history = []
@@ -24,9 +27,9 @@ class SessionState:
 
 def get_persona_choices():
     """Build the list of persona names for the dropdown."""
-    names = list(chat.BUILTIN_PERSONAS.keys())
-    for k in chat.custom_personas:
-        if k not in chat.BUILTIN_PERSONAS and "description" in chat.custom_personas[k]:
+    names = list(memory.BUILTIN_PERSONAS.keys())
+    for k in memory.custom_personas:
+        if k not in memory.BUILTIN_PERSONAS and "description" in memory.custom_personas[k]:
             names.append(k)
     return names
 
@@ -47,32 +50,18 @@ MODEL_ID_TO_DISPLAY = {v: k for k, v in MODEL_DISPLAY_TO_ID.items()}
 
 def format_memories():
     """Format current memories for sidebar display."""
-    mems = chat.load_memories()
+    mems = memory.load_memories()
     if not mems:
         return "*No memories stored.*"
     return "\n".join(f"- {m}" for m in mems)
 
 
 def execute_tool_gui(name, tool_input):
-    """Wraps chat.execute_tool but auto-approves run_python (no terminal prompt)."""
+    """Wraps tools.execute_tool but auto-approves (no confirm_fn = no terminal prompt)."""
     if name == "run_python":
         code = tool_input["code"]
-        return chat.run_code_in_workspace(code)
-    return chat.execute_tool(name, tool_input)
-
-
-def tool_status_text(name, tool_input):
-    """Return a short status string for a tool call."""
-    labels = {
-        "web_search": f'Searching: "{tool_input.get("query", "")}"',
-        "read_file": f'Reading: {tool_input.get("path", "")}',
-        "write_file": f'Writing: workspace/{tool_input.get("filename", "")}',
-        "remember": f'Remembering: "{tool_input.get("fact", "")}"',
-        "forget": f'Forgetting: "{tool_input.get("fact", "")}"',
-        "list_memories": "Listing memories",
-        "run_python": "Running Python code",
-    }
-    return labels.get(name, f"Using tool: {name}")
+        return tools.run_code_in_workspace(code)
+    return tools.execute_tool(name, tool_input)
 
 
 def user_message(message, history, state):
@@ -86,16 +75,16 @@ def user_message(message, history, state):
 
 def bot_response(history, state):
     """Stream Claude's response, handling tool-use loops."""
-    # Set chat.py's active_persona so build_system_prompt works
-    chat.active_persona = state.active_persona
+    # Set memory's active_persona so build_system_prompt works
+    memory.active_persona = state.active_persona
 
     for turn in range(10):
-        with chat.client.messages.stream(
+        with models.client.messages.stream(
             model=state.active_model,
             max_tokens=4096,
-            system=chat.build_system_prompt(chat.memories),
+            system=memory.build_system_prompt(memory.memories),
             messages=state.conversation_history,
-            tools=chat.TOOLS,
+            tools=tools.TOOLS,
         ) as stream:
             response_text = ""
             # Start a new assistant message for streaming
@@ -110,7 +99,7 @@ def bot_response(history, state):
         # Track tokens/cost
         inp = final.usage.input_tokens
         out = final.usage.output_tokens
-        prices = chat.PRICING.get(state.active_model, {"input": 0, "output": 0})
+        prices = models.PRICING.get(state.active_model, {"input": 0, "output": 0})
         msg_cost = (inp * prices["input"] + out * prices["output"]) / 1_000_000
         state.input_tokens += inp
         state.output_tokens += out
@@ -135,7 +124,7 @@ def bot_response(history, state):
             tool_results = []
             for block in final.content:
                 if block.type == "tool_use":
-                    status = tool_status_text(block.name, block.input)
+                    status = tools.tool_status_text(block.name, block.input)
                     # Show tool status as italic text in the current assistant message
                     history[-1]["content"] = response_text + f"\n\n*{status}...*"
                     yield history, state, format_cost(state), format_memories()
@@ -176,7 +165,7 @@ def format_cost(state):
 def on_persona_change(persona_name, state):
     """Handle persona dropdown change — sync model."""
     state.active_persona = persona_name
-    new_model = chat.get_persona_model(persona_name)
+    new_model = memory.get_persona_model(persona_name)
     state.active_model = new_model
     display = MODEL_ID_TO_DISPLAY.get(new_model, "Sonnet")
     return state, display, format_cost(state)

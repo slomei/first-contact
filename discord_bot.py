@@ -1,7 +1,7 @@
 """
 Discord bot for the chatbot.
 
-Imports core logic from chat.py — run with:
+Imports core logic from memory, models, tools — run with:
     export DISCORD_BOT_TOKEN="your-token"
     python discord_bot.py
 """
@@ -15,7 +15,9 @@ from datetime import datetime
 
 import discord
 
-import chat
+import memory
+import models
+import tools
 
 # Only respond to this Discord user ID
 ALLOWED_USER_ID = 000000000000000000
@@ -53,33 +55,18 @@ def get_state(channel_id):
 
 
 def sync_state(state):
-    """Sync chat.py globals with this channel's state before operations."""
-    chat.active_project = state.active_project
-    chat.active_persona = state.active_persona
-    chat.memories = chat.load_memories()
+    """Sync module globals with this channel's state before operations."""
+    memory.active_project = state.active_project
+    memory.active_persona = state.active_persona
+    memory.memories = memory.load_memories()
 
 
 def execute_tool_discord(name, tool_input):
-    """Wraps chat.execute_tool but auto-approves run_python (no terminal prompt)."""
+    """Wraps tools.execute_tool but auto-approves (no confirm_fn = no terminal prompt)."""
     if name == "run_python":
         code = tool_input["code"]
-        return chat.run_code_in_workspace(code)
-    return chat.execute_tool(name, tool_input)
-
-
-def tool_status_text(name, tool_input):
-    """Return a short status string for a tool call."""
-    labels = {
-        "web_search": f'Searching: "{tool_input.get("query", "")}"',
-        "read_file": f'Reading: {tool_input.get("path", "")}',
-        "write_file": f'Writing: workspace/{tool_input.get("filename", "")}',
-        "remember": f'Remembering: "{tool_input.get("fact", "")}"',
-        "forget": f'Forgetting: "{tool_input.get("fact", "")}"',
-        "list_memories": "Listing memories",
-        "run_python": "Running Python code",
-        "job_search": f'Searching jobs: "{tool_input.get("query", "")}"',
-    }
-    return labels.get(name, f"Using tool: {name}")
+        return tools.run_code_in_workspace(code)
+    return tools.execute_tool(name, tool_input)
 
 
 def split_message(text, limit=2000):
@@ -129,18 +116,18 @@ async def get_response(state, channel):
 
     for turn in range(10):
         response = await asyncio.to_thread(
-            chat.client.messages.create,
+            models.client.messages.create,
             model=state.active_model,
             max_tokens=4096,
-            system=chat.build_system_prompt(chat.memories),
+            system=memory.build_system_prompt(memory.memories),
             messages=state.conversation_history,
-            tools=chat.TOOLS,
+            tools=tools.TOOLS,
         )
 
         # Track tokens/cost
         inp = response.usage.input_tokens
         out = response.usage.output_tokens
-        prices = chat.PRICING.get(state.active_model, {"input": 0, "output": 0})
+        prices = models.PRICING.get(state.active_model, {"input": 0, "output": 0})
         msg_cost = (inp * prices["input"] + out * prices["output"]) / 1_000_000
         total_input += inp
         total_output += out
@@ -167,7 +154,7 @@ async def get_response(state, channel):
             tool_results = []
             for block in response.content:
                 if block.type == "tool_use":
-                    status = tool_status_text(block.name, block.input)
+                    status = tools.tool_status_text(block.name, block.input)
                     await channel.send(f"*{status}...*")
 
                     result, is_error = await asyncio.to_thread(
@@ -249,20 +236,20 @@ def build_help_text():
 
 def build_persona_list(state):
     """Build a formatted persona list."""
-    all_personas = list(chat.BUILTIN_PERSONAS.keys()) + [
-        k for k in chat.custom_personas
-        if k not in chat.BUILTIN_PERSONAS and "description" in chat.custom_personas[k]
+    all_personas = list(memory.BUILTIN_PERSONAS.keys()) + [
+        k for k in memory.custom_personas
+        if k not in memory.BUILTIN_PERSONAS and "description" in memory.custom_personas[k]
     ]
     lines = ["**Available personas:**"]
     for name in all_personas:
         marker = " **<<**" if name == state.active_persona else ""
         source = (
             "custom"
-            if name in chat.custom_personas and name not in chat.BUILTIN_PERSONAS
+            if name in memory.custom_personas and name not in memory.BUILTIN_PERSONAS
             else "built-in"
         )
-        model_name = chat.MODEL_SHORT_NAMES.get(
-            chat.get_persona_model(name), chat.get_persona_model(name)
+        model_name = models.MODEL_SHORT_NAMES.get(
+            memory.get_persona_model(name), memory.get_persona_model(name)
         )
         lines.append(f"`{name}` ({source}, {model_name}){marker}")
     return "\n".join(lines)
@@ -271,7 +258,7 @@ def build_persona_list(state):
 def build_memories_text(state):
     """Build formatted memories list."""
     sync_state(state)
-    mems = chat.load_memories()
+    mems = memory.load_memories()
     if not mems:
         return f"No memories stored ({state.active_project})."
     lines = [f"**Stored memories ({state.active_project}):**"]
@@ -282,7 +269,6 @@ def build_memories_text(state):
 
 def build_tokens_text(state):
     """Build token usage display."""
-    # Estimate tokens from this channel's history
     total = 0
     for msg in state.conversation_history:
         content = msg["content"]
@@ -291,18 +277,18 @@ def build_tokens_text(state):
         elif isinstance(content, list):
             total += len(json.dumps(content)) // 4
 
-    exchanges = chat.group_into_exchanges(state.conversation_history)
-    pct = min(100, int(total / chat.TOKEN_THRESHOLD * 100))
+    exchanges = models.group_into_exchanges(state.conversation_history)
+    pct = min(100, int(total / models.TOKEN_THRESHOLD * 100))
     bar_len = 20
     filled = int(bar_len * pct / 100)
     bar = "\u2588" * filled + "\u2591" * (bar_len - filled)
 
     lines = [
-        f"**Conversation:** ~{total:,} / {chat.TOKEN_THRESHOLD:,} tokens ({pct}%)",
+        f"**Conversation:** ~{total:,} / {models.TOKEN_THRESHOLD:,} tokens ({pct}%)",
         f"`[{bar}]`",
         f"{len(exchanges)} exchanges, {len(state.conversation_history)} messages",
     ]
-    if total >= chat.TOKEN_THRESHOLD:
+    if total >= models.TOKEN_THRESHOLD:
         lines.append("Warning: Above threshold — will compress on next response")
     return "\n".join(lines)
 
@@ -310,7 +296,7 @@ def build_tokens_text(state):
 def build_project_list(state):
     """Build a formatted project list with active marker."""
     sync_state(state)
-    projects = chat.list_projects()
+    projects = memory.list_projects()
     lines = ["**Projects:**"]
     for p in projects:
         marker = " **<<**" if p == state.active_project else ""
@@ -321,7 +307,7 @@ def build_project_list(state):
 def build_conversations_list(state):
     """Build a numbered conversation list."""
     sync_state(state)
-    files = chat.list_conversations()
+    files = memory.list_conversations()
     if not files:
         return f"No saved conversations ({state.active_project})."
     lines = [f"**Previous conversations ({state.active_project}):**"]
@@ -340,7 +326,7 @@ def build_conversations_list(state):
 def build_delegates_text():
     """Build specialist agents display."""
     lines = ["**Specialist agents:**"]
-    for name, spec in chat.SPECIALISTS.items():
+    for name, spec in models.SPECIALISTS.items():
         lines.append(f"`{name}` — {spec['description']} ({spec['label']})")
     lines.append("\n*The director (Sonnet) routes tasks to specialists automatically.*")
     return "\n".join(lines)
@@ -349,7 +335,7 @@ def build_delegates_text():
 def build_watchlist_text(state):
     """Build watched topics list."""
     sync_state(state)
-    topics = chat.load_watchlist()
+    topics = memory.load_watchlist()
     if not topics:
         return f"No watched topics ({state.active_project}). Use `!watch <topic>` to add one."
     lines = [f"**Watched topics ({state.active_project}):**"]
@@ -361,7 +347,7 @@ def build_watchlist_text(state):
 async def run_digest_discord(state, channel):
     """Run watchlist digest for Discord (sends progress messages)."""
     sync_state(state)
-    topics = chat.load_watchlist()
+    topics = memory.load_watchlist()
     if not topics:
         return "No topics in watchlist. Use `!watch <topic>` to add one."
 
@@ -371,7 +357,7 @@ async def run_digest_discord(state, channel):
     for topic in topics:
         await channel.send(f"*Searching: {topic}...*")
         try:
-            results = await asyncio.to_thread(chat.web_search, topic, 3)
+            results = await asyncio.to_thread(tools.web_search, topic, 3)
             if results:
                 all_results.append(f"## {topic}\n{results}")
             else:
@@ -384,7 +370,7 @@ async def run_digest_discord(state, channel):
     await channel.send("*Summarizing findings...*")
     try:
         response = await asyncio.to_thread(
-            chat.client.messages.create,
+            models.client.messages.create,
             model="claude-haiku-4-5",
             max_tokens=1500,
             messages=[{"role": "user", "content":
@@ -399,7 +385,7 @@ async def run_digest_discord(state, channel):
     # Save to workspace
     date_str = datetime.now().strftime("%Y-%m-%d")
     filename = f"digest-{date_str}.md"
-    workspace = chat.get_workspace_dir()
+    workspace = memory.get_workspace_dir()
     filepath = os.path.join(workspace, filename)
 
     header = f"# Digest — {date_str}\n\nTopics: {', '.join(topics)}\n\n---\n\n"
@@ -425,7 +411,7 @@ async def load_conversation_discord(state, filepath, channel):
     await channel.send("*Summarizing previous conversation...*")
     try:
         summary_response = await asyncio.to_thread(
-            chat.client.messages.create,
+            models.client.messages.create,
             model="claude-haiku-4-5",
             max_tokens=500,
             messages=[{"role": "user", "content":
@@ -505,13 +491,13 @@ async def on_message(message):
             await message.channel.send(build_persona_list(state))
         else:
             name = arg.lower()
-            persona_exists = name in chat.BUILTIN_PERSONAS or (
-                name in chat.custom_personas
-                and "description" in chat.custom_personas[name]
+            persona_exists = name in memory.BUILTIN_PERSONAS or (
+                name in memory.custom_personas
+                and "description" in memory.custom_personas[name]
             )
             if persona_exists:
                 state.active_persona = name
-                state.active_model = chat.get_persona_model(name)
+                state.active_model = memory.get_persona_model(name)
                 model_name = MODEL_DISPLAY_NAMES.get(
                     state.active_model, state.active_model
                 )
@@ -519,11 +505,11 @@ async def on_message(message):
                     f"*Switched to persona: {name} (model: {model_name})*"
                 )
             else:
-                available = list(chat.BUILTIN_PERSONAS.keys()) + [
+                available = list(memory.BUILTIN_PERSONAS.keys()) + [
                     k
-                    for k in chat.custom_personas
-                    if k not in chat.BUILTIN_PERSONAS
-                    and "description" in chat.custom_personas[k]
+                    for k in memory.custom_personas
+                    if k not in memory.BUILTIN_PERSONAS
+                    and "description" in memory.custom_personas[k]
                 ]
                 await message.channel.send(
                     f"Unknown persona: `{name}`\n"
@@ -548,7 +534,7 @@ async def on_message(message):
         async with message.channel.typing():
             await message.channel.send(f"*Searching: {query}...*")
             try:
-                results = await asyncio.to_thread(chat.web_search, query)
+                results = await asyncio.to_thread(tools.web_search, query)
             except Exception as e:
                 await message.channel.send(f"*Search failed: {e}*")
                 return
@@ -582,8 +568,8 @@ async def on_message(message):
             else:
                 state.active_project = name
                 sync_state(state)
-                chat.switch_project(name)
-                mems = chat.load_memories()
+                memory.switch_project(name)
+                mems = memory.load_memories()
                 mem_note = f"\nLoaded {len(mems)} memor{'y' if len(mems) == 1 else 'ies'}." if mems else ""
                 await message.channel.send(f"*Switched to project: {name}*{mem_note}")
         return
@@ -595,17 +581,17 @@ async def on_message(message):
             await message.channel.send("*Usage: `!remember <fact>`*")
             return
         sync_state(state)
-        chat.memories.append(fact)
-        chat.save_memories(chat.memories)
+        memory.memories.append(fact)
+        memory.save_memories(memory.memories)
         await message.channel.send(f"*Remembered: {fact}*")
         return
 
     if command_lower.startswith("!forget "):
         fact = content[8:].strip()
         sync_state(state)
-        if fact in chat.memories:
-            chat.memories.remove(fact)
-            chat.save_memories(chat.memories)
+        if fact in memory.memories:
+            memory.memories.remove(fact)
+            memory.save_memories(memory.memories)
             await message.channel.send(f"*Forgot: {fact}*")
         else:
             await message.channel.send("*No matching memory found. Use `!memories` to see stored facts.*")
@@ -619,22 +605,22 @@ async def on_message(message):
         elif arg.lower().startswith("remove "):
             topic = arg[7:].strip()
             sync_state(state)
-            topics = chat.load_watchlist()
+            topics = memory.load_watchlist()
             if topic in topics:
                 topics.remove(topic)
-                chat.save_watchlist(topics)
+                memory.save_watchlist(topics)
                 await message.channel.send(f"*Removed: {topic}*")
             else:
                 await message.channel.send(f"*Not found: {topic}. Use `!watch list` to see topics.*")
         else:
             topic = arg.strip()
             sync_state(state)
-            topics = chat.load_watchlist()
+            topics = memory.load_watchlist()
             if topic in topics:
                 await message.channel.send(f"*Already watching: {topic}*")
             else:
                 topics.append(topic)
-                chat.save_watchlist(topics)
+                memory.save_watchlist(topics)
                 await message.channel.send(f"*Now watching: {topic}*")
         return
 
@@ -673,14 +659,14 @@ async def on_message(message):
             await message.channel.send("*Usage: `!load <#>` — use `!conversations` to see the list.*")
             return
         sync_state(state)
-        files = chat.list_conversations()
+        files = memory.list_conversations()
         if not files:
             await message.channel.send(f"*No saved conversations ({state.active_project}).*")
             return
         if idx < 0 or idx >= len(files):
             await message.channel.send(f"*Invalid number. Use `!conversations` to see the list (1-{len(files)}).*")
             return
-        filepath = os.path.join(chat.get_conversations_dir(), files[idx])
+        filepath = os.path.join(memory.get_conversations_dir(), files[idx])
         async with message.channel.typing():
             result = await load_conversation_discord(state, filepath, message.channel)
         for chunk in split_message(result):
@@ -717,7 +703,7 @@ async def on_message(message):
             async with message.channel.typing():
                 await message.channel.send(f"*Searching jobs: {query}...*")
                 try:
-                    results = await asyncio.to_thread(chat.search_jobs, query)
+                    results = await asyncio.to_thread(tools.search_jobs, query)
                     state.last_job_results = list(results)
                 except Exception as e:
                     await message.channel.send(f"*Search failed: {e}*")
@@ -737,7 +723,7 @@ async def on_message(message):
             if not state.last_job_results:
                 await message.channel.send("*No search results to save. Run `!jobs search <query>` first.*")
                 return
-            jobs = chat.load_jobs()
+            jobs = memory.load_jobs()
             existing_urls = {j["url"] for j in jobs}
             added = 0
             for r in state.last_job_results:
@@ -750,17 +736,17 @@ async def on_message(message):
                         "status": None,
                         "folder": None,
                     }
-                    chat.init_job_folder(job_entry)
+                    memory.init_job_folder(job_entry)
                     jobs.append(job_entry)
                     added += 1
-            chat.save_jobs(jobs)
+            memory.save_jobs(jobs)
             msg = f"*Saved {added} new listing(s) to job-search project ({len(jobs)} total).*"
             if added:
                 msg += "\n*Job folders: job-search/workspace/jobs/*"
             await message.channel.send(msg)
 
         elif arg_lower == "list":
-            jobs = chat.load_jobs()
+            jobs = memory.load_jobs()
             if not jobs:
                 await message.channel.send("*No saved jobs. Use `!jobs search <query>` then `!jobs save`.*")
                 return
@@ -769,7 +755,7 @@ async def on_message(message):
                 status_tag = f" [{j['status']}]" if j.get("status") else ""
                 has_letter = ""
                 if j.get("folder"):
-                    cl_path = os.path.join(chat.PROJECTS_DIR, chat.JOB_SEARCH_PROJECT,
+                    cl_path = os.path.join(memory.PROJECTS_DIR, memory.JOB_SEARCH_PROJECT,
                                            "workspace", "jobs", j["folder"], "cover-letter.md")
                     if os.path.exists(cl_path):
                         has_letter = " [cover letter]"
@@ -787,16 +773,16 @@ async def on_message(message):
             num_str = arg[7:].strip()
             try:
                 idx = int(num_str) - 1
-                jobs = chat.load_jobs()
+                jobs = memory.load_jobs()
                 if idx < 0 or idx >= len(jobs):
                     raise ValueError
                 removed = jobs.pop(idx)
                 if removed.get("folder"):
-                    folder_path = os.path.join(chat.PROJECTS_DIR, chat.JOB_SEARCH_PROJECT,
+                    folder_path = os.path.join(memory.PROJECTS_DIR, memory.JOB_SEARCH_PROJECT,
                                                "workspace", "jobs", removed["folder"])
                     if os.path.exists(folder_path):
                         shutil.rmtree(folder_path)
-                chat.save_jobs(jobs)
+                memory.save_jobs(jobs)
                 await message.channel.send(f"*Removed: {removed['title']}*")
             except ValueError:
                 await message.channel.send("*Invalid number. Use `!jobs list` to see listings.*")
@@ -805,7 +791,7 @@ async def on_message(message):
             num_str = arg[6:].strip()
             try:
                 idx = int(num_str) - 1
-                jobs = chat.load_jobs()
+                jobs = memory.load_jobs()
                 if idx < 0 or idx >= len(jobs):
                     raise ValueError
             except ValueError:
@@ -819,25 +805,25 @@ async def on_message(message):
                 )
                 # Gather memories from current project + general + job-search
                 sync_state(state)
-                all_memories = list(chat.memories)
+                all_memories = list(memory.memories)
                 if state.active_project != "general":
-                    general_mem = os.path.join(chat.PROJECTS_DIR, "general", "memory.json")
+                    general_mem = os.path.join(memory.PROJECTS_DIR, "general", "memory.json")
                     if os.path.exists(general_mem):
                         with open(general_mem, "r") as f:
                             all_memories.extend(json.load(f))
-                js_mem = os.path.join(chat.PROJECTS_DIR, chat.JOB_SEARCH_PROJECT, "memory.json")
-                if js_mem != chat.get_memory_file() and os.path.exists(js_mem):
+                js_mem = os.path.join(memory.PROJECTS_DIR, memory.JOB_SEARCH_PROJECT, "memory.json")
+                if js_mem != memory.get_memory_file() and os.path.exists(js_mem):
                     with open(js_mem, "r") as f:
                         all_memories.extend(json.load(f))
                 all_memories = list(dict.fromkeys(all_memories))
 
                 try:
                     letter, cost = await asyncio.to_thread(
-                        chat.generate_cover_letter, job, all_memories
+                        models.generate_cover_letter, job, all_memories
                     )
 
                     # Save cover letter to job folder
-                    folder = chat.get_job_folder(job)
+                    folder = memory.get_job_folder(job)
                     cl_path = os.path.join(folder, "cover-letter.md")
                     with open(cl_path, "w") as f:
                         f.write(f"# Cover Letter — {job['title']}\n\n")
@@ -858,7 +844,7 @@ async def on_message(message):
                             "cover_letter_generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
                         }, f, indent=2)
 
-                    chat.save_jobs(jobs)
+                    memory.save_jobs(jobs)
 
                     reply = (
                         f"**Cover Letter — {job['title']}**\n\n"
@@ -882,18 +868,18 @@ async def on_message(message):
             num_str, status = parts
             try:
                 idx = int(num_str) - 1
-                jobs = chat.load_jobs()
+                jobs = memory.load_jobs()
                 if idx < 0 or idx >= len(jobs):
                     raise ValueError
             except ValueError:
                 await message.channel.send("*Invalid number. Use `!jobs list` to see listings.*")
                 return
             jobs[idx]["status"] = status.lower()
-            chat.save_jobs(jobs)
+            memory.save_jobs(jobs)
             await message.channel.send(f"*Updated: {jobs[idx]['title']} -> {status.lower()}*")
 
         elif arg_lower == "status":
-            jobs = chat.load_jobs()
+            jobs = memory.load_jobs()
             tracked = [j for j in jobs if j.get("status")]
             if not tracked:
                 await message.channel.send("*No tracked jobs. Use `!jobs track <#> <status>` to set a status.*")

@@ -1,0 +1,692 @@
+"""
+Tool definitions and execution for the chatbot.
+
+Imports memory (base module). Lazy-imports models only inside run_digest().
+No circular dependencies.
+"""
+
+import json
+import os
+import re
+import subprocess
+import tempfile
+import base64
+import email as email_lib
+from datetime import datetime
+from ddgs import DDGS
+import pdfplumber
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+
+import memory
+
+# Tool definitions for the Anthropic API
+TOOLS = [
+    {
+        "name": "web_search",
+        "description": (
+            "Search the web using DuckDuckGo. Use this when the user asks about "
+            "current events, recent news, or anything you're unsure about that "
+            "could benefit from up-to-date information."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of results (default: 5)",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "read_file",
+        "description": (
+            "Read the contents of a file from the local filesystem. Use this when "
+            "the user references a file or asks about file contents."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "The file path to read",
+                },
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "write_file",
+        "description": (
+            "Write content to a file in the project's workspace/ directory. Use this when "
+            "the user asks you to create, save, or write a file."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "description": "Filename relative to workspace/. Can include subdirectories.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "The content to write to the file",
+                },
+            },
+            "required": ["filename", "content"],
+        },
+    },
+    {
+        "name": "remember",
+        "description": (
+            "Save a fact to persistent memory. Use this when the user shares a "
+            "personal preference, important detail, or explicitly asks you to "
+            "remember something."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "fact": {
+                    "type": "string",
+                    "description": "The fact to remember",
+                },
+            },
+            "required": ["fact"],
+        },
+    },
+    {
+        "name": "forget",
+        "description": (
+            "Remove a fact from persistent memory. Use this when the user asks "
+            "you to forget something previously remembered."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "fact": {
+                    "type": "string",
+                    "description": "The exact fact to forget (must match a stored memory)",
+                },
+            },
+            "required": ["fact"],
+        },
+    },
+    {
+        "name": "list_memories",
+        "description": (
+            "List all facts stored in persistent memory. Use this when the user "
+            "asks what you remember about them."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "run_python",
+        "description": (
+            "Run Python code in the project's workspace/ directory. Use this when the user "
+            "asks you to execute, run, or test code. The code runs in a sandboxed "
+            "environment with a 30-second timeout."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "The Python code to execute",
+                },
+            },
+            "required": ["code"],
+        },
+    },
+    {
+        "name": "job_search",
+        "description": (
+            "Search for job listings using DuckDuckGo. Use this when the user asks "
+            "about job openings, hiring, career opportunities, or wants to find work. "
+            "Results are saved so the user can review and save them with /jobs save."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Job search query (e.g. 'video editor NYC', 'remote python developer')",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of results (default: 10)",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "check_email",
+        "description": (
+            "Check for recent unread emails. Use when the user asks about "
+            "their email or inbox."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of emails to return (default: 10)",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "read_email",
+        "description": (
+            "Read the full body of a specific email by its index number "
+            "from the last email listing."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {
+                    "type": "string",
+                    "description": "The Gmail message ID to read",
+                },
+            },
+            "required": ["message_id"],
+        },
+    },
+    {
+        "name": "search_email",
+        "description": (
+            "Search emails by keyword. Use when the user asks to find "
+            "specific emails."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Gmail search query (e.g. 'from:example@gmail.com', 'subject:invoice')",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of results (default: 10)",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+]
+
+# --- Mutable globals ---
+last_job_results = []
+_email_content_loaded = False
+_last_email_results = []
+
+
+# --- Search functions ---
+
+def web_search(query, max_results=5):
+    """Search the web using DuckDuckGo and return formatted results."""
+    results = DDGS().text(query, max_results=max_results)
+    if not results:
+        return None
+    lines = []
+    for r in results:
+        lines.append(f"- {r['title']}\n  {r['href']}\n  {r['body']}")
+    return "\n".join(lines)
+
+
+def search_jobs(query, max_results=10):
+    """Search for job listings using DuckDuckGo."""
+    search_query = f"{query} jobs hiring"
+    results = DDGS().text(search_query, max_results=max_results)
+    if not results:
+        return []
+    return [{"title": r["title"], "url": r["href"], "body": r["body"]} for r in results]
+
+
+# --- Code execution ---
+
+def extract_code_block(text):
+    """Extract the first fenced code block from text, or return the full text."""
+    match = re.search(r"```(?:\w*\n)?(.*?)```", text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return text
+
+
+def extract_python_block(text):
+    """Extract a Python code block from text. Returns None if no code block found."""
+    match = re.search(r"```python\n(.*?)```", text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    match = re.search(r"```(?:\w*\n)?(.*?)```", text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def run_code_in_workspace(code):
+    """Run Python code in a temp file inside the project's workspace/."""
+    workspace = memory.get_workspace_dir()
+    tmp_path = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(suffix=".py", dir=workspace)
+        with os.fdopen(fd, "w") as f:
+            f.write(code)
+        result = subprocess.run(
+            ["python3", tmp_path],
+            capture_output=True, text=True, timeout=30, cwd=workspace,
+        )
+        output = result.stdout
+        if result.stderr:
+            output += result.stderr
+        output = output.strip()
+        if not output:
+            output = "(no output)"
+        return output, result.returncode != 0
+    except subprocess.TimeoutExpired:
+        return "Execution timed out (30s limit).", True
+    except Exception as e:
+        return f"Execution failed: {e}", True
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+# --- Gmail functions ---
+
+def get_gmail_service():
+    """Load saved OAuth token and return a Gmail API service object."""
+    if not os.path.exists(memory.GMAIL_CREDENTIALS):
+        return None
+    try:
+        creds = Credentials.from_authorized_user_file(memory.GMAIL_CREDENTIALS, memory.GMAIL_SCOPES)
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            with open(memory.GMAIL_CREDENTIALS, "w") as f:
+                f.write(creds.to_json())
+        if not creds or not creds.valid:
+            return None
+        return build("gmail", "v1", credentials=creds)
+    except Exception:
+        return None
+
+
+def gmail_setup():
+    """Run the OAuth2 flow to authenticate with Gmail.
+
+    Returns True on success, False on failure. No printing.
+    """
+    if not os.path.exists(memory.GMAIL_CLIENT_SECRET):
+        return False
+    try:
+        flow = InstalledAppFlow.from_client_secrets_file(memory.GMAIL_CLIENT_SECRET, memory.GMAIL_SCOPES)
+        creds = flow.run_local_server(port=0)
+        with open(memory.GMAIL_CREDENTIALS, "w") as f:
+            f.write(creds.to_json())
+        return True
+    except Exception:
+        return False
+
+
+def gmail_check(max_results=10):
+    """List recent unread emails.
+
+    Returns a list of dicts with id, sender, subject, date, snippet.
+    """
+    service = get_gmail_service()
+    if not service:
+        return None
+    try:
+        results = service.users().messages().list(
+            userId="me", q="is:unread", maxResults=max_results
+        ).execute()
+        messages = results.get("messages", [])
+        if not messages:
+            return []
+        emails = []
+        for msg in messages:
+            detail = service.users().messages().get(
+                userId="me", id=msg["id"], format="metadata",
+                metadataHeaders=["From", "Subject", "Date"],
+            ).execute()
+            headers = {h["name"]: h["value"] for h in detail.get("payload", {}).get("headers", [])}
+            emails.append({
+                "id": msg["id"],
+                "sender": headers.get("From", "Unknown"),
+                "subject": headers.get("Subject", "(no subject)"),
+                "date": headers.get("Date", ""),
+                "snippet": detail.get("snippet", ""),
+            })
+        return emails
+    except Exception as e:
+        return f"Gmail error: {e}"
+
+
+def gmail_read(message_id):
+    """Get the full email body by message ID."""
+    service = get_gmail_service()
+    if not service:
+        return None
+    try:
+        detail = service.users().messages().get(
+            userId="me", id=message_id, format="full"
+        ).execute()
+        payload = detail.get("payload", {})
+
+        def extract_body(part):
+            mime = part.get("mimeType", "")
+            if mime == "text/plain":
+                data = part.get("body", {}).get("data", "")
+                if data:
+                    return base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
+            if "parts" in part:
+                texts = []
+                for sub in part["parts"]:
+                    t = extract_body(sub)
+                    if t:
+                        texts.append(t)
+                return "\n".join(texts)
+            return ""
+
+        body = extract_body(payload)
+        if not body:
+            data = payload.get("body", {}).get("data", "")
+            if data:
+                body = base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
+        return body or "(empty email body)"
+    except Exception as e:
+        return f"Gmail error: {e}"
+
+
+def gmail_search(query, max_results=10):
+    """Search emails using Gmail query syntax."""
+    service = get_gmail_service()
+    if not service:
+        return None
+    try:
+        results = service.users().messages().list(
+            userId="me", q=query, maxResults=max_results
+        ).execute()
+        messages = results.get("messages", [])
+        if not messages:
+            return []
+        emails = []
+        for msg in messages:
+            detail = service.users().messages().get(
+                userId="me", id=msg["id"], format="metadata",
+                metadataHeaders=["From", "Subject", "Date"],
+            ).execute()
+            headers = {h["name"]: h["value"] for h in detail.get("payload", {}).get("headers", [])}
+            emails.append({
+                "id": msg["id"],
+                "sender": headers.get("From", "Unknown"),
+                "subject": headers.get("Subject", "(no subject)"),
+                "date": headers.get("Date", ""),
+                "snippet": detail.get("snippet", ""),
+            })
+        return emails
+    except Exception as e:
+        return f"Gmail error: {e}"
+
+
+# --- Tool status ---
+
+def tool_status_text(name, tool_input):
+    """Return a plain description string for a tool call (no ANSI, no emoji)."""
+    labels = {
+        "web_search": f'Searching the web: "{tool_input.get("query", "")}"',
+        "read_file": f'Reading file: {tool_input.get("path", "")}',
+        "write_file": f'Writing file: {memory.active_project}/workspace/{tool_input.get("filename", "")}',
+        "remember": f'Remembering: "{tool_input.get("fact", "")}"',
+        "forget": f'Forgetting: "{tool_input.get("fact", "")}"',
+        "list_memories": "Listing memories",
+        "run_python": "Running Python code",
+        "job_search": f'Searching jobs: "{tool_input.get("query", "")}"',
+        "check_email": "Checking email inbox",
+        "read_email": f'Reading email: {tool_input.get("message_id", "")}',
+        "search_email": f'Searching email: "{tool_input.get("query", "")}"',
+    }
+    return labels.get(name, f"Using tool: {name}")
+
+
+# --- Tool execution ---
+
+def execute_tool(name, tool_input, confirm_fn=None):
+    """Execute a tool and return (result_string, is_error).
+
+    confirm_fn(prompt_text) -> bool: callback for interactive confirmations.
+    confirm_fn=None means auto-approve (used by discord/gui).
+    Hard blocks (URL in email query, query >150 chars) always block regardless.
+    """
+    global _email_content_loaded, _last_email_results
+
+    # Email safety safeguards
+    if _email_content_loaded and name in ("web_search", "run_python", "write_file"):
+        if name == "web_search":
+            query = tool_input.get("query", "")
+            if re.search(r'https?://|@.*\.', query):
+                return "BLOCKED: Web search cannot contain URLs or email addresses from email content.", True
+            if len(query) > 150:
+                return "BLOCKED: Web search query too long. Use only generic terms like company names or job titles.", True
+
+        # Soft check: ask for confirmation if confirm_fn is provided
+        if confirm_fn is not None:
+            prompt = f"Email safety: Claude wants to use {name} while email content is loaded."
+            if name == "web_search":
+                prompt += f'\n  Query: {tool_input.get("query", "")}'
+            elif name == "write_file":
+                prompt += f'\n  File: {tool_input.get("filename", "")}'
+            elif name == "run_python":
+                code = tool_input.get("code", "")
+                preview = code[:200] + "..." if len(code) > 200 else code
+                prompt += f"\n  Code: {preview}"
+            prompt += "\nAllow this? [y/N]: "
+            if not confirm_fn(prompt):
+                return f"User denied {name} while email content is in context.", True
+
+    if name == "web_search":
+        query = tool_input["query"]
+        max_results = tool_input.get("max_results", 5)
+        try:
+            results = web_search(query, max_results)
+            if results:
+                return results, False
+            return "No results found.", False
+        except Exception as e:
+            return f"Search failed: {e}", True
+
+    elif name == "read_file":
+        filepath = tool_input["path"]
+        try:
+            with open(filepath, "r") as f:
+                contents = f.read()
+            return contents, False
+        except FileNotFoundError:
+            return f"File not found: {filepath}", True
+        except IsADirectoryError:
+            return f"Path is a directory: {filepath}", True
+        except UnicodeDecodeError:
+            return f"Cannot read binary file: {filepath}", True
+
+    elif name == "write_file":
+        filename = tool_input["filename"]
+        content = tool_input["content"]
+        if ".." in filename or filename.startswith("/"):
+            return "Filename must be relative and stay inside workspace/", True
+        workspace = memory.get_workspace_dir()
+        filepath = os.path.join(workspace, filename)
+        os.makedirs(os.path.dirname(filepath) or workspace, exist_ok=True)
+        with open(filepath, "w") as f:
+            f.write(content)
+            if not content.endswith("\n"):
+                f.write("\n")
+        return f"Wrote to {memory.active_project}/workspace/{filename}", False
+
+    elif name == "remember":
+        fact = tool_input["fact"]
+        memory.memories.append(fact)
+        memory.save_memories(memory.memories)
+        return f"Remembered: {fact}", False
+
+    elif name == "forget":
+        fact = tool_input["fact"]
+        if fact in memory.memories:
+            memory.memories.remove(fact)
+            memory.save_memories(memory.memories)
+            return f"Forgot: {fact}", False
+        return f"No matching memory found. Current memories: {memory.memories}", True
+
+    elif name == "list_memories":
+        if memory.memories:
+            return "\n".join(f"- {m}" for m in memory.memories), False
+        return "No memories stored.", False
+
+    elif name == "run_python":
+        code = tool_input["code"]
+        if confirm_fn is not None:
+            prompt = f"Code to execute:\n{code}\n\nRun this code? [y/N]: "
+            if not confirm_fn(prompt):
+                return "User declined to run this code.", False
+        return run_code_in_workspace(code)
+
+    elif name == "job_search":
+        query = tool_input["query"]
+        max_results = tool_input.get("max_results", 10)
+        try:
+            results = search_jobs(query, max_results)
+            last_job_results.clear()
+            last_job_results.extend(results)
+            if results:
+                lines = []
+                for i, r in enumerate(results, 1):
+                    lines.append(f"{i}. {r['title']}\n   {r['url']}\n   {r['body']}")
+                return "\n".join(lines), False
+            return "No job listings found.", False
+        except Exception as e:
+            return f"Job search failed: {e}", True
+
+    elif name == "check_email":
+        max_results = tool_input.get("max_results", 10)
+        result = gmail_check(max_results)
+        if result is None:
+            return "Gmail not authenticated. User needs to run /email setup first.", True
+        if isinstance(result, str):
+            return result, True
+        _last_email_results.clear()
+        _last_email_results.extend(result)
+        if not result:
+            return "No unread emails.", False
+        lines = []
+        for i, e in enumerate(result, 1):
+            lines.append(f"{i}. From: {e['sender']}\n   Subject: {e['subject']}\n   Date: {e['date']}\n   {e['snippet']}")
+        return "\n".join(lines), False
+
+    elif name == "read_email":
+        message_id = tool_input["message_id"]
+        if message_id.isdigit():
+            idx = int(message_id) - 1
+            if 0 <= idx < len(_last_email_results):
+                message_id = _last_email_results[idx]["id"]
+        body = gmail_read(message_id)
+        if body is None:
+            return "Gmail not authenticated. User needs to run /email setup first.", True
+        _email_content_loaded = True
+        return body, False
+
+    elif name == "search_email":
+        query = tool_input["query"]
+        max_results = tool_input.get("max_results", 10)
+        result = gmail_search(query, max_results)
+        if result is None:
+            return "Gmail not authenticated. User needs to run /email setup first.", True
+        if isinstance(result, str):
+            return result, True
+        _last_email_results.clear()
+        _last_email_results.extend(result)
+        if not result:
+            return "No emails found matching that query.", False
+        lines = []
+        for i, e in enumerate(result, 1):
+            lines.append(f"{i}. From: {e['sender']}\n   Subject: {e['subject']}\n   Date: {e['date']}\n   {e['snippet']}")
+        return "\n".join(lines), False
+
+    return f"Unknown tool: {name}", True
+
+
+# --- Digest ---
+
+def run_digest(progress_fn=None):
+    """Search web for all watched topics and generate a digest.
+
+    progress_fn(msg): callback for status updates (optional).
+    Returns (digest_text, filename, cost_str) or None if no topics.
+    Lazy-imports models to avoid circular dependency.
+    """
+    import models
+
+    topics = memory.load_watchlist()
+    if not topics:
+        return None
+
+    if progress_fn:
+        progress_fn(f"Generating digest for {len(topics)} topic(s)...")
+
+    all_results = []
+    for topic in topics:
+        if progress_fn:
+            progress_fn(f"Searching: {topic}...")
+        try:
+            results = web_search(topic, max_results=3)
+            if results:
+                all_results.append(f"## {topic}\n{results}")
+            else:
+                all_results.append(f"## {topic}\nNo results found.")
+        except Exception as e:
+            all_results.append(f"## {topic}\nSearch failed: {e}")
+
+    combined = "\n\n".join(all_results)
+
+    if progress_fn:
+        progress_fn("Summarizing findings...")
+
+    cost_str = "$0.0000"
+    try:
+        response = models.client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=1500,
+            messages=[{"role": "user", "content":
+                "You are a research digest writer. Summarize the following web search results "
+                "into a clear, organized digest. Group by topic, highlight key developments, "
+                "and note anything particularly notable. Be concise but thorough.\n\n" + combined}],
+        )
+        digest = response.content[0].text
+        cost = models.track_usage(response.usage.input_tokens,
+                                  response.usage.output_tokens,
+                                  "claude-haiku-4-5")
+        cost_str = f"${cost:.4f}"
+    except Exception:
+        digest = combined
+
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    filename = f"digest-{date_str}.md"
+    workspace = memory.get_workspace_dir()
+    filepath = os.path.join(workspace, filename)
+
+    header = f"# Digest \u2014 {date_str}\n\nTopics: {', '.join(topics)}\n\n---\n\n"
+    with open(filepath, "w") as f:
+        f.write(header + digest + "\n")
+
+    return (digest, filename, cost_str)
