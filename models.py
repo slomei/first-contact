@@ -467,21 +467,32 @@ def delegate_to_specialist(specialist_name, task):
     return (response.content[0].text, s_in, s_out, cost)
 
 
-def generate_cover_letter(job, memories_list, resume_text=""):
-    """Use Claude to generate a tailored cover letter for a job listing."""
+def generate_cover_letter(job, memories_list, resume_text="", job_description=""):
+    """Use Claude to generate a tailored cover letter for a job listing.
+
+    job_description overrides job['body'] when provided (e.g. from fetched page).
+    """
     memory_block = "\n".join(f"- {m}" for m in memories_list) if memories_list else "No background info stored."
+    desc = job_description or job.get("body", "")
 
     prompt = (
         "Generate a tailored cover letter for this job based on the applicant's background.\n\n"
         f"Job listing:\n"
         f"Title: {job['title']}\n"
-        f"URL: {job['url']}\n"
-        f"Description: {job['body']}\n\n"
+        f"URL: {job.get('url', 'N/A')}\n"
+        f"Description: {desc}\n\n"
         f"Applicant's resume:\n{resume_text or 'No resume loaded.'}\n\n"
         f"Applicant's additional background:\n{memory_block}\n\n"
-        "Write a professional, concise cover letter (3-4 paragraphs) that connects "
-        "the applicant's experience to the job requirements. Be specific and genuine, "
-        "not generic. Address it to 'Hiring Manager' unless a name is in the listing."
+        "Write a professional, concise cover letter (3-4 paragraphs). Rules:\n"
+        "- Keep it to one page worth of text.\n"
+        "- Be specific about relevant experience — reference actual projects from the resume "
+        "that match what the job requires. Don't be generic.\n"
+        "- Professional but not stiff — Steve has personality.\n"
+        "- Highlight remote collaboration experience (NYC to Burbank since 2021) if relevant.\n"
+        "- Mention AI/emerging tools proficiency if relevant to the role.\n"
+        "- No fluff. No 'I'm excited to apply' openers — get to the point.\n"
+        "- Do NOT include a greeting line (Dear...) or signature block — those are added separately.\n"
+        "- Address it to 'Hiring Manager' unless a specific name is in the listing."
     )
 
     cover_letter_model = "claude-opus-4-6"

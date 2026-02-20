@@ -24,6 +24,7 @@ import briefing
 import notifications
 import sync
 import creative
+import documents
 
 
 # --- Terminal-specific helpers ---
@@ -233,6 +234,9 @@ if __name__ == "__main__":
       /draft new <to> [subj]  Compose a new email draft (Opus)
       /draft job <#>       Draft a job application email (Opus)
       /drafts              List drafts created this session
+      /cover <#>           Generate cover letter PDF for a saved job (Opus)
+      /cover new <co> <title>  Cover letter PDF for a job not in the pipeline
+      /pdf <title>         Save last Claude response as a formatted PDF
       /task add <desc>    Add a task (--high/--low, natural date parsing)
       /tasks              Show open tasks (sorted by urgency)
       /task done <#>      Mark a task as done
@@ -920,6 +924,186 @@ if __name__ == "__main__":
                 for entry in log:
                     print(f"  {entry}")
                 print(f"\n  Session: {tools._session_draft_count}/{tools.DRAFT_RATE_LIMIT} drafts{memory.RESET}\n")
+            continue
+
+        if command_lower == "/cover" or command_lower.startswith("/cover "):
+            cover_arg = command[6:].strip() if len(command) > 6 else ""
+            cover_arg_lower = cover_arg.lower()
+
+            if not cover_arg:
+                print(f"{memory.DIM}Usage: /cover <#>  or  /cover new <company> <title>{memory.RESET}\n")
+                continue
+
+            # Gather memories (same pattern as /jobs apply)
+            all_memories = list(memory.memories)
+            root_mem = os.path.join(memory.BASE_DIR, "memory.json")
+            if os.path.exists(root_mem):
+                with open(root_mem, "r") as f:
+                    all_memories.extend(json.load(f))
+            if memory.active_project != "general":
+                general_mem = os.path.join(memory.PROJECTS_DIR, "general", "memory.json")
+                if os.path.exists(general_mem):
+                    with open(general_mem, "r") as f:
+                        all_memories.extend(json.load(f))
+            js_mem = os.path.join(memory.PROJECTS_DIR, memory.JOB_SEARCH_PROJECT, "memory.json")
+            if js_mem != memory.get_memory_file() and os.path.exists(js_mem):
+                with open(js_mem, "r") as f:
+                    all_memories.extend(json.load(f))
+            all_memories = list(dict.fromkeys(all_memories))
+
+            # Load resume
+            resume_text = ""
+            resume_path = memory.get_resume_path()
+            if os.path.exists(resume_path):
+                with open(resume_path, "r") as f:
+                    resume_text = f.read()
+
+            if cover_arg_lower.startswith("new "):
+                # /cover new <company> <title>
+                new_args = cover_arg[4:].strip()
+                parts = new_args.split(None, 1)
+                if len(parts) < 2:
+                    print(f"{memory.DIM}Usage: /cover new <company> <job title>{memory.RESET}\n")
+                    continue
+                company_name = parts[0]
+                job_title = parts[1]
+
+                # Try to get job description from conversation context
+                job_desc = ""
+                for msg in reversed(models.conversation_history):
+                    content = msg.get("content", "")
+                    if isinstance(content, str) and "[Fetched:" in content:
+                        job_desc = content
+                        break
+
+                if not job_desc:
+                    print(f"{memory.DIM}Tip: /fetch a job posting URL first for better results.{memory.RESET}")
+
+                job = {"title": job_title, "url": "N/A", "body": job_desc}
+                recipient = "Hiring Manager"
+
+                print(f"{memory.DIM}Generating cover letter with Opus...{memory.RESET}")
+                try:
+                    letter_text, cost = models.generate_cover_letter(
+                        job, all_memories, resume_text=resume_text,
+                        job_description=job_desc)
+                except Exception as e:
+                    print(f"{memory.RED}Cover letter generation failed: {e}{memory.RESET}\n")
+                    continue
+
+                # Preview
+                preview_lines = letter_text.strip().splitlines()[:5]
+                print(f"\n{memory.CYAN}Preview:{memory.RESET}")
+                for line in preview_lines:
+                    print(f"  {line}")
+                if len(letter_text.strip().splitlines()) > 5:
+                    print(f"  {memory.DIM}...{memory.RESET}")
+                print()
+
+                # Generate PDF
+                pdf_path = documents.generate_cover_letter_pdf(
+                    recipient, company_name, job_title, letter_text)
+
+                print(f"{memory.GREEN}Cover letter saved:{memory.RESET} {memory.CYAN}{pdf_path}{memory.RESET}")
+                print(f"{memory.DIM}  [${cost:.4f}] session: ${models.session_cost:.4f}{memory.RESET}\n")
+
+            else:
+                # /cover <#> — from saved job
+                try:
+                    idx = int(cover_arg) - 1
+                    jobs = memory.load_jobs()
+                    if idx < 0 or idx >= len(jobs):
+                        raise ValueError
+                except ValueError:
+                    print(f"{memory.DIM}Invalid number. Use /jobs list to see listings.{memory.RESET}\n")
+                    continue
+
+                job = jobs[idx]
+                company_name = job["title"].split(" at ")[-1] if " at " in job["title"] else "Company"
+
+                # Try to extract company from title patterns like "Role - Company" or "Role | Company"
+                for sep in (" - ", " | ", " — ", " @ "):
+                    if sep in job["title"]:
+                        company_name = job["title"].split(sep)[-1].strip()
+                        break
+
+                recipient = "Hiring Manager"
+                job_title = job["title"]
+
+                print(f"{memory.DIM}Generating cover letter for: {memory.CYAN}{job_title}{memory.RESET}")
+                print(f"{memory.DIM}Using Opus...{memory.RESET}")
+
+                try:
+                    letter_text, cost = models.generate_cover_letter(
+                        job, all_memories, resume_text=resume_text)
+                except Exception as e:
+                    print(f"{memory.RED}Cover letter generation failed: {e}{memory.RESET}\n")
+                    continue
+
+                # Save markdown version to job folder
+                folder = memory.get_job_folder(job)
+                cl_md_path = os.path.join(folder, "cover-letter.md")
+                with open(cl_md_path, "w") as f:
+                    f.write(f"# Cover Letter \u2014 {job['title']}\n\n")
+                    f.write(f"**Position:** {job['title']}\n")
+                    f.write(f"**URL:** {job['url']}\n")
+                    f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n---\n\n")
+                    f.write(letter_text + "\n")
+
+                # Update listing.json
+                listing_path = os.path.join(folder, "listing.json")
+                with open(listing_path, "w") as f:
+                    json.dump({
+                        "title": job["title"],
+                        "url": job["url"],
+                        "description": job["body"],
+                        "saved_at": job.get("saved_at"),
+                        "status": job.get("status"),
+                        "cover_letter_generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    }, f, indent=2)
+
+                memory.save_jobs(jobs)
+
+                # Preview
+                preview_lines = letter_text.strip().splitlines()[:5]
+                print(f"\n{memory.CYAN}Preview:{memory.RESET}")
+                for line in preview_lines:
+                    print(f"  {line}")
+                if len(letter_text.strip().splitlines()) > 5:
+                    print(f"  {memory.DIM}...{memory.RESET}")
+                print()
+
+                # Generate PDF
+                pdf_path = documents.generate_cover_letter_pdf(
+                    recipient, company_name, job_title, letter_text)
+
+                print(f"{memory.GREEN}Cover letter saved:{memory.RESET}")
+                print(f"  {memory.CYAN}{pdf_path}{memory.RESET}")
+                print(f"  {memory.DIM}Markdown: jobs/{job['folder']}/cover-letter.md{memory.RESET}")
+                print(f"{memory.DIM}  [${cost:.4f}] session: ${models.session_cost:.4f}{memory.RESET}\n")
+
+            continue
+
+        if command_lower == "/pdf" or command_lower.startswith("/pdf "):
+            pdf_arg = command[4:].strip() if len(command) > 4 else ""
+
+            last = models.get_last_response()
+            if not last:
+                print(f"{memory.DIM}No Claude response to save yet.{memory.RESET}\n")
+                continue
+
+            title = pdf_arg or "Document"
+            slug = re.sub(r'[^\w]+', '_', title).strip('_') or "document"
+            date_str = datetime.now().strftime("%Y%m%d_%H%M")
+            filename = f"{slug}_{date_str}.pdf"
+            workspace = memory.get_workspace_dir()
+            filepath = os.path.join(workspace, filename)
+
+            try:
+                documents.generate_pdf(title, last, filepath)
+                print(f"{memory.GREEN}PDF saved:{memory.RESET} {memory.CYAN}{filepath}{memory.RESET}\n")
+            except Exception as e:
+                print(f"{memory.RED}PDF generation failed: {e}{memory.RESET}\n")
             continue
 
         if command_lower == "/briefing" or command_lower.startswith("/briefing "):

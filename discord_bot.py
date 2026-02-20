@@ -21,6 +21,7 @@ import tools
 import tasks
 import briefing
 import notifications
+import documents
 
 # Only respond to this Discord user ID
 ALLOWED_USER_ID = 000000000000000000
@@ -252,6 +253,9 @@ def build_help_text():
         "`!tokens` — Show conversation size\n"
         "`!web <query>` — Search web + get Claude's take\n"
         "`!fetch <url>` — Fetch a web page and discuss it\n"
+        "`!cover <#>` — Generate cover letter PDF for a saved job\n"
+        "`!cover new <company> <title>` — Cover letter PDF (ad-hoc)\n"
+        "`!pdf <title>` — Save last response as a PDF\n"
         "`!new` — Reset conversation history\n\n"
         "Claude also uses tools autonomously (web search, file read/write, memory, code execution)."
     )
@@ -714,6 +718,192 @@ async def on_message(message):
         await message.channel.send(header)
         for chunk in split_message(reply):
             await message.channel.send(chunk)
+        return
+
+    # --- Cover letter PDF ---
+    if command_lower == "!cover" or command_lower.startswith("!cover "):
+        cover_arg = content[6:].strip() if len(content) > 6 else ""
+        cover_arg_lower = cover_arg.lower()
+
+        if not cover_arg:
+            await message.channel.send("*Usage: `!cover <#>` or `!cover new <company> <title>`*")
+            return
+
+        sync_state(state)
+
+        # Gather memories
+        all_memories = list(memory.memories)
+        root_mem = os.path.join(memory.BASE_DIR, "memory.json")
+        if os.path.exists(root_mem):
+            with open(root_mem, "r") as f:
+                all_memories.extend(json.load(f))
+        if state.active_project != "general":
+            general_mem = os.path.join(memory.PROJECTS_DIR, "general", "memory.json")
+            if os.path.exists(general_mem):
+                with open(general_mem, "r") as f:
+                    all_memories.extend(json.load(f))
+        js_mem = os.path.join(memory.PROJECTS_DIR, memory.JOB_SEARCH_PROJECT, "memory.json")
+        if js_mem != memory.get_memory_file() and os.path.exists(js_mem):
+            with open(js_mem, "r") as f:
+                all_memories.extend(json.load(f))
+        all_memories = list(dict.fromkeys(all_memories))
+
+        # Load resume
+        resume_text = ""
+        resume_path = memory.get_resume_path()
+        if os.path.exists(resume_path):
+            with open(resume_path, "r") as f:
+                resume_text = f.read()
+
+        if cover_arg_lower.startswith("new "):
+            new_args = cover_arg[4:].strip()
+            parts = new_args.split(None, 1)
+            if len(parts) < 2:
+                await message.channel.send("*Usage: `!cover new <company> <job title>`*")
+                return
+            company_name = parts[0]
+            job_title = parts[1]
+
+            # Try to get job description from conversation context
+            job_desc = ""
+            for msg in reversed(state.conversation_history):
+                c = msg.get("content", "")
+                if isinstance(c, str) and "[Fetched:" in c:
+                    job_desc = c
+                    break
+
+            job = {"title": job_title, "url": "N/A", "body": job_desc}
+
+            async with message.channel.typing():
+                await message.channel.send(f"*Generating cover letter for {job_title} at {company_name} (Opus)...*")
+                try:
+                    letter_text, cost = await asyncio.to_thread(
+                        models.generate_cover_letter, job, all_memories,
+                        resume_text=resume_text, job_description=job_desc)
+                except Exception as e:
+                    await message.channel.send(f"*Cover letter generation failed: {e}*")
+                    return
+
+                pdf_path = await asyncio.to_thread(
+                    documents.generate_cover_letter_pdf,
+                    "Hiring Manager", company_name, job_title, letter_text)
+
+            # Send PDF as attachment
+            try:
+                f = discord.File(pdf_path)
+                await message.channel.send(
+                    f"**Cover letter generated** — {company_name} / {job_title}\n"
+                    f"*[${cost:.4f}]*",
+                    file=f)
+            except Exception:
+                await message.channel.send(
+                    f"**Cover letter generated** — {company_name} / {job_title}\n"
+                    f"`{pdf_path}`\n*[${cost:.4f}]*")
+
+        else:
+            # !cover <#>
+            try:
+                idx = int(cover_arg) - 1
+                jobs = memory.load_jobs()
+                if idx < 0 or idx >= len(jobs):
+                    raise ValueError
+            except ValueError:
+                await message.channel.send("*Invalid number. Use `!jobs list` to see listings.*")
+                return
+
+            job = jobs[idx]
+            job_title = job["title"]
+
+            # Extract company from title
+            company_name = "Company"
+            for sep in (" - ", " | ", " — ", " @ ", " at "):
+                if sep in job_title:
+                    company_name = job_title.split(sep)[-1].strip()
+                    break
+
+            async with message.channel.typing():
+                await message.channel.send(f"*Generating cover letter for: {job_title} (Opus)...*")
+                try:
+                    letter_text, cost = await asyncio.to_thread(
+                        models.generate_cover_letter, job, all_memories,
+                        resume_text=resume_text)
+                except Exception as e:
+                    await message.channel.send(f"*Cover letter generation failed: {e}*")
+                    return
+
+                # Save markdown version to job folder
+                folder = memory.get_job_folder(job)
+                cl_md_path = os.path.join(folder, "cover-letter.md")
+                with open(cl_md_path, "w") as f_cl:
+                    f_cl.write(f"# Cover Letter \u2014 {job['title']}\n\n")
+                    f_cl.write(f"**Position:** {job['title']}\n")
+                    f_cl.write(f"**URL:** {job['url']}\n")
+                    f_cl.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n---\n\n")
+                    f_cl.write(letter_text + "\n")
+
+                listing_path = os.path.join(folder, "listing.json")
+                with open(listing_path, "w") as f_ls:
+                    json.dump({
+                        "title": job["title"],
+                        "url": job["url"],
+                        "description": job["body"],
+                        "saved_at": job.get("saved_at"),
+                        "status": job.get("status"),
+                        "cover_letter_generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    }, f_ls, indent=2)
+
+                memory.save_jobs(jobs)
+
+                pdf_path = await asyncio.to_thread(
+                    documents.generate_cover_letter_pdf,
+                    "Hiring Manager", company_name, job_title, letter_text)
+
+            # Send PDF as attachment
+            try:
+                f = discord.File(pdf_path)
+                await message.channel.send(
+                    f"**Cover letter generated** — {job_title}\n"
+                    f"*Markdown: jobs/{job['folder']}/cover-letter.md*\n"
+                    f"*[${cost:.4f}]*",
+                    file=f)
+            except Exception:
+                await message.channel.send(
+                    f"**Cover letter generated** — {job_title}\n"
+                    f"`{pdf_path}`\n"
+                    f"*Markdown: jobs/{job['folder']}/cover-letter.md*\n"
+                    f"*[${cost:.4f}]*")
+
+        return
+
+    # --- PDF from last response ---
+    if command_lower == "!pdf" or command_lower.startswith("!pdf "):
+        pdf_arg = content[4:].strip() if len(content) > 4 else ""
+
+        # Get last assistant response from this channel's history
+        last_text = None
+        for msg in reversed(state.conversation_history):
+            if msg.get("role") == "assistant" and isinstance(msg.get("content"), str):
+                last_text = msg["content"]
+                break
+
+        if not last_text:
+            await message.channel.send("*No response to save yet.*")
+            return
+
+        title = pdf_arg or "Document"
+        slug = re.sub(r'[^\w]+', '_', title).strip('_') or "document"
+        date_str = datetime.now().strftime("%Y%m%d_%H%M")
+        filename = f"{slug}_{date_str}.pdf"
+        sync_state(state)
+        workspace = memory.get_workspace_dir()
+        filepath = os.path.join(workspace, filename)
+
+        try:
+            await asyncio.to_thread(documents.generate_pdf, title, last_text, filepath)
+            f = discord.File(filepath)
+            await message.channel.send(f"**{title}**", file=f)
+        except Exception as e:
+            await message.channel.send(f"*PDF generation failed: {e}*")
         return
 
     # --- Project management ---
