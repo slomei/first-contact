@@ -925,20 +925,24 @@ if __name__ == "__main__":
                     print(f"{memory.DIM}Unknown sync key: {key}. Available: {', '.join(sources.keys())}{memory.RESET}\n")
                     continue
                 print(f"{memory.DIM}Syncing {key}...{memory.RESET}")
-                dest = sync.get_latest(key, prompt_fn=sync_prompt)
-                if dest:
-                    print(f"{memory.DIM}Synced: {os.path.basename(dest)}{memory.RESET}")
-                    if key == "bible":
-                        print(f"{memory.DIM}Rebuilding character/location indexes...{memory.RESET}")
-                        result = creative.rebuild_indexes(
-                            bible_path=dest,
-                            progress_fn=lambda msg: print(f"{memory.DIM}  {msg}{memory.RESET}"),
-                        )
-                        if result:
-                            chars, locs, cost = result
-                            print(f"{memory.DIM}Indexed {chars} characters and {locs} locations (${cost:.4f}){memory.RESET}")
-                else:
+                sync_result = sync.get_latest(key, prompt_fn=sync_prompt)
+                if sync_result is None:
                     print(f"{memory.DIM}No source files found for {key}.{memory.RESET}")
+                else:
+                    dest, synced = sync_result
+                    if not synced:
+                        print(f"{memory.DIM}{key} is already up to date ({os.path.basename(dest)}){memory.RESET}")
+                    else:
+                        print(f"{memory.DIM}Synced: {os.path.basename(dest)}{memory.RESET}")
+                        if key == "bible":
+                            print(f"{memory.DIM}Rebuilding character/location indexes...{memory.RESET}")
+                            result = creative.rebuild_indexes(
+                                bible_path=dest,
+                                progress_fn=lambda msg: print(f"{memory.DIM}  {msg}{memory.RESET}"),
+                            )
+                            if result:
+                                chars, locs, cost = result
+                                print(f"{memory.DIM}Indexed {chars} characters and {locs} locations (${cost:.4f}){memory.RESET}")
                 print()
             else:
                 print(f"{memory.DIM}Syncing all sources...{memory.RESET}")
@@ -946,20 +950,24 @@ if __name__ == "__main__":
                     prompt_fn=sync_prompt,
                     progress_fn=lambda msg: print(f"{memory.DIM}  {msg}{memory.RESET}"),
                 )
-                for key, dest in results:
-                    if dest:
-                        print(f"{memory.DIM}  {key}: {os.path.basename(dest)}{memory.RESET}")
-                        if key == "bible":
-                            print(f"{memory.DIM}  Rebuilding character/location indexes...{memory.RESET}")
-                            result = creative.rebuild_indexes(
-                                bible_path=dest,
-                                progress_fn=lambda msg: print(f"{memory.DIM}    {msg}{memory.RESET}"),
-                            )
-                            if result:
-                                chars, locs, cost = result
-                                print(f"{memory.DIM}    Indexed {chars} characters and {locs} locations (${cost:.4f}){memory.RESET}")
-                    else:
+                for key, sync_result in results:
+                    if sync_result is None:
                         print(f"{memory.DIM}  {key}: no source files found{memory.RESET}")
+                    else:
+                        dest, synced = sync_result
+                        if not synced:
+                            print(f"{memory.DIM}  {key} is already up to date ({os.path.basename(dest)}){memory.RESET}")
+                        else:
+                            print(f"{memory.DIM}  {key}: {os.path.basename(dest)}{memory.RESET}")
+                            if key == "bible":
+                                print(f"{memory.DIM}  Rebuilding character/location indexes...{memory.RESET}")
+                                result = creative.rebuild_indexes(
+                                    bible_path=dest,
+                                    progress_fn=lambda msg: print(f"{memory.DIM}    {msg}{memory.RESET}"),
+                                )
+                                if result:
+                                    chars, locs, cost = result
+                                    print(f"{memory.DIM}    Indexed {chars} characters and {locs} locations (${cost:.4f}){memory.RESET}")
                 print()
             continue
 

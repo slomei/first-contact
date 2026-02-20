@@ -57,7 +57,9 @@ def get_latest(key, prompt_fn=None):
     prompt_fn(message, choices) -> int: callback to ask the user to pick
     from a numbered list. Returns 0-based index. None means auto-pick.
 
-    Returns the destination file path, or None on failure.
+    Returns (dest_path, synced) where synced is True if a new copy was made,
+    False if the destination was already up to date. Returns None if no
+    source files were found.
     """
     sources = load_sources()
     if key not in sources:
@@ -132,6 +134,14 @@ def get_latest(key, prompt_fn=None):
     if chosen is None:
         return None
 
+    # Check if destination already has this exact file
+    dest_path = os.path.join(destination, chosen["filename"])
+    if os.path.exists(dest_path):
+        dest_mtime = os.path.getmtime(dest_path)
+        # Same filename and same modification time — already up to date
+        if int(dest_mtime) == int(chosen["mtime"]):
+            return (dest_path, False)
+
     # Ensure destination directory exists
     os.makedirs(destination, exist_ok=True)
 
@@ -141,10 +151,9 @@ def get_latest(key, prompt_fn=None):
         os.remove(old_file)
 
     # Copy the chosen file to destination
-    dest_path = os.path.join(destination, chosen["filename"])
     shutil.copy2(chosen["path"], dest_path)
 
-    return dest_path
+    return (dest_path, True)
 
 
 def sync_status(key):
@@ -194,7 +203,8 @@ def sync_status(key):
 def sync_all(prompt_fn=None, progress_fn=None):
     """Sync all configured sources.
 
-    Returns list of (key, dest_path_or_None) tuples.
+    Returns list of (key, result) tuples where result is the return value
+    of get_latest: (dest_path, synced) or None.
     """
     sources = load_sources()
     results = []
