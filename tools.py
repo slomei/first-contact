@@ -232,6 +232,9 @@ TOOLS = [
 last_job_results = []
 _email_content_loaded = False
 _last_email_results = []
+_last_read_email = None       # Full metadata of last /email read message
+_session_draft_count = 0      # Rate limit: max 10 drafts per session
+DRAFT_RATE_LIMIT = 10
 
 
 # --- Search functions ---
@@ -307,9 +310,28 @@ def run_code_in_workspace(code):
 
 # --- Gmail functions ---
 
+def _check_scopes():
+    """Check if stored credentials have all required scopes.
+
+    Returns True if scopes match, False if re-auth is needed.
+    """
+    if not os.path.exists(memory.GMAIL_CREDENTIALS):
+        return False
+    try:
+        with open(memory.GMAIL_CREDENTIALS, "r") as f:
+            data = json.load(f)
+        stored = set(data.get("scopes", []))
+        required = set(memory.GMAIL_SCOPES)
+        return required.issubset(stored)
+    except Exception:
+        return False
+
+
 def get_gmail_service():
     """Load saved OAuth token and return a Gmail API service object."""
     if not os.path.exists(memory.GMAIL_CREDENTIALS):
+        return None
+    if not _check_scopes():
         return None
     try:
         creds = Credentials.from_authorized_user_file(memory.GMAIL_CREDENTIALS, memory.GMAIL_SCOPES)
@@ -327,10 +349,14 @@ def get_gmail_service():
 def gmail_setup():
     """Run the OAuth2 flow to authenticate with Gmail.
 
+    If stored token lacks required scopes, deletes it and re-authorizes.
     Returns True on success, False on failure. No printing.
     """
     if not os.path.exists(memory.GMAIL_CLIENT_SECRET):
         return False
+    # Delete stale token if scopes changed
+    if os.path.exists(memory.GMAIL_CREDENTIALS) and not _check_scopes():
+        os.remove(memory.GMAIL_CREDENTIALS)
     try:
         flow = InstalledAppFlow.from_client_secrets_file(memory.GMAIL_CLIENT_SECRET, memory.GMAIL_SCOPES)
         creds = flow.run_local_server(port=0)
@@ -351,7 +377,7 @@ def gmail_check(max_results=10):
         return None
     try:
         results = service.users().messages().list(
-            userId="me", q="is:unread", maxResults=max_results
+            userId="me", q="is:unread", labelIds=["INBOX"], maxResults=max_results
         ).execute()
         messages = results.get("messages", [])
         if not messages:
@@ -376,7 +402,12 @@ def gmail_check(max_results=10):
 
 
 def gmail_read(message_id):
-    """Get the full email body by message ID."""
+    """Get the full email body by message ID. Only reads INBOX messages.
+
+    Returns the body text string, or None/error string.
+    Also stores full message metadata in _last_read_email for reply threading.
+    """
+    global _last_read_email
     service = get_gmail_service()
     if not service:
         return None
@@ -384,7 +415,10 @@ def gmail_read(message_id):
         detail = service.users().messages().get(
             userId="me", id=message_id, format="full"
         ).execute()
+        if "INBOX" not in detail.get("labelIds", []):
+            return "BLOCKED: Message is not in INBOX."
         payload = detail.get("payload", {})
+        headers = {h["name"]: h["value"] for h in payload.get("headers", [])}
 
         def extract_body(part):
             mime = part.get("mimeType", "")
@@ -406,7 +440,20 @@ def gmail_read(message_id):
             data = payload.get("body", {}).get("data", "")
             if data:
                 body = base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
-        return body or "(empty email body)"
+        body = body or "(empty email body)"
+
+        # Store full metadata for reply threading
+        _last_read_email = {
+            "id": message_id,
+            "thread_id": detail.get("threadId"),
+            "message_id_header": headers.get("Message-ID", ""),
+            "sender": headers.get("From", "Unknown"),
+            "subject": headers.get("Subject", "(no subject)"),
+            "date": headers.get("Date", ""),
+            "body": body,
+        }
+
+        return body
     except Exception as e:
         return f"Gmail error: {e}"
 
@@ -418,7 +465,7 @@ def gmail_search(query, max_results=10):
         return None
     try:
         results = service.users().messages().list(
-            userId="me", q=query, maxResults=max_results
+            userId="me", q=query, labelIds=["INBOX"], maxResults=max_results
         ).execute()
         messages = results.get("messages", [])
         if not messages:
@@ -440,6 +487,91 @@ def gmail_search(query, max_results=10):
         return emails
     except Exception as e:
         return f"Gmail error: {e}"
+
+
+# --- Draft functions ---
+
+DRAFT_AUDIT_LOG = os.path.join(memory.BASE_DIR, "logs", "draft_audit.log")
+
+
+def _log_draft(recipient, subject, draft_id, command):
+    """Append an entry to the draft audit log."""
+    log_dir = os.path.dirname(DRAFT_AUDIT_LOG)
+    os.makedirs(log_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    entry = f"[{timestamp}] command={command} to={recipient} subject={subject} draft_id={draft_id}\n"
+    with open(DRAFT_AUDIT_LOG, "a") as f:
+        f.write(entry)
+
+
+def load_draft_log():
+    """Load all entries from the draft audit log. Returns list of strings."""
+    if not os.path.exists(DRAFT_AUDIT_LOG):
+        return []
+    with open(DRAFT_AUDIT_LOG, "r") as f:
+        return [line.strip() for line in f if line.strip()]
+
+
+def check_draft_rate_limit():
+    """Check if session draft limit has been reached.
+
+    Returns True if OK to proceed, False if at limit.
+    """
+    return _session_draft_count < DRAFT_RATE_LIMIT
+
+
+def gmail_create_draft(to, subject, body_text, reply_to=None):
+    """Create a draft in Gmail. Never sends.
+
+    to: recipient email address
+    subject: email subject
+    body_text: plain text body
+    reply_to: dict with thread_id, message_id_header, original_body for reply threading
+
+    Returns the Gmail draft ID string, or None on failure.
+    """
+    global _session_draft_count
+    service = get_gmail_service()
+    if not service:
+        return None
+
+    try:
+        from email.mime.text import MIMEText
+
+        # Build the full body (include quoted original for replies)
+        full_body = body_text
+        if reply_to and reply_to.get("original_body"):
+            sender = reply_to.get("sender", "")
+            date = reply_to.get("date", "")
+            full_body += f"\n\nOn {date}, {sender} wrote:\n"
+            # Quote the original with > prefix
+            for line in reply_to["original_body"].splitlines():
+                full_body += f"> {line}\n"
+
+        msg = MIMEText(full_body)
+        msg["to"] = to
+        msg["subject"] = subject
+
+        # Add reply threading headers
+        if reply_to:
+            if reply_to.get("message_id_header"):
+                msg["In-Reply-To"] = reply_to["message_id_header"]
+                msg["References"] = reply_to["message_id_header"]
+
+        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+
+        draft_body = {"message": {"raw": raw}}
+        if reply_to and reply_to.get("thread_id"):
+            draft_body["message"]["threadId"] = reply_to["thread_id"]
+
+        draft = service.users().drafts().create(
+            userId="me", body=draft_body
+        ).execute()
+
+        _session_draft_count += 1
+        return draft.get("id")
+    except Exception:
+        return None
 
 
 # --- Tool status ---

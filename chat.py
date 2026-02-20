@@ -49,6 +49,49 @@ def print_session_summary():
               f"${models.session_cost:.4f}{memory.RESET}")
 
 
+def draft_review_flow(to, subject, body, create_fn):
+    """Show a draft for review and handle yes/edit/no flow.
+
+    create_fn(to, subject, body) -> draft_id or None: callback to actually create the draft.
+    Returns (draft_id, final_body) or (None, None) if discarded.
+    """
+    while True:
+        print(f"\n{memory.CYAN}To:{memory.RESET} {to}")
+        print(f"{memory.CYAN}Subject:{memory.RESET} {subject}")
+        print(f"\n{body}\n")
+        try:
+            choice = input(f"{memory.DIM}Save to Gmail drafts? (yes/edit/no): {memory.RESET}").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print(f"\n{memory.DIM}Discarded.{memory.RESET}\n")
+            return None, None
+
+        if choice in ("y", "yes"):
+            draft_id = create_fn(to, subject, body)
+            return draft_id, body
+        elif choice in ("e", "edit"):
+            print(f"{memory.DIM}Enter your changes (press Enter twice to finish):{memory.RESET}")
+            lines = []
+            try:
+                while True:
+                    line = input()
+                    if line == "" and lines and lines[-1] == "":
+                        lines.pop()  # Remove trailing blank
+                        break
+                    lines.append(line)
+            except (EOFError, KeyboardInterrupt):
+                print(f"\n{memory.DIM}Edit cancelled, keeping original.{memory.RESET}")
+                continue
+            if lines:
+                body = "\n".join(lines)
+            continue
+        elif choice in ("n", "no"):
+            print(f"{memory.DIM}Discarded.{memory.RESET}\n")
+            return None, None
+        else:
+            print(f"{memory.DIM}Please enter yes, edit, or no.{memory.RESET}")
+            continue
+
+
 def print_conversations(files):
     """Print a numbered list of conversation files with titles."""
     for i, filename in enumerate(files, 1):
@@ -182,6 +225,10 @@ if __name__ == "__main__":
       /email check         Show recent unread emails
       /email read <#>      Read full email by number
       /email search <q>    Search emails by keyword
+      /draft reply         Draft a reply to the last-read email (Opus)
+      /draft new <to> [subj]  Compose a new email draft (Opus)
+      /draft job <#>       Draft a job application email (Opus)
+      /drafts              List drafts created this session
       /update [key] [path]  Sync files from source (all keys if omitted, explicit path optional)
       /characters        List all indexed characters (first-light only)
       /character <name>  Show character details (first-light only)
@@ -465,10 +512,13 @@ if __name__ == "__main__":
                     print(f"{memory.DIM}Missing {memory.GMAIL_CLIENT_SECRET}")
                     print("Download OAuth client credentials from Google Cloud Console")
                     print(f"and save as gmail_client_secret.json in the project root.{memory.RESET}\n")
-                elif tools.gmail_setup():
-                    print(f"{memory.DIM}Gmail authenticated successfully. Token saved to {memory.GMAIL_CREDENTIALS}{memory.RESET}\n")
                 else:
-                    print(f"{memory.DIM}Gmail setup failed.{memory.RESET}\n")
+                    if not tools._check_scopes():
+                        print(f"{memory.DIM}Scopes changed — re-authorizing Gmail...{memory.RESET}")
+                    if tools.gmail_setup():
+                        print(f"{memory.DIM}Gmail authenticated successfully. Token saved to {memory.GMAIL_CREDENTIALS}{memory.RESET}\n")
+                    else:
+                        print(f"{memory.DIM}Gmail setup failed.{memory.RESET}\n")
 
             elif email_arg_lower == "check":
                 service = tools.get_gmail_service()
@@ -551,6 +601,223 @@ if __name__ == "__main__":
             else:
                 print(f"{memory.DIM}Unknown /email subcommand: {email_arg}")
                 print(f"  Use: setup, check, read <#>, search <query>{memory.RESET}\n")
+            continue
+
+        if command_lower == "/draft" or command_lower.startswith("/draft "):
+            draft_arg = command[6:].strip() if len(command) > 6 else ""
+            draft_arg_lower = draft_arg.lower()
+
+            if not draft_arg:
+                print(f"{memory.DIM}Usage: /draft reply | /draft new <to> [subject] | /draft job <#>{memory.RESET}\n")
+                continue
+
+            # Check Gmail auth
+            service = tools.get_gmail_service()
+            if not service:
+                print(f"{memory.DIM}Gmail not authenticated (or scopes changed). Run /email setup first.{memory.RESET}\n")
+                continue
+
+            # Rate limit check
+            if not tools.check_draft_rate_limit():
+                print(f"{memory.DIM}Draft rate limit reached ({tools.DRAFT_RATE_LIMIT} per session).")
+                try:
+                    override = input(f"Override limit? [y/N]: {memory.RESET}")
+                except (EOFError, KeyboardInterrupt):
+                    print(f"\n{memory.DIM}Cancelled.{memory.RESET}\n")
+                    continue
+                if override.strip().lower() != "y":
+                    print(f"{memory.DIM}Cancelled.{memory.RESET}\n")
+                    continue
+
+            # Gather memories for context
+            all_memories = list(memory.memories)
+            root_mem = os.path.join(memory.BASE_DIR, "memory.json")
+            if os.path.exists(root_mem):
+                with open(root_mem, "r") as f:
+                    all_memories.extend(json.load(f))
+            if memory.active_project != "general":
+                general_mem = os.path.join(memory.PROJECTS_DIR, "general", "memory.json")
+                if os.path.exists(general_mem):
+                    with open(general_mem, "r") as f:
+                        all_memories.extend(json.load(f))
+            all_memories = list(dict.fromkeys(all_memories))
+
+            if draft_arg_lower == "reply":
+                if not tools._last_read_email:
+                    print(f"{memory.DIM}No email loaded. Use /email read <#> first.{memory.RESET}\n")
+                    continue
+
+                orig = tools._last_read_email
+                print(f"{memory.DIM}Replying to: {orig['subject']}")
+                print(f"  From: {orig['sender']}{memory.RESET}")
+
+                # Ask for intent
+                try:
+                    intent = input(f"{memory.DIM}What should the reply say (or press Enter for auto): {memory.RESET}").strip()
+                except (EOFError, KeyboardInterrupt):
+                    print(f"\n{memory.DIM}Cancelled.{memory.RESET}\n")
+                    continue
+
+                print(f"{memory.DIM}Using Opus for draft generation...{memory.RESET}")
+                try:
+                    reply_body, cost = models.generate_reply_draft(orig, intent, all_memories)
+                except Exception as e:
+                    print(f"{memory.DIM}Draft generation failed: {e}{memory.RESET}\n")
+                    continue
+
+                reply_subject = orig["subject"]
+                if not reply_subject.lower().startswith("re:"):
+                    reply_subject = f"Re: {reply_subject}"
+
+                reply_to_info = {
+                    "thread_id": orig.get("thread_id"),
+                    "message_id_header": orig.get("message_id_header"),
+                    "sender": orig["sender"],
+                    "date": orig["date"],
+                    "original_body": orig["body"],
+                }
+
+                # Extract sender email for the "to" field
+                sender = orig["sender"]
+                # Parse "Name <email>" format
+                email_match = re.search(r'<([^>]+)>', sender)
+                to_addr = email_match.group(1) if email_match else sender
+
+                def create_reply(to, subject, body):
+                    return tools.gmail_create_draft(to, subject, body, reply_to=reply_to_info)
+
+                draft_id, final_body = draft_review_flow(to_addr, reply_subject, reply_body, create_reply)
+
+                if draft_id:
+                    tools._log_draft(to_addr, reply_subject, draft_id, "/draft reply")
+                    print(f"{memory.DIM}Draft saved. Check Gmail drafts to review and send.")
+                    print(f"  [{tools._session_draft_count}/{tools.DRAFT_RATE_LIMIT} drafts] "
+                          f"[${cost:.4f}] session: ${models.session_cost:.4f}{memory.RESET}\n")
+                elif final_body is None:
+                    # User discarded — cost already incurred
+                    print(f"{memory.DIM}  [${cost:.4f}] session: ${models.session_cost:.4f}{memory.RESET}\n")
+
+            elif draft_arg_lower.startswith("new "):
+                new_args = draft_arg[4:].strip()
+                if not new_args:
+                    print(f"{memory.DIM}Usage: /draft new <recipient> [subject]{memory.RESET}\n")
+                    continue
+
+                # Parse recipient and optional subject
+                parts = new_args.split(None, 1)
+                to_addr = parts[0]
+                subject = parts[1] if len(parts) > 1 else ""
+
+                # Ask for intent
+                try:
+                    intent = input(f"{memory.DIM}What should the email say: {memory.RESET}").strip()
+                except (EOFError, KeyboardInterrupt):
+                    print(f"\n{memory.DIM}Cancelled.{memory.RESET}\n")
+                    continue
+                if not intent:
+                    print(f"{memory.DIM}Need something to write about. Cancelled.{memory.RESET}\n")
+                    continue
+
+                print(f"{memory.DIM}Using Opus for draft generation...{memory.RESET}")
+                try:
+                    body, generated_subject, cost = models.generate_new_draft(
+                        to_addr, subject, intent, all_memories)
+                except Exception as e:
+                    print(f"{memory.DIM}Draft generation failed: {e}{memory.RESET}\n")
+                    continue
+
+                def create_new(to, subj, body):
+                    return tools.gmail_create_draft(to, subj, body)
+
+                draft_id, final_body = draft_review_flow(to_addr, generated_subject, body, create_new)
+
+                if draft_id:
+                    tools._log_draft(to_addr, generated_subject, draft_id, "/draft new")
+                    print(f"{memory.DIM}Draft saved. Check Gmail drafts to review and send.")
+                    print(f"  [{tools._session_draft_count}/{tools.DRAFT_RATE_LIMIT} drafts] "
+                          f"[${cost:.4f}] session: ${models.session_cost:.4f}{memory.RESET}\n")
+                elif final_body is None:
+                    print(f"{memory.DIM}  [${cost:.4f}] session: ${models.session_cost:.4f}{memory.RESET}\n")
+
+            elif draft_arg_lower.startswith("job "):
+                num_str = draft_arg[4:].strip()
+                try:
+                    idx = int(num_str) - 1
+                    jobs = memory.load_jobs()
+                    if idx < 0 or idx >= len(jobs):
+                        raise ValueError
+                except ValueError:
+                    print(f"{memory.DIM}Invalid number. Use /jobs list to see listings.{memory.RESET}\n")
+                    continue
+
+                job = jobs[idx]
+                print(f"{memory.DIM}Drafting application email for: {job['title']}{memory.RESET}")
+
+                # Load cover letter if exists
+                cover_letter = ""
+                if job.get("folder"):
+                    cl_path = os.path.join(memory.PROJECTS_DIR, memory.JOB_SEARCH_PROJECT,
+                                           "workspace", "jobs", job["folder"], "cover-letter.md")
+                    if os.path.exists(cl_path):
+                        with open(cl_path, "r") as f:
+                            cover_letter = f.read()
+
+                if not cover_letter:
+                    print(f"{memory.DIM}No cover letter found. Use /jobs apply <#> to generate one first.{memory.RESET}\n")
+                    continue
+
+                # Load resume
+                resume_text = ""
+                resume_path = memory.get_resume_path()
+                if os.path.exists(resume_path):
+                    with open(resume_path, "r") as f:
+                        resume_text = f.read()
+
+                # Ask for recipient
+                try:
+                    to_addr = input(f"{memory.DIM}Recipient email: {memory.RESET}").strip()
+                except (EOFError, KeyboardInterrupt):
+                    print(f"\n{memory.DIM}Cancelled.{memory.RESET}\n")
+                    continue
+                if not to_addr:
+                    print(f"{memory.DIM}Need a recipient. Cancelled.{memory.RESET}\n")
+                    continue
+
+                print(f"{memory.DIM}Using Opus for draft generation...{memory.RESET}")
+                try:
+                    body, subject, cost = models.generate_job_draft(
+                        job, cover_letter, resume_text, all_memories)
+                except Exception as e:
+                    print(f"{memory.DIM}Draft generation failed: {e}{memory.RESET}\n")
+                    continue
+
+                def create_job(to, subj, body):
+                    return tools.gmail_create_draft(to, subj, body)
+
+                draft_id, final_body = draft_review_flow(to_addr, subject, body, create_job)
+
+                if draft_id:
+                    tools._log_draft(to_addr, subject, draft_id, "/draft job")
+                    print(f"{memory.DIM}Draft saved. Check Gmail drafts to review and send.")
+                    print(f"  [{tools._session_draft_count}/{tools.DRAFT_RATE_LIMIT} drafts] "
+                          f"[${cost:.4f}] session: ${models.session_cost:.4f}{memory.RESET}\n")
+                elif final_body is None:
+                    print(f"{memory.DIM}  [${cost:.4f}] session: ${models.session_cost:.4f}{memory.RESET}\n")
+
+            else:
+                print(f"{memory.DIM}Unknown /draft subcommand: {draft_arg}")
+                print(f"  Use: reply, new <to> [subject], job <#>{memory.RESET}\n")
+            continue
+
+        if command_lower == "/drafts":
+            log = tools.load_draft_log()
+            if not log:
+                print(f"{memory.DIM}No drafts created yet.{memory.RESET}\n")
+            else:
+                print(f"{memory.DIM}Draft audit log ({len(log)} entries):")
+                for entry in log:
+                    print(f"  {entry}")
+                print(f"\n  Session: {tools._session_draft_count}/{tools.DRAFT_RATE_LIMIT} drafts{memory.RESET}\n")
             continue
 
         if command_lower == "/resume" or command_lower.startswith("/resume "):
