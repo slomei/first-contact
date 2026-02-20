@@ -27,6 +27,9 @@ import job_scanner
 # Only respond to this Discord user ID (set via DISCORD_USER_ID env var)
 ALLOWED_USER_ID = int(os.environ.get("DISCORD_USER_ID", "0"))
 
+# Configurable command prefix for server channels (read from config.json)
+COMMAND_PREFIX = memory.load_config().get("discord_prefix", "!fc")
+
 MODEL_DISPLAY_NAMES = {
     "claude-sonnet-4-6": "Sonnet",
     "claude-opus-4-6": "Opus",
@@ -220,6 +223,8 @@ async def get_response(state, channel):
 def build_help_text():
     """Build the help message."""
     return (
+        f"*In servers, prefix with `{COMMAND_PREFIX}` (e.g. `{COMMAND_PREFIX} help`). "
+        f"In DMs, use commands directly.*\n\n"
         "**Available commands:**\n"
         "`!help` — Show this help message\n"
         "`!opus` / `!sonnet` / `!haiku` — Switch model\n"
@@ -696,10 +701,25 @@ async def on_message(message):
     if message.author.id != ALLOWED_USER_ID:
         return
 
-    # Only respond to messages starting with ! or in DMs
     content = message.content.strip()
     if not content:
         return
+
+    is_dm = isinstance(message.channel, discord.DMChannel)
+    from_guild = not is_dm
+
+    if from_guild:
+        # Server channel — require prefix (e.g. "!fc help")
+        prefix_lower = COMMAND_PREFIX.lower()
+        if not content.lower().startswith(prefix_lower):
+            return
+        # Strip prefix and reconstruct as !-command
+        after_prefix = content[len(COMMAND_PREFIX):].strip()
+        if after_prefix:
+            content = "!" + after_prefix
+        else:
+            content = "!help"
+        await message.channel.send("Check your DMs \u2713")
 
     # Always respond via DM
     dm = await message.author.create_dm()
@@ -2109,8 +2129,12 @@ async def on_message(message):
 
     # --- Regular message (not a command) ---
     if content.startswith("!"):
-        # Unknown command — ignore to avoid treating as chat
-        return
+        if from_guild:
+            # Server prefix + unrecognized command → treat as free chat
+            content = content[1:]
+        else:
+            # Unknown !-command in DM — ignore to avoid treating as chat
+            return
 
     state.conversation_history.append({"role": "user", "content": content})
 
