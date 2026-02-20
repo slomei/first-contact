@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 import memory
 import tasks
 import tools
+import job_scanner
 
 
 # --- Data gathering (each returns a dict, never raises) ---
@@ -239,6 +240,35 @@ def _gather_watchlist():
         return {"ok": False, "error": f"Error checking watchlist: {e}"}
 
 
+def _gather_scan():
+    """Check most recent job scan results for the briefing."""
+    try:
+        last = job_scanner.load_scan_results()
+        if not last:
+            return {"ok": True, "has_results": False}
+
+        # Only show if scan was within last 24 hours
+        scan_time = last.get("scan_time", "")
+        try:
+            scan_dt = datetime.fromisoformat(scan_time)
+            if (datetime.now() - scan_dt) > timedelta(hours=24):
+                return {"ok": True, "has_results": False}
+        except (ValueError, TypeError):
+            pass
+
+        return {
+            "ok": True,
+            "has_results": True,
+            "high": last.get("high", []),
+            "medium": last.get("medium", []),
+            "total_searched": last.get("total_searched", 0),
+            "total_new": last.get("total_new", 0),
+            "scan_time": scan_time,
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"Error checking scan results: {e}"}
+
+
 # --- Formatting ---
 
 def _format_sender(sender):
@@ -249,7 +279,7 @@ def _format_sender(sender):
     return sender
 
 
-def format_briefing_ansi(email_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost, calendar_data=None):
+def format_briefing_ansi(email_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost, calendar_data=None, scan_data=None):
     """Format the briefing for terminal output with ANSI colors."""
     R = memory.RESET
     C = memory.CYAN
@@ -324,6 +354,29 @@ def format_briefing_ansi(email_data, tasks_data, jobs_data, reminders_data, watc
         if not parts and not jobs_data.get("last_applied"):
             lines.append(f"  {D}{jobs_data['total']} saved job(s), all tracked.{R}")
 
+    # JOB SCAN
+    if scan_data is not None:
+        lines.append(f"\n{C}🔍 JOB SCAN{R}")
+        if not scan_data["ok"]:
+            lines.append(f"  {D}{scan_data['error']}{R}")
+        elif not scan_data["has_results"]:
+            lines.append(f"  {D}No recent scan results.{R}")
+        else:
+            high = scan_data.get("high", [])
+            medium = scan_data.get("medium", [])
+            if high:
+                lines.append(f"  {GREEN}{len(high)} strong match{'es' if len(high) != 1 else ''}:{R}")
+                for job in high[:3]:
+                    company = f" at {job['company']}" if job.get("company") else ""
+                    lines.append(f"  {GREEN}★{R} {BOLD}{job['clean_title']}{R}{company}")
+                if len(high) > 3:
+                    lines.append(f"  {D}...and {len(high) - 3} more{R}")
+            if medium:
+                lines.append(f"  {D}{len(medium)} possible match{'es' if len(medium) != 1 else ''}{R}")
+            if not high and not medium:
+                total = scan_data.get("total_searched", 0)
+                lines.append(f"  {D}{total} listings checked, no matches.{R}")
+
     # REMINDERS
     lines.append(f"\n{C}⏰ REMINDERS{R}")
     if not reminders_data["ok"]:
@@ -355,7 +408,7 @@ def format_briefing_ansi(email_data, tasks_data, jobs_data, reminders_data, watc
     return "\n".join(lines)
 
 
-def format_briefing_discord(email_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost, calendar_data=None):
+def format_briefing_discord(email_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost, calendar_data=None, scan_data=None):
     """Format the briefing for Discord (markdown, no ANSI)."""
     now = datetime.now()
     date_str = now.strftime("%a %b %d")
@@ -423,6 +476,29 @@ def format_briefing_discord(email_data, tasks_data, jobs_data, reminders_data, w
         if not parts and not jobs_data.get("last_applied"):
             lines.append(f"  {jobs_data['total']} saved job(s), all tracked.")
 
+    # JOB SCAN
+    if scan_data is not None:
+        lines.append(f"\n**🔍 JOB SCAN**")
+        if not scan_data["ok"]:
+            lines.append(f"  {scan_data['error']}")
+        elif not scan_data["has_results"]:
+            lines.append("  No recent scan results.")
+        else:
+            high = scan_data.get("high", [])
+            medium = scan_data.get("medium", [])
+            if high:
+                lines.append(f"  **{len(high)} strong match{'es' if len(high) != 1 else ''}:**")
+                for job in high[:3]:
+                    company = f" at {job['company']}" if job.get("company") else ""
+                    lines.append(f"  ★ **{job['clean_title']}**{company}")
+                if len(high) > 3:
+                    lines.append(f"  *...and {len(high) - 3} more*")
+            if medium:
+                lines.append(f"  {len(medium)} possible match{'es' if len(medium) != 1 else ''}")
+            if not high and not medium:
+                total = scan_data.get("total_searched", 0)
+                lines.append(f"  {total} listings checked, no matches.")
+
     # REMINDERS
     lines.append(f"\n**⏰ REMINDERS**")
     if not reminders_data["ok"]:
@@ -465,7 +541,7 @@ def _get_session_cost():
 # --- Main entry points ---
 
 def generate_briefing(progress_fn=None):
-    """Gather all data and return (email, calendar, tasks, jobs, reminders, watchlist, total_cost).
+    """Gather all data and return (email, calendar, tasks, jobs, reminders, watchlist, scan, total_cost).
 
     progress_fn(msg): optional callback for status updates.
     """
@@ -488,6 +564,10 @@ def generate_briefing(progress_fn=None):
     jobs_data = _gather_jobs()
 
     if progress_fn:
+        progress_fn("Checking job scan results...")
+    scan_data = _gather_scan()
+
+    if progress_fn:
         progress_fn("Checking reminders...")
     reminders_data = _gather_reminders()
 
@@ -497,18 +577,18 @@ def generate_briefing(progress_fn=None):
     if watchlist_data.get("cost"):
         total_cost += watchlist_data["cost"]
 
-    return email_data, calendar_data, tasks_data, jobs_data, reminders_data, watchlist_data, total_cost
+    return email_data, calendar_data, tasks_data, jobs_data, reminders_data, watchlist_data, scan_data, total_cost
 
 
 def run_briefing_terminal(progress_fn=None):
     """Run the full briefing and return ANSI-formatted text."""
     data = generate_briefing(progress_fn=progress_fn)
-    email_data, calendar_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost = data
-    return format_briefing_ansi(email_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost, calendar_data=calendar_data)
+    email_data, calendar_data, tasks_data, jobs_data, reminders_data, watchlist_data, scan_data, cost = data
+    return format_briefing_ansi(email_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost, calendar_data=calendar_data, scan_data=scan_data)
 
 
 def run_briefing_discord(progress_fn=None):
     """Run the full briefing and return Discord-formatted text."""
     data = generate_briefing(progress_fn=progress_fn)
-    email_data, calendar_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost = data
-    return format_briefing_discord(email_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost, calendar_data=calendar_data)
+    email_data, calendar_data, tasks_data, jobs_data, reminders_data, watchlist_data, scan_data, cost = data
+    return format_briefing_discord(email_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost, calendar_data=calendar_data, scan_data=scan_data)

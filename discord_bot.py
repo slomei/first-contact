@@ -22,6 +22,7 @@ import tasks
 import briefing
 import notifications
 import documents
+import job_scanner
 
 # Only respond to this Discord user ID
 ALLOWED_USER_ID = 000000000000000000
@@ -252,6 +253,12 @@ def build_help_text():
         "`!notify keyword add|remove <word>` — Manage priority keywords\n"
         "`!notify mute add|remove <pattern>` — Manage mute patterns\n"
         "`!notify log` — Show recent notification log\n"
+        "`!scan` — Run a job scan across configured platforms\n"
+        "`!scan results` — Show last scan results\n"
+        "`!scan status` — Show scan config and rate limits\n"
+        "`!scan queries` — List search queries\n"
+        "`!scan query add|remove <q>` — Manage search queries\n"
+        "`!scan on|off` — Enable/disable auto-scanning\n"
         "`!delegates` — Show specialist agents\n"
         "`!billing` — Show billing link\n"
         "`!conversations` — List saved conversations\n"
@@ -579,10 +586,90 @@ async def email_check_loop():
             pass  # Never crash the loop
 
 
+async def job_scan_loop():
+    """Background loop: auto-scan job boards Mon-Fri.
+
+    Checks config each iteration. Runs once per day at configured time.
+    Monday can have an earlier scan time. Skips weekends if configured.
+    """
+    await bot.wait_until_ready()
+
+    while not bot.is_closed():
+        try:
+            await asyncio.sleep(300)  # Check every 5 minutes
+
+            config = memory.load_config().get("job_scan", {})
+            if not config.get("enabled", True):
+                continue
+
+            now = datetime.now()
+            try:
+                from zoneinfo import ZoneInfo
+                tz_name = memory.load_config().get("briefing", {}).get("timezone", "America/New_York")
+                local_now = datetime.now(ZoneInfo(tz_name))
+            except Exception:
+                local_now = now
+
+            # Skip weekends
+            if config.get("skip_weekends", True) and local_now.weekday() >= 5:
+                continue
+
+            # Check if already scanned today
+            today_str = local_now.strftime("%Y-%m-%d")
+            if config.get("last_auto_scan") == today_str:
+                continue
+
+            # Determine target time (Monday gets earlier time)
+            if local_now.weekday() == 0:  # Monday
+                target_time = config.get("monday_time", "06:00")
+            else:
+                target_time = config.get("auto_time", "07:00")
+
+            target_parts = target_time.split(":")
+            target_hour = int(target_parts[0])
+            target_minute = int(target_parts[1]) if len(target_parts) > 1 else 0
+
+            if local_now.hour < target_hour or (local_now.hour == target_hour and local_now.minute < target_minute):
+                continue
+
+            # Time to scan
+            full_config = memory.load_config()
+            if "job_scan" not in full_config:
+                full_config["job_scan"] = {}
+            full_config["job_scan"]["last_auto_scan"] = today_str
+            memory.save_config(full_config)
+
+            results = await asyncio.to_thread(
+                job_scanner.run_scan, scan_type="auto"
+            )
+
+            if not results.get("ok"):
+                continue
+
+            # Send notification if there are strong matches
+            notification = job_scanner.format_scan_notification_discord(results)
+            if notification:
+                user = await bot.fetch_user(ALLOWED_USER_ID)
+                if user:
+                    for chunk in split_message(notification):
+                        await user.send(chunk)
+
+            # Send summary if there are any matches (medium included)
+            elif results.get("medium"):
+                summary = job_scanner.format_scan_summary_discord(results)
+                user = await bot.fetch_user(ALLOWED_USER_ID)
+                if user:
+                    await user.send(summary)
+
+        except Exception:
+            pass  # Never crash the loop
+
+
 @bot.event
 async def on_ready():
     bot.loop.create_task(reminder_check_loop())
     bot.loop.create_task(email_check_loop())
+    bot.loop.create_task(job_scan_loop())
     print(f"Discord bot connected as {bot.user}")
 
 
@@ -1365,6 +1452,122 @@ async def on_message(message):
         else:
             await message.channel.send(
                 "*Usage: `!notify [on|off|status|domain|keyword|mute|log]`*"
+            )
+        return
+
+    # --- Job scanning ---
+    if command_lower == "!scan" or command_lower.startswith("!scan "):
+        scan_arg = content[5:].strip() if len(content) > 5 else ""
+        scan_arg_lower = scan_arg.lower()
+
+        if not scan_arg:
+            # Run a manual scan
+            if not job_scanner.check_scan_rate_limit("manual"):
+                count = job_scanner.get_scan_count_today("manual")
+                await message.channel.send(
+                    f"*Scan rate limit reached ({count}/{job_scanner.MANUAL_SCANS_PER_DAY} manual scans today).*")
+                return
+
+            async with message.channel.typing():
+                await message.channel.send("*Running job scan...*")
+
+                async def discord_scan_progress(msg):
+                    await message.channel.send(f"*{msg}*")
+
+                # Can't use async progress_fn with sync run_scan, so just run it
+                results = await asyncio.to_thread(
+                    job_scanner.run_scan, None, None, "manual"
+                )
+
+            text = job_scanner.format_scan_discord(results)
+            for chunk in split_message(text):
+                await message.channel.send(chunk)
+
+        elif scan_arg_lower == "results":
+            last = job_scanner.load_scan_results()
+            if not last:
+                await message.channel.send("*No scan results yet. Run `!scan` to scan.*")
+            else:
+                text = job_scanner.format_scan_discord(last)
+                for chunk in split_message(text):
+                    await message.channel.send(chunk)
+
+        elif scan_arg_lower == "status":
+            status = job_scanner.get_scan_status()
+            enabled = "ON" if status["enabled"] else "OFF"
+            text = (
+                f"**Job Scanning: {enabled}**\n"
+                f"Auto-scan time: {status['auto_time']} (Mon-Fri"
+                + (f", Monday: {status['monday_time']}" if status.get("monday_time") else "")
+                + ")\n"
+                f"Skip weekends: {'yes' if status['skip_weekends'] else 'no'}\n"
+                f"Last scan: {status['last_scan'] or 'never'}\n"
+                f"Manual scans today: {status['manual_today']}/{status['manual_limit']}\n"
+                f"Auto scans today: {status['auto_today']}/{status['auto_limit']}\n"
+                f"Seen jobs (30 days): {status['seen_count']}\n"
+                f"Queries: {len(status['queries'])}"
+            )
+            for i, q in enumerate(status["queries"], 1):
+                text += f"\n  {i}. {q}"
+            await message.channel.send(text)
+
+        elif scan_arg_lower == "queries":
+            config = memory.load_config().get("job_scan", {})
+            queries = config.get("queries", [])
+            if not queries:
+                await message.channel.send("*No search queries configured. Use `!scan query add <query>`.*")
+            else:
+                lines = [f"**Search queries ({len(queries)}):**"]
+                for i, q in enumerate(queries, 1):
+                    lines.append(f"{i}. {q}")
+                await message.channel.send("\n".join(lines))
+
+        elif scan_arg_lower.startswith("query "):
+            parts = scan_arg[6:].strip().split(None, 1)
+            if len(parts) < 2 or parts[0].lower() not in ("add", "remove"):
+                await message.channel.send("*Usage: `!scan query add|remove <query>`*")
+                return
+            action, query = parts[0].lower(), parts[1].strip()
+            config = memory.load_config()
+            if "job_scan" not in config:
+                config["job_scan"] = {}
+            queries = config["job_scan"].get("queries", [])
+            if action == "add":
+                if query not in queries:
+                    queries.append(query)
+                    config["job_scan"]["queries"] = queries
+                    memory.save_config(config)
+                    await message.channel.send(f"*Added search query: {query}*")
+                else:
+                    await message.channel.send(f"*Already configured: {query}*")
+            else:
+                if query in queries:
+                    queries.remove(query)
+                    config["job_scan"]["queries"] = queries
+                    memory.save_config(config)
+                    await message.channel.send(f"*Removed search query: {query}*")
+                else:
+                    await message.channel.send(f"*Not found: {query}*")
+
+        elif scan_arg_lower == "on":
+            config = memory.load_config()
+            if "job_scan" not in config:
+                config["job_scan"] = {}
+            config["job_scan"]["enabled"] = True
+            memory.save_config(config)
+            await message.channel.send("*Auto job scanning enabled.*")
+
+        elif scan_arg_lower == "off":
+            config = memory.load_config()
+            if "job_scan" not in config:
+                config["job_scan"] = {}
+            config["job_scan"]["enabled"] = False
+            memory.save_config(config)
+            await message.channel.send("*Auto job scanning disabled.*")
+
+        else:
+            await message.channel.send(
+                "*Usage: `!scan [results|status|queries|query add|remove|on|off]`*"
             )
         return
 

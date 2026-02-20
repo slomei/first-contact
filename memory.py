@@ -176,6 +176,18 @@ def load_config():
                 "noreply@google.com", "marketing@", "newsletter@",
             ],
         },
+        "job_scan": {
+            "enabled": True,
+            "queries": [
+                "assistant editor animation",
+                "video editor post production",
+                "editorial animation studio",
+            ],
+            "auto_time": "07:00",
+            "skip_weekends": True,
+            "monday_time": "06:00",
+            "last_auto_scan": None,
+        },
     }
     if os.path.exists(path):
         try:

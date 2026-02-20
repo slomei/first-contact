@@ -25,6 +25,7 @@ import notifications
 import sync
 import creative
 import documents
+import job_scanner
 
 
 # --- Terminal-specific helpers ---
@@ -264,6 +265,13 @@ if __name__ == "__main__":
       /notify keyword add|remove <word>   Add/remove priority keyword
       /notify mute add|remove <pattern>   Add/remove mute pattern
       /notify log          Show recent notification log
+      /scan                Run a job scan across configured platforms
+      /scan results        Show results from the last scan
+      /scan status         Show scan configuration and rate limits
+      /scan query add <q>  Add a search query
+      /scan query remove <q>  Remove a search query
+      /scan queries        List configured search queries
+      /scan on|off         Enable/disable auto-scanning (Discord)
       /update [key] [path]  Sync files from source (all keys if omitted, explicit path optional)
       /characters        List all indexed characters (first-light only)
       /character <name>  Show character details (first-light only)
@@ -1477,6 +1485,106 @@ if __name__ == "__main__":
 
             else:
                 print(f"{memory.DIM}Usage: /notify [on|off|status|domain|keyword|mute|log]{memory.RESET}\n")
+            continue
+
+        if command_lower == "/scan" or command_lower.startswith("/scan "):
+            scan_arg = command[5:].strip() if len(command) > 5 else ""
+            scan_arg_lower = scan_arg.lower()
+
+            if not scan_arg:
+                # Run a manual scan
+                if not job_scanner.check_scan_rate_limit("manual"):
+                    count = job_scanner.get_scan_count_today("manual")
+                    print(f"{memory.RED}Scan rate limit reached ({count}/{job_scanner.MANUAL_SCANS_PER_DAY} manual scans today).{memory.RESET}\n")
+                    continue
+                def scan_progress(msg):
+                    print(f"{memory.DIM}  {msg}{memory.RESET}")
+                print(f"{memory.DIM}Running job scan...{memory.RESET}")
+                results = job_scanner.run_scan(progress_fn=scan_progress, scan_type="manual")
+                print(job_scanner.format_scan_ansi(results))
+                print()
+
+            elif scan_arg_lower == "results":
+                last = job_scanner.load_scan_results()
+                if not last:
+                    print(f"{memory.DIM}No scan results yet. Run /scan to scan.{memory.RESET}\n")
+                else:
+                    print(job_scanner.format_scan_ansi(last))
+                    print()
+
+            elif scan_arg_lower == "status":
+                status = job_scanner.get_scan_status()
+                enabled = f"{memory.GREEN}ON{memory.RESET}" if status["enabled"] else f"{memory.RED}OFF{memory.RESET}"
+                print(f"{memory.DIM}Job scanning: {enabled}")
+                print(f"  Auto-scan time: {status['auto_time']} (Mon-Fri"
+                      + (f", Monday: {status['monday_time']}" if status.get("monday_time") else "")
+                      + ")")
+                print(f"  Skip weekends: {'yes' if status['skip_weekends'] else 'no'}")
+                print(f"  Last scan: {status['last_scan'] or 'never'}")
+                print(f"  Manual scans today: {status['manual_today']}/{status['manual_limit']}")
+                print(f"  Auto scans today: {status['auto_today']}/{status['auto_limit']}")
+                print(f"  Seen jobs (30 days): {status['seen_count']}")
+                print(f"  Queries: {len(status['queries'])}")
+                for i, q in enumerate(status["queries"], 1):
+                    print(f"    {i}. {q}")
+                print(memory.RESET)
+
+            elif scan_arg_lower == "queries":
+                config = memory.load_config().get("job_scan", {})
+                queries = config.get("queries", [])
+                if not queries:
+                    print(f"{memory.DIM}No search queries configured. Use /scan query add <query>{memory.RESET}\n")
+                else:
+                    print(f"{memory.DIM}Search queries ({len(queries)}):")
+                    for i, q in enumerate(queries, 1):
+                        print(f"  {i}. {q}")
+                    print(memory.RESET)
+
+            elif scan_arg_lower.startswith("query "):
+                parts = scan_arg[6:].strip().split(None, 1)
+                if len(parts) < 2 or parts[0].lower() not in ("add", "remove"):
+                    print(f"{memory.DIM}Usage: /scan query add|remove <query>{memory.RESET}\n")
+                    continue
+                action, query = parts[0].lower(), parts[1].strip()
+                config = memory.load_config()
+                if "job_scan" not in config:
+                    config["job_scan"] = {}
+                queries = config["job_scan"].get("queries", [])
+                if action == "add":
+                    if query not in queries:
+                        queries.append(query)
+                        config["job_scan"]["queries"] = queries
+                        memory.save_config(config)
+                        print(f"{memory.DIM}Added search query: {query}{memory.RESET}\n")
+                    else:
+                        print(f"{memory.DIM}Already configured: {query}{memory.RESET}\n")
+                else:
+                    if query in queries:
+                        queries.remove(query)
+                        config["job_scan"]["queries"] = queries
+                        memory.save_config(config)
+                        print(f"{memory.DIM}Removed search query: {query}{memory.RESET}\n")
+                    else:
+                        print(f"{memory.DIM}Not found: {query}{memory.RESET}\n")
+
+            elif scan_arg_lower == "on":
+                config = memory.load_config()
+                if "job_scan" not in config:
+                    config["job_scan"] = {}
+                config["job_scan"]["enabled"] = True
+                memory.save_config(config)
+                print(f"{memory.DIM}Auto job scanning enabled.{memory.RESET}\n")
+
+            elif scan_arg_lower == "off":
+                config = memory.load_config()
+                if "job_scan" not in config:
+                    config["job_scan"] = {}
+                config["job_scan"]["enabled"] = False
+                memory.save_config(config)
+                print(f"{memory.DIM}Auto job scanning disabled.{memory.RESET}\n")
+
+            else:
+                print(f"{memory.DIM}Usage: /scan [results|status|queries|query add|remove|on|off]{memory.RESET}\n")
             continue
 
         if command_lower == "/tasks" or command_lower.startswith("/tasks "):
