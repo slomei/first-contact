@@ -294,6 +294,50 @@ TOOLS = [
             "required": ["url"],
         },
     },
+    {
+        "name": "generate_pdf",
+        "description": (
+            "Generate a PDF document. Use for cover letters (provide job_id "
+            "or company+title), or generic documents from text. For cover "
+            "letters the system uses Opus to write the letter and formats it "
+            "as a professional PDF with the user's contact header."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": ["cover_letter", "document"],
+                    "description": "PDF type: 'cover_letter' for job applications, 'document' for generic text",
+                },
+                "job_id": {
+                    "type": "integer",
+                    "description": "For cover_letter: 1-based index of a saved job from job_search results",
+                },
+                "company": {
+                    "type": "string",
+                    "description": "For cover_letter without job_id: company name",
+                },
+                "job_title": {
+                    "type": "string",
+                    "description": "For cover_letter without job_id: position title",
+                },
+                "job_description": {
+                    "type": "string",
+                    "description": "For cover_letter without job_id: job description text",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "For document type: document title",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "For document type: body text to format as PDF",
+                },
+            },
+            "required": ["type"],
+        },
+    },
 ]
 
 # --- Mutable globals ---
@@ -793,6 +837,7 @@ def tool_status_text(name, tool_input):
         "create_task": f'Creating task: "{tool_input.get("description", "")}"',
         "create_reminder": f'Setting reminder: "{tool_input.get("description", "")}"',
         "web_fetch": f'Fetching page: {tool_input.get("url", "")}',
+        "generate_pdf": f'Generating PDF: {tool_input.get("type", "document")}',
     }
     return labels.get(name, f"Using tool: {name}")
 
@@ -1008,6 +1053,107 @@ def execute_tool(name, tool_input, confirm_fn=None):
             content += ("\n\n[This appears to be a job posting. Extract key details "
                         "and offer to save it to the job pipeline.]")
         return content, False
+
+    elif name == "generate_pdf":
+        import documents
+        import models as _models
+
+        pdf_type = tool_input.get("type", "document")
+
+        if pdf_type == "cover_letter":
+            # Gather memories
+            all_memories = list(memory.memories)
+            root_mem = os.path.join(memory.BASE_DIR, "memory.json")
+            if os.path.exists(root_mem):
+                with open(root_mem, "r") as f:
+                    all_memories.extend(json.load(f))
+            general_mem = os.path.join(memory.PROJECTS_DIR, "general", "memory.json")
+            if memory.active_project != "general" and os.path.exists(general_mem):
+                with open(general_mem, "r") as f:
+                    all_memories.extend(json.load(f))
+            js_mem = os.path.join(memory.PROJECTS_DIR, memory.JOB_SEARCH_PROJECT, "memory.json")
+            if js_mem != memory.get_memory_file() and os.path.exists(js_mem):
+                with open(js_mem, "r") as f:
+                    all_memories.extend(json.load(f))
+            all_memories = list(dict.fromkeys(all_memories))
+
+            # Load resume
+            resume_text = ""
+            resume_path = memory.get_resume_path()
+            if os.path.exists(resume_path):
+                with open(resume_path, "r") as f:
+                    resume_text = f.read()
+
+            job_id = tool_input.get("job_id")
+            if job_id is not None:
+                # From saved job
+                try:
+                    idx = int(job_id) - 1
+                    jobs = memory.load_jobs()
+                    if idx < 0 or idx >= len(jobs):
+                        return f"Invalid job number {job_id}. Use job_search first or /jobs list.", True
+                    job = jobs[idx]
+                except (ValueError, TypeError):
+                    return f"Invalid job_id: {job_id}", True
+
+                company = "Company"
+                for sep in (" - ", " | ", " — ", " @ ", " at "):
+                    if sep in job["title"]:
+                        company = job["title"].split(sep)[-1].strip()
+                        break
+
+                letter_text, cost = _models.generate_cover_letter(
+                    job, all_memories, resume_text=resume_text)
+
+                # Save markdown to job folder
+                folder = memory.get_job_folder(job)
+                cl_path = os.path.join(folder, "cover-letter.md")
+                with open(cl_path, "w") as f:
+                    f.write(f"# Cover Letter \u2014 {job['title']}\n\n")
+                    f.write(f"**Position:** {job['title']}\n")
+                    f.write(f"**URL:** {job['url']}\n")
+                    f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n---\n\n")
+                    f.write(letter_text + "\n")
+                memory.save_jobs(jobs)
+
+                pdf_path = documents.generate_cover_letter_pdf(
+                    "Hiring Manager", company, job["title"], letter_text)
+
+                return (f"Cover letter PDF generated: {pdf_path}\n"
+                        f"Markdown saved: jobs/{job['folder']}/cover-letter.md\n"
+                        f"Cost: ${cost:.4f}"), False
+            else:
+                # Ad-hoc cover letter
+                company = tool_input.get("company", "Company")
+                job_title = tool_input.get("job_title", "Position")
+                job_desc = tool_input.get("job_description", "")
+                job = {"title": job_title, "url": "N/A", "body": job_desc}
+
+                letter_text, cost = _models.generate_cover_letter(
+                    job, all_memories, resume_text=resume_text,
+                    job_description=job_desc)
+
+                pdf_path = documents.generate_cover_letter_pdf(
+                    "Hiring Manager", company, job_title, letter_text)
+
+                return (f"Cover letter PDF generated: {pdf_path}\n"
+                        f"Cost: ${cost:.4f}"), False
+
+        else:
+            # Generic document PDF
+            title = tool_input.get("title", "Document")
+            body = tool_input.get("body", "")
+            if not body:
+                return "No body text provided for the PDF.", True
+
+            slug = re.sub(r'[^\w]+', '_', title).strip('_') or "document"
+            date_str = datetime.now().strftime("%Y%m%d_%H%M")
+            filename = f"{slug}_{date_str}.pdf"
+            workspace = memory.get_workspace_dir()
+            filepath = os.path.join(workspace, filename)
+
+            documents.generate_pdf(title, body, filepath)
+            return f"PDF generated: {filepath}", False
 
     return f"Unknown tool: {name}", True
 
