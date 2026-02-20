@@ -34,8 +34,8 @@ MODEL_DISPLAY_NAMES = {
 }
 
 
-class ChannelState:
-    """Per-channel conversation state."""
+class UserState:
+    """Per-user conversation state."""
 
     def __init__(self):
         self.conversation_history = []
@@ -48,15 +48,15 @@ class ChannelState:
         self.cost = 0.0
 
 
-# Per-channel state, keyed by channel ID
-channel_states = {}
+# Per-user state, keyed by user ID
+user_states = {}
 
 
-def get_state(channel_id):
-    """Get or create state for a channel."""
-    if channel_id not in channel_states:
-        channel_states[channel_id] = ChannelState()
-    return channel_states[channel_id]
+def get_state(user_id):
+    """Get or create state for a user."""
+    if user_id not in user_states:
+        user_states[user_id] = UserState()
+    return user_states[user_id]
 
 
 def sync_state(state):
@@ -98,6 +98,19 @@ def split_message(text, limit=2000):
         text = text[split_at:].lstrip("\n")
 
     return chunks
+
+
+async def send_reply(channel, text, **kwargs):
+    """Send a reply via DM, splitting into chunks if needed.
+
+    Any extra kwargs (e.g. file=) are attached to the last chunk only.
+    """
+    chunks = split_message(text)
+    for i, chunk in enumerate(chunks):
+        if i == len(chunks) - 1:
+            await channel.send(chunk, **kwargs)
+        else:
+            await channel.send(chunk)
 
 
 def format_cost(inp, out, msg_cost, state):
@@ -688,13 +701,15 @@ async def on_message(message):
     if not content:
         return
 
-    state = get_state(message.channel.id)
+    # Always respond via DM
+    dm = await message.author.create_dm()
+    state = get_state(message.author.id)
 
     # --- Commands ---
     command_lower = content.lower()
 
     if command_lower == "!help":
-        await message.channel.send(build_help_text())
+        await send_reply(dm, build_help_text())
         return
 
     if command_lower == "!new":
@@ -702,7 +717,7 @@ async def on_message(message):
         state.input_tokens = 0
         state.output_tokens = 0
         state.cost = 0.0
-        await message.channel.send("*Conversation reset.*")
+        await send_reply(dm, "*Conversation reset.*")
         return
 
     if command_lower in ("!opus", "!sonnet", "!haiku"):
@@ -713,38 +728,38 @@ async def on_message(message):
         }
         state.active_model = model_map[command_lower]
         name = MODEL_DISPLAY_NAMES[state.active_model]
-        await message.channel.send(f"*Switched to {name}.*")
+        await send_reply(dm, f"*Switched to {name}.*")
         return
 
     if command_lower in ("!challenge on", "!challenge off"):
         state.challenge_mode = command_lower == "!challenge on"
         status = "ON" if state.challenge_mode else "OFF"
-        await message.channel.send(f"*Challenge mode: {status}*")
+        await send_reply(dm, f"*Challenge mode: {status}*")
         return
 
     if command_lower == "!memories":
-        await message.channel.send(build_memories_text(state))
+        await send_reply(dm, build_memories_text(state))
         return
 
     if command_lower == "!tokens":
-        await message.channel.send(build_tokens_text(state))
+        await send_reply(dm, build_tokens_text(state))
         return
 
     if command_lower.startswith("!web "):
         query = content[5:].strip()
         if not query:
-            await message.channel.send("*Usage: `!web <search query>`*")
+            await send_reply(dm, "*Usage: `!web <search query>`*")
             return
 
-        async with message.channel.typing():
-            await message.channel.send(f"*Searching: {query}...*")
+        async with dm.typing():
+            await send_reply(dm, f"*Searching: {query}...*")
             try:
                 results = await asyncio.to_thread(tools.web_search, query)
             except Exception as e:
-                await message.channel.send(f"*Search failed: {e}*")
+                await send_reply(dm, f"*Search failed: {e}*")
                 return
             if not results:
-                await message.channel.send("*No results found.*")
+                await send_reply(dm, "*No results found.*")
                 return
 
             search_message = (
@@ -755,30 +770,30 @@ async def on_message(message):
                 {"role": "user", "content": search_message}
             )
 
-            reply = await get_response(state, message.channel)
+            reply = await get_response(state, dm)
 
         for chunk in split_message(reply):
-            await message.channel.send(chunk)
+            await send_reply(dm, chunk)
         return
 
     if command_lower.startswith("!fetch "):
         url = content[7:].strip()
         if not url:
-            await message.channel.send("*Usage: `!fetch <url>`*")
+            await send_reply(dm, "*Usage: `!fetch <url>`*")
             return
         if not url.startswith(("http://", "https://")):
             url = "https://" + url
 
         if tools._session_fetch_count >= tools.FETCH_RATE_LIMIT:
-            await message.channel.send(f"*Fetch rate limit reached ({tools.FETCH_RATE_LIMIT} per session).*")
+            await send_reply(dm, f"*Fetch rate limit reached ({tools.FETCH_RATE_LIMIT} per session).*")
             return
 
-        async with message.channel.typing():
-            await message.channel.send(f"*Fetching: {url}...*")
+        async with dm.typing():
+            await send_reply(dm, f"*Fetching: {url}...*")
             text, title, is_job = await asyncio.to_thread(tools.fetch_url, url)
 
             if title is None:
-                await message.channel.send(f"*Error: {text}*")
+                await send_reply(dm, f"*Error: {text}*")
                 return
 
             # If job posting, parse
@@ -802,15 +817,15 @@ async def on_message(message):
                 fetch_message += "\n\n[This appears to be a job posting. Offer to save it to the job pipeline if relevant.]"
             state.conversation_history.append({"role": "user", "content": fetch_message})
 
-            reply = await get_response(state, message.channel)
+            reply = await get_response(state, dm)
 
         # Send page header + job summary + Claude's response
         header = f"**{title}**\n{url}"
         if job_summary:
             header += job_summary
-        await message.channel.send(header)
+        await send_reply(dm, header)
         for chunk in split_message(reply):
-            await message.channel.send(chunk)
+            await send_reply(dm, chunk)
         return
 
     # --- Cover letter PDF ---
@@ -819,7 +834,7 @@ async def on_message(message):
         cover_arg_lower = cover_arg.lower()
 
         if not cover_arg:
-            await message.channel.send("*Usage: `!cover <#>` or `!cover new <company> <title>`*")
+            await send_reply(dm, "*Usage: `!cover <#>` or `!cover new <company> <title>`*")
             return
 
         sync_state(state)
@@ -852,7 +867,7 @@ async def on_message(message):
             new_args = cover_arg[4:].strip()
             parts = new_args.split(None, 1)
             if len(parts) < 2:
-                await message.channel.send("*Usage: `!cover new <company> <job title>`*")
+                await send_reply(dm, "*Usage: `!cover new <company> <job title>`*")
                 return
             company_name = parts[0]
             job_title = parts[1]
@@ -867,14 +882,14 @@ async def on_message(message):
 
             job = {"title": job_title, "url": "N/A", "body": job_desc}
 
-            async with message.channel.typing():
-                await message.channel.send(f"*Generating cover letter for {job_title} at {company_name} (Opus)...*")
+            async with dm.typing():
+                await send_reply(dm, f"*Generating cover letter for {job_title} at {company_name} (Opus)...*")
                 try:
                     letter_text, cost = await asyncio.to_thread(
                         models.generate_cover_letter, job, all_memories,
                         resume_text=resume_text, job_description=job_desc)
                 except Exception as e:
-                    await message.channel.send(f"*Cover letter generation failed: {e}*")
+                    await send_reply(dm, f"*Cover letter generation failed: {e}*")
                     return
 
                 pdf_path = await asyncio.to_thread(
@@ -884,12 +899,12 @@ async def on_message(message):
             # Send PDF as attachment
             try:
                 f = discord.File(pdf_path)
-                await message.channel.send(
+                await send_reply(dm,
                     f"**Cover letter generated** — {company_name} / {job_title}\n"
                     f"*[${cost:.4f}]*",
                     file=f)
             except Exception:
-                await message.channel.send(
+                await send_reply(dm,
                     f"**Cover letter generated** — {company_name} / {job_title}\n"
                     f"`{pdf_path}`\n*[${cost:.4f}]*")
 
@@ -901,7 +916,7 @@ async def on_message(message):
                 if idx < 0 or idx >= len(jobs):
                     raise ValueError
             except ValueError:
-                await message.channel.send("*Invalid number. Use `!jobs list` to see listings.*")
+                await send_reply(dm, "*Invalid number. Use `!jobs list` to see listings.*")
                 return
 
             job = jobs[idx]
@@ -914,14 +929,14 @@ async def on_message(message):
                     company_name = job_title.split(sep)[-1].strip()
                     break
 
-            async with message.channel.typing():
-                await message.channel.send(f"*Generating cover letter for: {job_title} (Opus)...*")
+            async with dm.typing():
+                await send_reply(dm, f"*Generating cover letter for: {job_title} (Opus)...*")
                 try:
                     letter_text, cost = await asyncio.to_thread(
                         models.generate_cover_letter, job, all_memories,
                         resume_text=resume_text)
                 except Exception as e:
-                    await message.channel.send(f"*Cover letter generation failed: {e}*")
+                    await send_reply(dm, f"*Cover letter generation failed: {e}*")
                     return
 
                 # Save markdown version to job folder
@@ -954,13 +969,13 @@ async def on_message(message):
             # Send PDF as attachment
             try:
                 f = discord.File(pdf_path)
-                await message.channel.send(
+                await send_reply(dm,
                     f"**Cover letter generated** — {job_title}\n"
                     f"*Markdown: jobs/{job['folder']}/cover-letter.md*\n"
                     f"*[${cost:.4f}]*",
                     file=f)
             except Exception:
-                await message.channel.send(
+                await send_reply(dm,
                     f"**Cover letter generated** — {job_title}\n"
                     f"`{pdf_path}`\n"
                     f"*Markdown: jobs/{job['folder']}/cover-letter.md*\n"
@@ -980,7 +995,7 @@ async def on_message(message):
                 break
 
         if not last_text:
-            await message.channel.send("*No response to save yet.*")
+            await send_reply(dm, "*No response to save yet.*")
             return
 
         title = pdf_arg or "Document"
@@ -994,39 +1009,39 @@ async def on_message(message):
         try:
             await asyncio.to_thread(documents.generate_pdf, title, last_text, filepath)
             f = discord.File(filepath)
-            await message.channel.send(f"**{title}**", file=f)
+            await send_reply(dm, f"**{title}**", file=f)
         except Exception as e:
-            await message.channel.send(f"*PDF generation failed: {e}*")
+            await send_reply(dm, f"*PDF generation failed: {e}*")
         return
 
     # --- Project management ---
     if command_lower == "!project" or command_lower.startswith("!project "):
         arg = content[8:].strip() if len(content) > 8 else ""
         if not arg or arg.lower() == "list":
-            await message.channel.send(build_project_list(state))
+            await send_reply(dm, build_project_list(state))
         else:
             name = re.sub(r'[^\w-]', '-', arg.lower()).strip('-')
             if not name:
-                await message.channel.send("*Invalid project name.*")
+                await send_reply(dm, "*Invalid project name.*")
             else:
                 state.active_project = name
                 sync_state(state)
                 memory.switch_project(name)
                 mems = memory.load_memories()
                 mem_note = f"\nLoaded {len(mems)} memor{'y' if len(mems) == 1 else 'ies'}." if mems else ""
-                await message.channel.send(f"*Switched to project: {name}*{mem_note}")
+                await send_reply(dm, f"*Switched to project: {name}*{mem_note}")
         return
 
     # --- Remember / Forget ---
     if command_lower.startswith("!remember "):
         fact = content[10:].strip()
         if not fact:
-            await message.channel.send("*Usage: `!remember <fact>`*")
+            await send_reply(dm, "*Usage: `!remember <fact>`*")
             return
         sync_state(state)
         memory.memories.append(fact)
         memory.save_memories(memory.memories)
-        await message.channel.send(f"*Remembered: {fact}*")
+        await send_reply(dm, f"*Remembered: {fact}*")
         return
 
     if command_lower.startswith("!forget "):
@@ -1035,16 +1050,16 @@ async def on_message(message):
         if fact in memory.memories:
             memory.memories.remove(fact)
             memory.save_memories(memory.memories)
-            await message.channel.send(f"*Forgot: {fact}*")
+            await send_reply(dm, f"*Forgot: {fact}*")
         else:
-            await message.channel.send("*No matching memory found. Use `!memories` to see stored facts.*")
+            await send_reply(dm, "*No matching memory found. Use `!memories` to see stored facts.*")
         return
 
     # --- Watchlist ---
     if command_lower == "!watch" or command_lower.startswith("!watch "):
         arg = content[6:].strip() if len(content) > 6 else ""
         if not arg or arg.lower() == "list":
-            await message.channel.send(build_watchlist_text(state))
+            await send_reply(dm, build_watchlist_text(state))
         elif arg.lower().startswith("remove "):
             topic = arg[7:].strip()
             sync_state(state)
@@ -1052,27 +1067,27 @@ async def on_message(message):
             if topic in topics:
                 topics.remove(topic)
                 memory.save_watchlist(topics)
-                await message.channel.send(f"*Removed: {topic}*")
+                await send_reply(dm, f"*Removed: {topic}*")
             else:
-                await message.channel.send(f"*Not found: {topic}. Use `!watch list` to see topics.*")
+                await send_reply(dm, f"*Not found: {topic}. Use `!watch list` to see topics.*")
         else:
             topic = arg.strip()
             sync_state(state)
             topics = memory.load_watchlist()
             if topic in topics:
-                await message.channel.send(f"*Already watching: {topic}*")
+                await send_reply(dm, f"*Already watching: {topic}*")
             else:
                 topics.append(topic)
                 memory.save_watchlist(topics)
-                await message.channel.send(f"*Now watching: {topic}*")
+                await send_reply(dm, f"*Now watching: {topic}*")
         return
 
     # --- Digest ---
     if command_lower == "!digest":
-        async with message.channel.typing():
-            result = await run_digest_discord(state, message.channel)
+        async with dm.typing():
+            result = await run_digest_discord(state, dm)
         for chunk in split_message(result):
-            await message.channel.send(chunk)
+            await send_reply(dm, chunk)
         return
 
     # --- Calendar ---
@@ -1083,41 +1098,41 @@ async def on_message(message):
         if not cal_arg or cal_arg_lower == "today":
             service = tools.get_calendar_service()
             if not service:
-                await message.channel.send("*Google Calendar not authenticated. Run `!cal setup` first.*")
+                await send_reply(dm, "*Google Calendar not authenticated. Run `!cal setup` first.*")
                 return
-            async with message.channel.typing():
+            async with dm.typing():
                 events = await asyncio.to_thread(tools.calendar_get_events, "today")
             if events is None:
-                await message.channel.send("*Google Calendar not authenticated. Run `!cal setup` first.*")
+                await send_reply(dm, "*Google Calendar not authenticated. Run `!cal setup` first.*")
                 return
             text = f"**📅 Today's Events**\n{tools.format_events_discord(events, 'today')}"
-            await message.channel.send(text)
+            await send_reply(dm, text)
 
         elif cal_arg_lower == "tomorrow":
             service = tools.get_calendar_service()
             if not service:
-                await message.channel.send("*Google Calendar not authenticated. Run `!cal setup` first.*")
+                await send_reply(dm, "*Google Calendar not authenticated. Run `!cal setup` first.*")
                 return
-            async with message.channel.typing():
+            async with dm.typing():
                 events = await asyncio.to_thread(tools.calendar_get_events, "tomorrow")
             if events is None:
-                await message.channel.send("*Google Calendar not authenticated. Run `!cal setup` first.*")
+                await send_reply(dm, "*Google Calendar not authenticated. Run `!cal setup` first.*")
                 return
             text = f"**📅 Tomorrow's Events**\n{tools.format_events_discord(events, 'tomorrow')}"
-            await message.channel.send(text)
+            await send_reply(dm, text)
 
         elif cal_arg_lower == "week":
             service = tools.get_calendar_service()
             if not service:
-                await message.channel.send("*Google Calendar not authenticated. Run `!cal setup` first.*")
+                await send_reply(dm, "*Google Calendar not authenticated. Run `!cal setup` first.*")
                 return
-            async with message.channel.typing():
+            async with dm.typing():
                 tz = tools._get_user_timezone()
                 now = datetime.now(tz)
                 end_str = (now + timedelta(days=7)).strftime("%Y-%m-%d")
                 events = await asyncio.to_thread(tools.calendar_get_events, "today", end_str)
             if events is None:
-                await message.channel.send("*Google Calendar not authenticated. Run `!cal setup` first.*")
+                await send_reply(dm, "*Google Calendar not authenticated. Run `!cal setup` first.*")
                 return
             if isinstance(events, list) and events:
                 lines = ["**📅 Next 7 Days**"]
@@ -1146,34 +1161,34 @@ async def on_message(message):
             else:
                 text = f"**📅 Next 7 Days**\n{tools.format_events_discord(events, 'this week')}"
             for chunk in split_message(text):
-                await message.channel.send(chunk)
+                await send_reply(dm, chunk)
 
         elif cal_arg_lower == "setup":
             if not os.path.exists(memory.GMAIL_CLIENT_SECRET):
-                await message.channel.send(
+                await send_reply(dm,
                     "*Missing OAuth client secret. Download from Google Cloud Console "
                     "and save as `gmail_client_secret.json`.*")
             else:
-                await message.channel.send("*Starting Calendar OAuth flow (check terminal)...*")
+                await send_reply(dm, "*Starting Calendar OAuth flow (check terminal)...*")
                 success = await asyncio.to_thread(tools.calendar_setup)
                 if success:
-                    await message.channel.send("*Google Calendar authenticated successfully.*")
+                    await send_reply(dm, "*Google Calendar authenticated successfully.*")
                 else:
-                    await message.channel.send("*Calendar setup failed.*")
+                    await send_reply(dm, "*Calendar setup failed.*")
 
         elif cal_arg_lower.startswith("add "):
             desc = cal_arg[4:].strip()
             if not desc:
-                await message.channel.send(
+                await send_reply(dm,
                     "*Usage: `!cal add Meeting with recruiter Tuesday at 2pm for 1 hour`*")
                 return
 
             service = tools.get_calendar_service()
             if not service:
-                await message.channel.send("*Google Calendar not authenticated. Run `!cal setup` first.*")
+                await send_reply(dm, "*Google Calendar not authenticated. Run `!cal setup` first.*")
                 return
 
-            async with message.channel.typing():
+            async with dm.typing():
                 # Parse with Haiku
                 try:
                     parse_response = await asyncio.to_thread(
@@ -1198,7 +1213,7 @@ async def on_message(message):
                         parse_text = parse_text.strip()
                     parsed = json.loads(parse_text)
                 except Exception:
-                    await message.channel.send(
+                    await send_reply(dm,
                         "*Could not parse event details. Try: "
                         "`!cal add Team call Friday at 3pm for 30 minutes`*")
                     return
@@ -1211,7 +1226,7 @@ async def on_message(message):
                 tz = tools._get_user_timezone()
                 start_dt = tools._parse_date_to_aware(start_str)
                 if start_dt is None:
-                    await message.channel.send(f"*Could not parse date: '{start_str}'*")
+                    await send_reply(dm, f"*Could not parse date: '{start_str}'*")
                     return
 
                 is_all_day = parsed.get("all_day", False)
@@ -1224,7 +1239,7 @@ async def on_message(message):
                         if end_dt:
                             time_display += f" — {end_dt.strftime('%-I:%M %p')}"
 
-            await message.channel.send(
+            await send_reply(dm,
                 f"**Create event?**\n"
                 f"  Title: **{title}**\n"
                 f"  When: {time_display}\n\n"
@@ -1233,7 +1248,7 @@ async def on_message(message):
             # Wait for confirmation
             def check_confirm(m):
                 return (m.author.id == ALLOWED_USER_ID
-                        and m.channel.id == message.channel.id
+                        and m.channel.id == dm.id
                         and m.content.strip().lower() in ("yes", "y", "no", "n"))
             try:
                 reply = await bot.wait_for("message", check=check_confirm, timeout=60)
@@ -1241,38 +1256,38 @@ async def on_message(message):
                     result = await asyncio.to_thread(
                         tools.calendar_create_event, title, start_str, end_str)
                     if result is None:
-                        await message.channel.send("*Calendar not authenticated.*")
+                        await send_reply(dm, "*Calendar not authenticated.*")
                     elif isinstance(result, str):
-                        await message.channel.send(f"*Error: {result}*")
+                        await send_reply(dm, f"*Error: {result}*")
                     else:
                         link = result.get("link", "")
-                        await message.channel.send(
+                        await send_reply(dm,
                             f"**Event created:** {result['title']}\n{link}")
                 else:
-                    await message.channel.send("*Cancelled.*")
+                    await send_reply(dm, "*Cancelled.*")
             except asyncio.TimeoutError:
-                await message.channel.send("*Event creation timed out (60s). Cancelled.*")
+                await send_reply(dm, "*Event creation timed out (60s). Cancelled.*")
 
         else:
             # Try to parse as a date
             service = tools.get_calendar_service()
             if not service:
-                await message.channel.send("*Google Calendar not authenticated. Run `!cal setup` first.*")
+                await send_reply(dm, "*Google Calendar not authenticated. Run `!cal setup` first.*")
                 return
-            async with message.channel.typing():
+            async with dm.typing():
                 events = await asyncio.to_thread(tools.calendar_get_events, cal_arg)
             if events is None:
-                await message.channel.send("*Google Calendar not authenticated. Run `!cal setup` first.*")
+                await send_reply(dm, "*Google Calendar not authenticated. Run `!cal setup` first.*")
                 return
             if isinstance(events, str) and events.startswith("Could not parse"):
-                await message.channel.send(
+                await send_reply(dm,
                     f"*{events}*\n"
                     "*Usage: `!cal [today|tomorrow|week|<date>|add <desc>|setup]`*")
                 return
             dt = tools._parse_date_to_aware(cal_arg)
             date_label = dt.strftime("%A, %b %d") if dt else cal_arg
             text = f"**📅 {date_label}**\n{tools.format_events_discord(events, date_label)}"
-            await message.channel.send(text)
+            await send_reply(dm, text)
 
         return
 
@@ -1281,29 +1296,29 @@ async def on_message(message):
         briefing_arg = content[9:].strip().lower() if len(content) > 9 else ""
 
         if not briefing_arg:
-            async with message.channel.typing():
-                await message.channel.send("*Generating briefing...*")
+            async with dm.typing():
+                await send_reply(dm, "*Generating briefing...*")
                 try:
                     text = await asyncio.to_thread(briefing.run_briefing_discord)
                 except Exception as e:
-                    await message.channel.send(f"*Briefing failed: {e}*")
+                    await send_reply(dm, f"*Briefing failed: {e}*")
                     return
             for chunk in split_message(text):
-                await message.channel.send(chunk)
+                await send_reply(dm, chunk)
         elif briefing_arg.startswith("time "):
             time_str = briefing_arg[5:].strip()
             if not re.match(r"^\d{1,2}:\d{2}$", time_str):
-                await message.channel.send("*Usage: `!briefing time HH:MM` (e.g. `!briefing time 08:00`)*")
+                await send_reply(dm, "*Usage: `!briefing time HH:MM` (e.g. `!briefing time 08:00`)*")
                 return
             parts = time_str.split(":")
             hour, minute = int(parts[0]), int(parts[1])
             if hour > 23 or minute > 59:
-                await message.channel.send("*Invalid time. Use 24-hour format (00:00 - 23:59).*")
+                await send_reply(dm, "*Invalid time. Use 24-hour format (00:00 - 23:59).*")
                 return
             config = memory.load_config()
             config["briefing"]["time"] = f"{hour:02d}:{minute:02d}"
             memory.save_config(config)
-            await message.channel.send(
+            await send_reply(dm,
                 f"*Auto-briefing time set to {hour:02d}:{minute:02d} "
                 f"({config['briefing']['timezone']})*"
             )
@@ -1311,7 +1326,7 @@ async def on_message(message):
             config = memory.load_config()
             config["briefing"]["enabled"] = True
             memory.save_config(config)
-            await message.channel.send(
+            await send_reply(dm,
                 f"*Auto-briefing enabled. "
                 f"Time: {config['briefing']['time']} {config['briefing']['timezone']}*"
             )
@@ -1319,9 +1334,9 @@ async def on_message(message):
             config = memory.load_config()
             config["briefing"]["enabled"] = False
             memory.save_config(config)
-            await message.channel.send("*Auto-briefing disabled.*")
+            await send_reply(dm, "*Auto-briefing disabled.*")
         else:
-            await message.channel.send(
+            await send_reply(dm,
                 "*Usage: `!briefing` | `!briefing time HH:MM` | `!briefing on` | `!briefing off`*"
             )
         return
@@ -1337,7 +1352,7 @@ async def on_message(message):
             rate = notifications.get_rate_count()
             last = config.get("last_checked")
             last_str = last[:19] if last else "never"
-            await message.channel.send(
+            await send_reply(dm,
                 f"**Email Notifications: {enabled}**\n"
                 f"Check interval: {config.get('check_interval_minutes', 5)} min\n"
                 f"Batch interval: {config.get('batch_interval_minutes', 30)} min\n"
@@ -1352,18 +1367,18 @@ async def on_message(message):
             config = memory.load_config()
             config["email_notifications"]["enabled"] = True
             memory.save_config(config)
-            await message.channel.send("*Email notifications enabled.*")
+            await send_reply(dm, "*Email notifications enabled.*")
 
         elif notify_arg_lower == "off":
             config = memory.load_config()
             config["email_notifications"]["enabled"] = False
             memory.save_config(config)
-            await message.channel.send("*Email notifications disabled.*")
+            await send_reply(dm, "*Email notifications disabled.*")
 
         elif notify_arg_lower.startswith("domain "):
             parts = notify_arg[7:].strip().split(None, 1)
             if len(parts) < 2 or parts[0].lower() not in ("add", "remove"):
-                await message.channel.send("*Usage: `!notify domain add|remove <domain>`*")
+                await send_reply(dm, "*Usage: `!notify domain add|remove <domain>`*")
                 return
             action, domain = parts[0].lower(), parts[1].strip()
             config = memory.load_config()
@@ -1373,22 +1388,22 @@ async def on_message(message):
                     domains.append(domain)
                     config["email_notifications"]["priority_domains"] = domains
                     memory.save_config(config)
-                    await message.channel.send(f"*Added priority domain: {domain}*")
+                    await send_reply(dm, f"*Added priority domain: {domain}*")
                 else:
-                    await message.channel.send(f"*Already in priority domains: {domain}*")
+                    await send_reply(dm, f"*Already in priority domains: {domain}*")
             else:
                 if domain in domains:
                     domains.remove(domain)
                     config["email_notifications"]["priority_domains"] = domains
                     memory.save_config(config)
-                    await message.channel.send(f"*Removed priority domain: {domain}*")
+                    await send_reply(dm, f"*Removed priority domain: {domain}*")
                 else:
-                    await message.channel.send(f"*Not found: {domain}*")
+                    await send_reply(dm, f"*Not found: {domain}*")
 
         elif notify_arg_lower.startswith("keyword "):
             parts = notify_arg[8:].strip().split(None, 1)
             if len(parts) < 2 or parts[0].lower() not in ("add", "remove"):
-                await message.channel.send("*Usage: `!notify keyword add|remove <keyword>`*")
+                await send_reply(dm, "*Usage: `!notify keyword add|remove <keyword>`*")
                 return
             action, keyword = parts[0].lower(), parts[1].strip()
             config = memory.load_config()
@@ -1398,22 +1413,22 @@ async def on_message(message):
                     keywords.append(keyword)
                     config["email_notifications"]["priority_keywords"] = keywords
                     memory.save_config(config)
-                    await message.channel.send(f"*Added priority keyword: {keyword}*")
+                    await send_reply(dm, f"*Added priority keyword: {keyword}*")
                 else:
-                    await message.channel.send(f"*Already in priority keywords: {keyword}*")
+                    await send_reply(dm, f"*Already in priority keywords: {keyword}*")
             else:
                 if keyword in keywords:
                     keywords.remove(keyword)
                     config["email_notifications"]["priority_keywords"] = keywords
                     memory.save_config(config)
-                    await message.channel.send(f"*Removed priority keyword: {keyword}*")
+                    await send_reply(dm, f"*Removed priority keyword: {keyword}*")
                 else:
-                    await message.channel.send(f"*Not found: {keyword}*")
+                    await send_reply(dm, f"*Not found: {keyword}*")
 
         elif notify_arg_lower.startswith("mute "):
             parts = notify_arg[5:].strip().split(None, 1)
             if len(parts) < 2 or parts[0].lower() not in ("add", "remove"):
-                await message.channel.send("*Usage: `!notify mute add|remove <pattern>`*")
+                await send_reply(dm, "*Usage: `!notify mute add|remove <pattern>`*")
                 return
             action, pattern = parts[0].lower(), parts[1].strip()
             config = memory.load_config()
@@ -1423,21 +1438,21 @@ async def on_message(message):
                     mutes.append(pattern)
                     config["email_notifications"]["mute_domains"] = mutes
                     memory.save_config(config)
-                    await message.channel.send(f"*Added mute pattern: {pattern}*")
+                    await send_reply(dm, f"*Added mute pattern: {pattern}*")
                 else:
-                    await message.channel.send(f"*Already muted: {pattern}*")
+                    await send_reply(dm, f"*Already muted: {pattern}*")
             else:
                 if pattern in mutes:
                     mutes.remove(pattern)
                     config["email_notifications"]["mute_domains"] = mutes
                     memory.save_config(config)
-                    await message.channel.send(f"*Removed mute pattern: {pattern}*")
+                    await send_reply(dm, f"*Removed mute pattern: {pattern}*")
                 else:
-                    await message.channel.send(f"*Not found: {pattern}*")
+                    await send_reply(dm, f"*Not found: {pattern}*")
 
         elif notify_arg_lower == "log":
             if not os.path.exists(notifications.NOTIFICATION_LOG):
-                await message.channel.send("*No notification log yet.*")
+                await send_reply(dm, "*No notification log yet.*")
             else:
                 with open(notifications.NOTIFICATION_LOG, "r") as f:
                     lines = f.readlines()
@@ -1447,10 +1462,10 @@ async def on_message(message):
                     text += line.rstrip() + "\n"
                 text += "```"
                 for chunk in split_message(text):
-                    await message.channel.send(chunk)
+                    await send_reply(dm, chunk)
 
         else:
-            await message.channel.send(
+            await send_reply(dm,
                 "*Usage: `!notify [on|off|status|domain|keyword|mute|log]`*"
             )
         return
@@ -1464,15 +1479,15 @@ async def on_message(message):
             # Run a manual scan
             if not job_scanner.check_scan_rate_limit("manual"):
                 count = job_scanner.get_scan_count_today("manual")
-                await message.channel.send(
+                await send_reply(dm,
                     f"*Scan rate limit reached ({count}/{job_scanner.MANUAL_SCANS_PER_DAY} manual scans today).*")
                 return
 
-            async with message.channel.typing():
-                await message.channel.send("*Running job scan...*")
+            async with dm.typing():
+                await send_reply(dm, "*Running job scan...*")
 
                 async def discord_scan_progress(msg):
-                    await message.channel.send(f"*{msg}*")
+                    await send_reply(dm, f"*{msg}*")
 
                 # Can't use async progress_fn with sync run_scan, so just run it
                 results = await asyncio.to_thread(
@@ -1481,16 +1496,16 @@ async def on_message(message):
 
             text = job_scanner.format_scan_discord(results)
             for chunk in split_message(text):
-                await message.channel.send(chunk)
+                await send_reply(dm, chunk)
 
         elif scan_arg_lower == "results":
             last = job_scanner.load_scan_results()
             if not last:
-                await message.channel.send("*No scan results yet. Run `!scan` to scan.*")
+                await send_reply(dm, "*No scan results yet. Run `!scan` to scan.*")
             else:
                 text = job_scanner.format_scan_discord(last)
                 for chunk in split_message(text):
-                    await message.channel.send(chunk)
+                    await send_reply(dm, chunk)
 
         elif scan_arg_lower == "status":
             status = job_scanner.get_scan_status()
@@ -1509,23 +1524,23 @@ async def on_message(message):
             )
             for i, q in enumerate(status["queries"], 1):
                 text += f"\n  {i}. {q}"
-            await message.channel.send(text)
+            await send_reply(dm, text)
 
         elif scan_arg_lower == "queries":
             config = memory.load_config().get("job_scan", {})
             queries = config.get("queries", [])
             if not queries:
-                await message.channel.send("*No search queries configured. Use `!scan query add <query>`.*")
+                await send_reply(dm, "*No search queries configured. Use `!scan query add <query>`.*")
             else:
                 lines = [f"**Search queries ({len(queries)}):**"]
                 for i, q in enumerate(queries, 1):
                     lines.append(f"{i}. {q}")
-                await message.channel.send("\n".join(lines))
+                await send_reply(dm, "\n".join(lines))
 
         elif scan_arg_lower.startswith("query "):
             parts = scan_arg[6:].strip().split(None, 1)
             if len(parts) < 2 or parts[0].lower() not in ("add", "remove"):
-                await message.channel.send("*Usage: `!scan query add|remove <query>`*")
+                await send_reply(dm, "*Usage: `!scan query add|remove <query>`*")
                 return
             action, query = parts[0].lower(), parts[1].strip()
             config = memory.load_config()
@@ -1537,17 +1552,17 @@ async def on_message(message):
                     queries.append(query)
                     config["job_scan"]["queries"] = queries
                     memory.save_config(config)
-                    await message.channel.send(f"*Added search query: {query}*")
+                    await send_reply(dm, f"*Added search query: {query}*")
                 else:
-                    await message.channel.send(f"*Already configured: {query}*")
+                    await send_reply(dm, f"*Already configured: {query}*")
             else:
                 if query in queries:
                     queries.remove(query)
                     config["job_scan"]["queries"] = queries
                     memory.save_config(config)
-                    await message.channel.send(f"*Removed search query: {query}*")
+                    await send_reply(dm, f"*Removed search query: {query}*")
                 else:
-                    await message.channel.send(f"*Not found: {query}*")
+                    await send_reply(dm, f"*Not found: {query}*")
 
         elif scan_arg_lower == "on":
             config = memory.load_config()
@@ -1555,7 +1570,7 @@ async def on_message(message):
                 config["job_scan"] = {}
             config["job_scan"]["enabled"] = True
             memory.save_config(config)
-            await message.channel.send("*Auto job scanning enabled.*")
+            await send_reply(dm, "*Auto job scanning enabled.*")
 
         elif scan_arg_lower == "off":
             config = memory.load_config()
@@ -1563,17 +1578,17 @@ async def on_message(message):
                 config["job_scan"] = {}
             config["job_scan"]["enabled"] = False
             memory.save_config(config)
-            await message.channel.send("*Auto job scanning disabled.*")
+            await send_reply(dm, "*Auto job scanning disabled.*")
 
         else:
-            await message.channel.send(
+            await send_reply(dm,
                 "*Usage: `!scan [results|status|queries|query add|remove|on|off]`*"
             )
         return
 
     # --- Billing ---
     if command_lower == "!billing":
-        await message.channel.send(
+        await send_reply(dm,
             "**Check your balance and add credits:**\n"
             "https://platform.claude.com/settings/billing"
         )
@@ -1581,12 +1596,12 @@ async def on_message(message):
 
     # --- Delegates ---
     if command_lower == "!delegates":
-        await message.channel.send(build_delegates_text())
+        await send_reply(dm, build_delegates_text())
         return
 
     # --- Conversations ---
     if command_lower == "!conversations":
-        await message.channel.send(build_conversations_list(state))
+        await send_reply(dm, build_conversations_list(state))
         return
 
     # --- Load conversation ---
@@ -1595,25 +1610,25 @@ async def on_message(message):
         try:
             idx = int(num_str) - 1
         except ValueError:
-            await message.channel.send("*Usage: `!load <#>` — use `!conversations` to see the list.*")
+            await send_reply(dm, "*Usage: `!load <#>` — use `!conversations` to see the list.*")
             return
         sync_state(state)
         files = memory.list_conversations()
         if not files:
-            await message.channel.send(f"*No saved conversations ({state.active_project}).*")
+            await send_reply(dm, f"*No saved conversations ({state.active_project}).*")
             return
         if idx < 0 or idx >= len(files):
-            await message.channel.send(f"*Invalid number. Use `!conversations` to see the list (1-{len(files)}).*")
+            await send_reply(dm, f"*Invalid number. Use `!conversations` to see the list (1-{len(files)}).*")
             return
         filepath = os.path.join(memory.get_conversations_dir(), files[idx])
-        async with message.channel.typing():
-            result = await load_conversation_discord(state, filepath, message.channel)
+        async with dm.typing():
+            result = await load_conversation_discord(state, filepath, dm)
         for chunk in split_message(result):
-            await message.channel.send(chunk)
+            await send_reply(dm, chunk)
         return
 
     if command_lower == "!load":
-        await message.channel.send("*Usage: `!load <#>` — use `!conversations` to see the list.*")
+        await send_reply(dm, "*Usage: `!load <#>` — use `!conversations` to see the list.*")
         return
 
     # --- Tasks ---
@@ -1624,16 +1639,16 @@ async def on_message(message):
         if tasks_arg == "done":
             done = tasks.get_done_tasks()
             if not done:
-                await message.channel.send("*No completed tasks.*")
+                await send_reply(dm, "*No completed tasks.*")
             else:
                 lines = ["**Completed tasks:**"]
                 for t in done:
                     lines.append(f"~~#{t['id']} {t['description']}~~")
-                await message.channel.send("\n".join(lines))
+                await send_reply(dm, "\n".join(lines))
         elif tasks_arg == "all":
             all_t = tasks.get_all_tasks()
             if not all_t:
-                await message.channel.send("*No tasks. Use `!task add <description>` to create one.*")
+                await send_reply(dm, "*No tasks. Use `!task add <description>` to create one.*")
             else:
                 lines = ["**All tasks:**"]
                 for t in all_t:
@@ -1650,11 +1665,11 @@ async def on_message(message):
                         pri = f" **[HIGH]**" if t.get("priority") == "high" else ""
                         lines.append(f"#{t['id']} {t['description']}{pri}{due_tag}")
                 for chunk in split_message("\n".join(lines)):
-                    await message.channel.send(chunk)
+                    await send_reply(dm, chunk)
         else:
             open_t = tasks.get_open_tasks()
             if not open_t:
-                await message.channel.send("*No open tasks. Use `!task add <description>` to create one.*")
+                await send_reply(dm, "*No open tasks. Use `!task add <description>` to create one.*")
             else:
                 group_headers = {
                     "overdue": "**Overdue:**",
@@ -1683,7 +1698,7 @@ async def on_message(message):
                         note_tag = f"\n  > {t['notes'].splitlines()[0][:60]}"
                     lines.append(f"#{t['id']} {t['description']}{pri}{due_tag}{note_tag}")
                 for chunk in split_message("\n".join(lines)):
-                    await message.channel.send(chunk)
+                    await send_reply(dm, chunk)
         return
 
     if command_lower.startswith("!task "):
@@ -1694,7 +1709,7 @@ async def on_message(message):
         if task_arg_lower.startswith("add "):
             desc = task_arg[4:].strip()
             if not desc:
-                await message.channel.send("*Usage: `!task add <description>`*")
+                await send_reply(dm, "*Usage: `!task add <description>`*")
                 return
 
             priority = "normal"
@@ -1725,68 +1740,68 @@ async def on_message(message):
                 except (ValueError, TypeError):
                     pass
             pri_info = f" [{priority}]" if priority != "normal" else ""
-            await message.channel.send(f"*Task #{task['id']} added: {desc}{pri_info}{due_info}*")
+            await send_reply(dm, f"*Task #{task['id']} added: {desc}{pri_info}{due_info}*")
 
         elif task_arg_lower.startswith("done "):
             try:
                 task_id = int(task_arg[5:].strip())
             except ValueError:
-                await message.channel.send("*Usage: `!task done <#>`*")
+                await send_reply(dm, "*Usage: `!task done <#>`*")
                 return
             task = tasks.complete_task(task_id)
             if task:
-                await message.channel.send(f"*Completed: #{task_id} {task['description']}*")
+                await send_reply(dm, f"*Completed: #{task_id} {task['description']}*")
             else:
-                await message.channel.send(f"*Task #{task_id} not found.*")
+                await send_reply(dm, f"*Task #{task_id} not found.*")
 
         elif task_arg_lower.startswith("remove "):
             try:
                 task_id = int(task_arg[7:].strip())
             except ValueError:
-                await message.channel.send("*Usage: `!task remove <#>`*")
+                await send_reply(dm, "*Usage: `!task remove <#>`*")
                 return
             task = tasks.remove_task(task_id)
             if task:
-                await message.channel.send(f"*Removed: #{task_id} {task['description']}*")
+                await send_reply(dm, f"*Removed: #{task_id} {task['description']}*")
             else:
-                await message.channel.send(f"*Task #{task_id} not found.*")
+                await send_reply(dm, f"*Task #{task_id} not found.*")
 
         elif task_arg_lower.startswith("edit "):
             rest = task_arg[5:].strip()
             parts = rest.split(None, 1)
             if len(parts) < 2:
-                await message.channel.send("*Usage: `!task edit <#> <new description>`*")
+                await send_reply(dm, "*Usage: `!task edit <#> <new description>`*")
                 return
             try:
                 task_id = int(parts[0])
             except ValueError:
-                await message.channel.send("*Usage: `!task edit <#> <new description>`*")
+                await send_reply(dm, "*Usage: `!task edit <#> <new description>`*")
                 return
             task = tasks.edit_task(task_id, parts[1])
             if task:
-                await message.channel.send(f"*Updated: #{task_id} {parts[1]}*")
+                await send_reply(dm, f"*Updated: #{task_id} {parts[1]}*")
             else:
-                await message.channel.send(f"*Task #{task_id} not found.*")
+                await send_reply(dm, f"*Task #{task_id} not found.*")
 
         elif task_arg_lower.startswith("note "):
             rest = task_arg[5:].strip()
             parts = rest.split(None, 1)
             if len(parts) < 2:
-                await message.channel.send("*Usage: `!task note <#> <note text>`*")
+                await send_reply(dm, "*Usage: `!task note <#> <note text>`*")
                 return
             try:
                 task_id = int(parts[0])
             except ValueError:
-                await message.channel.send("*Usage: `!task note <#> <note text>`*")
+                await send_reply(dm, "*Usage: `!task note <#> <note text>`*")
                 return
             task = tasks.add_note(task_id, parts[1])
             if task:
-                await message.channel.send(f"*Note added to task #{task_id}.*")
+                await send_reply(dm, f"*Note added to task #{task_id}.*")
             else:
-                await message.channel.send(f"*Task #{task_id} not found.*")
+                await send_reply(dm, f"*Task #{task_id} not found.*")
 
         else:
-            await message.channel.send(
+            await send_reply(dm,
                 "*Unknown subcommand. Use: add, done, remove, edit, note*"
             )
         return
@@ -1796,7 +1811,7 @@ async def on_message(message):
         sync_state(state)
         pending = tasks.get_pending_reminders()
         if not pending:
-            await message.channel.send("*No pending reminders.*")
+            await send_reply(dm, "*No pending reminders.*")
         else:
             lines = ["**Pending reminders:**"]
             for r in pending:
@@ -1809,7 +1824,7 @@ async def on_message(message):
                         time_str = r["remind_at"]
                 proj_tag = f" [{r.get('project', 'general')}]" if r.get("project") != state.active_project else ""
                 lines.append(f"#{r['id']} {r['description']} — {time_str}{proj_tag}")
-            await message.channel.send("\n".join(lines))
+            await send_reply(dm, "\n".join(lines))
         return
 
     if command_lower.startswith("!remind "):
@@ -1821,13 +1836,13 @@ async def on_message(message):
             try:
                 rid = int(remind_arg[7:].strip())
             except ValueError:
-                await message.channel.send("*Usage: `!remind cancel <#>`*")
+                await send_reply(dm, "*Usage: `!remind cancel <#>`*")
                 return
             r = tasks.cancel_reminder(rid)
             if r:
-                await message.channel.send(f"*Cancelled reminder #{rid}: {r['description']}*")
+                await send_reply(dm, f"*Cancelled reminder #{rid}: {r['description']}*")
             else:
-                await message.channel.send(f"*Reminder #{rid} not found.*")
+                await send_reply(dm, f"*Reminder #{rid} not found.*")
         else:
             desc = None
             time_str = None
@@ -1846,7 +1861,7 @@ async def on_message(message):
                         time_str = candidate
                         break
             if not desc or not time_str:
-                await message.channel.send(
+                await send_reply(dm,
                     "*Usage: `!remind <description> at <time>`*\n"
                     "*Example: `!remind check on PR at tomorrow morning`*"
                 )
@@ -1858,9 +1873,9 @@ async def on_message(message):
                     formatted_time = dt.strftime("%b %d %I:%M%p")
                 except (ValueError, TypeError):
                     formatted_time = r["remind_at"]
-                await message.channel.send(f"*Reminder #{r['id']} set: {desc} — {formatted_time}*")
+                await send_reply(dm, f"*Reminder #{r['id']} set: {desc} — {formatted_time}*")
             else:
-                await message.channel.send(f"*Could not parse time: '{time_str}'*")
+                await send_reply(dm, f"*Could not parse time: '{time_str}'*")
         return
 
     # --- Jobs ---
@@ -1869,7 +1884,7 @@ async def on_message(message):
         arg_lower = arg.lower()
 
         if not arg:
-            await message.channel.send(
+            await send_reply(dm,
                 "**Usage:**\n"
                 "`!jobs search <query>` — Search job listings\n"
                 "`!jobs save` — Save last search results\n"
@@ -1884,18 +1899,18 @@ async def on_message(message):
         if arg_lower.startswith("search "):
             query = arg[7:].strip()
             if not query:
-                await message.channel.send("*Usage: `!jobs search <query>`*")
+                await send_reply(dm, "*Usage: `!jobs search <query>`*")
                 return
-            async with message.channel.typing():
-                await message.channel.send(f"*Searching jobs: {query}...*")
+            async with dm.typing():
+                await send_reply(dm, f"*Searching jobs: {query}...*")
                 try:
                     results = await asyncio.to_thread(tools.search_jobs, query)
                     state.last_job_results = list(results)
                 except Exception as e:
-                    await message.channel.send(f"*Search failed: {e}*")
+                    await send_reply(dm, f"*Search failed: {e}*")
                     return
                 if not results:
-                    await message.channel.send("*No results found.*")
+                    await send_reply(dm, "*No results found.*")
                     return
                 lines = []
                 for i, r in enumerate(results, 1):
@@ -1903,11 +1918,11 @@ async def on_message(message):
                 reply = "\n\n".join(lines)
                 reply += f"\n\n*Found {len(results)} result(s). Use `!jobs save` to save these.*"
             for chunk in split_message(reply):
-                await message.channel.send(chunk)
+                await send_reply(dm, chunk)
 
         elif arg_lower == "save":
             if not state.last_job_results:
-                await message.channel.send("*No search results to save. Run `!jobs search <query>` first.*")
+                await send_reply(dm, "*No search results to save. Run `!jobs search <query>` first.*")
                 return
             jobs = memory.load_jobs()
             existing_urls = {j["url"] for j in jobs}
@@ -1929,12 +1944,12 @@ async def on_message(message):
             msg = f"*Saved {added} new listing(s) to job-search project ({len(jobs)} total).*"
             if added:
                 msg += "\n*Job folders: job-search/workspace/jobs/*"
-            await message.channel.send(msg)
+            await send_reply(dm, msg)
 
         elif arg_lower == "list":
             jobs = memory.load_jobs()
             if not jobs:
-                await message.channel.send("*No saved jobs. Use `!jobs search <query>` then `!jobs save`.*")
+                await send_reply(dm, "*No saved jobs. Use `!jobs search <query>` then `!jobs save`.*")
                 return
             lines = [f"**Saved job listings ({len(jobs)}):**"]
             for i, j in enumerate(jobs, 1):
@@ -1953,7 +1968,7 @@ async def on_message(message):
                 )
             reply = "\n\n".join(lines)
             for chunk in split_message(reply):
-                await message.channel.send(chunk)
+                await send_reply(dm, chunk)
 
         elif arg_lower.startswith("remove "):
             num_str = arg[7:].strip()
@@ -1969,9 +1984,9 @@ async def on_message(message):
                     if os.path.exists(folder_path):
                         shutil.rmtree(folder_path)
                 memory.save_jobs(jobs)
-                await message.channel.send(f"*Removed: {removed['title']}*")
+                await send_reply(dm, f"*Removed: {removed['title']}*")
             except ValueError:
-                await message.channel.send("*Invalid number. Use `!jobs list` to see listings.*")
+                await send_reply(dm, "*Invalid number. Use `!jobs list` to see listings.*")
 
         elif arg_lower.startswith("apply "):
             num_str = arg[6:].strip()
@@ -1981,12 +1996,12 @@ async def on_message(message):
                 if idx < 0 or idx >= len(jobs):
                     raise ValueError
             except ValueError:
-                await message.channel.send("*Invalid number. Use `!jobs list` to see listings.*")
+                await send_reply(dm, "*Invalid number. Use `!jobs list` to see listings.*")
                 return
             job = jobs[idx]
 
-            async with message.channel.typing():
-                await message.channel.send(
+            async with dm.typing():
+                await send_reply(dm,
                     f"**{job['title']}**\n{job['url']}\n\n*Generating cover letter (Opus)...*"
                 )
                 # Gather memories from current project + general + job-search
@@ -2041,12 +2056,12 @@ async def on_message(message):
                     reply = f"*Failed to generate cover letter: {e}*"
 
             for chunk in split_message(reply):
-                await message.channel.send(chunk)
+                await send_reply(dm, chunk)
 
         elif arg_lower.startswith("track "):
             parts = arg[6:].strip().split(None, 1)
             if len(parts) != 2:
-                await message.channel.send(
+                await send_reply(dm,
                     "*Usage: `!jobs track <#> <status>`*\n"
                     "*Statuses: applied, interviewing, rejected, offer*"
                 )
@@ -2058,17 +2073,17 @@ async def on_message(message):
                 if idx < 0 or idx >= len(jobs):
                     raise ValueError
             except ValueError:
-                await message.channel.send("*Invalid number. Use `!jobs list` to see listings.*")
+                await send_reply(dm, "*Invalid number. Use `!jobs list` to see listings.*")
                 return
             jobs[idx]["status"] = status.lower()
             memory.save_jobs(jobs)
-            await message.channel.send(f"*Updated: {jobs[idx]['title']} -> {status.lower()}*")
+            await send_reply(dm, f"*Updated: {jobs[idx]['title']} -> {status.lower()}*")
 
         elif arg_lower == "status":
             jobs = memory.load_jobs()
             tracked = [j for j in jobs if j.get("status")]
             if not tracked:
-                await message.channel.send("*No tracked jobs. Use `!jobs track <#> <status>` to set a status.*")
+                await send_reply(dm, "*No tracked jobs. Use `!jobs track <#> <status>` to set a status.*")
                 return
             groups = {}
             for j in tracked:
@@ -2083,10 +2098,10 @@ async def on_message(message):
                     lines.append(f"  {j['title']}\n  {j['url']}")
             reply = "\n".join(lines)
             for chunk in split_message(reply):
-                await message.channel.send(chunk)
+                await send_reply(dm, chunk)
 
         else:
-            await message.channel.send(
+            await send_reply(dm,
                 f"*Unknown subcommand: {arg}*\n"
                 "*Use: search, save, list, remove, apply, track, status*"
             )
@@ -2099,11 +2114,11 @@ async def on_message(message):
 
     state.conversation_history.append({"role": "user", "content": content})
 
-    async with message.channel.typing():
-        reply = await get_response(state, message.channel)
+    async with dm.typing():
+        reply = await get_response(state, dm)
 
     for chunk in split_message(reply):
-        await message.channel.send(chunk)
+        await send_reply(dm, chunk)
 
 
 if __name__ == "__main__":
