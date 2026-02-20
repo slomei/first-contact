@@ -226,6 +226,53 @@ TOOLS = [
             "required": ["query"],
         },
     },
+    {
+        "name": "create_task",
+        "description": (
+            "Create a task in the user's task list. Use when the user asks you to "
+            "add a task, track something to do, or mentions something they need to get done."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "description": "What the task is",
+                },
+                "due_date": {
+                    "type": "string",
+                    "description": "When it's due (natural language, e.g. 'tomorrow', 'Friday', 'in 3 days')",
+                },
+                "priority": {
+                    "type": "string",
+                    "enum": ["low", "normal", "high"],
+                    "description": "Task priority (default: normal)",
+                },
+            },
+            "required": ["description"],
+        },
+    },
+    {
+        "name": "create_reminder",
+        "description": (
+            "Set a reminder for the user. Use when the user asks to be reminded "
+            "about something at a specific time."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "description": "What to remind the user about",
+                },
+                "remind_at": {
+                    "type": "string",
+                    "description": "When to remind (natural language, e.g. 'tomorrow morning', 'in 2 hours', 'Friday at 3pm')",
+                },
+            },
+            "required": ["description", "remind_at"],
+        },
+    },
 ]
 
 # --- Mutable globals ---
@@ -590,6 +637,8 @@ def tool_status_text(name, tool_input):
         "check_email": "Checking email inbox",
         "read_email": f'Reading email: {tool_input.get("message_id", "")}',
         "search_email": f'Searching email: "{tool_input.get("query", "")}"',
+        "create_task": f'Creating task: "{tool_input.get("description", "")}"',
+        "create_reminder": f'Setting reminder: "{tool_input.get("description", "")}"',
     }
     return labels.get(name, f"Using tool: {name}")
 
@@ -754,6 +803,36 @@ def execute_tool(name, tool_input, confirm_fn=None):
         for i, e in enumerate(result, 1):
             lines.append(f"{i}. From: {e['sender']}\n   Subject: {e['subject']}\n   Date: {e['date']}\n   {e['snippet']}")
         return "\n".join(lines), False
+
+    elif name == "create_task":
+        import tasks
+        desc = tool_input["description"]
+        due_str = tool_input.get("due_date")
+        priority = tool_input.get("priority", "normal")
+        due_dt = tasks.parse_natural_date(due_str) if due_str else None
+        task = tasks.add_task(desc, due_date=due_dt, priority=priority)
+        due_info = ""
+        if task.get("due_date"):
+            try:
+                dt = datetime.fromisoformat(task["due_date"])
+                due_info = f" (due {dt.strftime('%b %d %I:%M%p')})"
+            except (ValueError, TypeError):
+                pass
+        return f"Task #{task['id']} created: {desc}{due_info}", False
+
+    elif name == "create_reminder":
+        import tasks
+        desc = tool_input["description"]
+        remind_at_str = tool_input["remind_at"]
+        reminder = tasks.add_reminder(desc, remind_at_str)
+        if reminder is None:
+            return f"Could not parse time: '{remind_at_str}'. Try something like 'tomorrow', 'in 2 hours', 'Friday at 3pm'.", True
+        try:
+            dt = datetime.fromisoformat(reminder["remind_at"])
+            time_str = dt.strftime("%b %d %I:%M%p")
+        except (ValueError, TypeError):
+            time_str = reminder["remind_at"]
+        return f"Reminder #{reminder['id']} set: {desc} — {time_str}", False
 
     return f"Unknown tool: {name}", True
 

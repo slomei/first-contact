@@ -19,6 +19,7 @@ import pdfplumber
 import memory
 import models
 import tools
+import tasks
 import sync
 import creative
 
@@ -229,6 +230,17 @@ if __name__ == "__main__":
       /draft new <to> [subj]  Compose a new email draft (Opus)
       /draft job <#>       Draft a job application email (Opus)
       /drafts              List drafts created this session
+      /task add <desc>    Add a task (--high/--low, natural date parsing)
+      /tasks              Show open tasks (sorted by urgency)
+      /task done <#>      Mark a task as done
+      /task remove <#>    Remove a task
+      /task edit <#> <desc>  Edit task description
+      /task note <#> <note>  Add a note to a task
+      /tasks done         Show completed tasks
+      /tasks all          Show all tasks
+      /remind <desc> <time>  Set a reminder (natural language time)
+      /reminders          Show pending reminders
+      /remind cancel <#>  Cancel a reminder
       /update [key] [path]  Sync files from source (all keys if omitted, explicit path optional)
       /characters        List all indexed characters (first-light only)
       /character <name>  Show character details (first-light only)
@@ -246,10 +258,27 @@ if __name__ == "__main__":
 
     Claude also uses tools autonomously (web search, file read/write, memory, code execution).{memory.RESET}"""
 
+    # Silently warm up Gmail token
+    tools.get_gmail_service()
+
     if memory.memories:
         print(f"Loaded {len(memory.memories)} memor{'y' if len(memory.memories) == 1 else 'ies'} from {memory.active_project}/memory.json")
     print("Chatbot ready! Type your message and press Enter.")
     print("Type /help to see available commands.\n")
+
+    # Check for due reminders
+    due_reminders = tasks.check_due_reminders()
+    for r in due_reminders:
+        print(f"{memory.YELLOW}  Reminder: {r['description']}{memory.RESET}")
+    if due_reminders:
+        print()
+
+    # Show open task count
+    open_tasks = tasks.get_open_tasks()
+    if open_tasks:
+        overdue = [t for t in open_tasks if t.get("_sort_group") == "overdue"]
+        overdue_str = f" ({memory.RED}{len(overdue)} overdue{memory.RESET})" if overdue else ""
+        print(f"{memory.DIM}{len(open_tasks)} open task(s){overdue_str}{memory.DIM} — /tasks to view{memory.RESET}\n")
 
     while True:
         short_name = models.MODEL_SHORT_NAMES.get(models.active_model, models.active_model)
@@ -545,8 +574,8 @@ if __name__ == "__main__":
                     print(f"     {e['snippet'][:150]}{memory.RESET}")
                 print(f"\n{memory.DIM}Found {len(result)} unread email(s). Use /email read <#> to read one.{memory.RESET}\n")
 
-            elif email_arg_lower.startswith("read "):
-                num_str = email_arg[5:].strip()
+            elif email_arg_lower == "read" or email_arg_lower.startswith("read "):
+                num_str = email_arg[5:].strip() if len(email_arg) > 4 else "1"
                 try:
                     idx = int(num_str) - 1
                     if idx < 0 or idx >= len(tools._last_email_results):
@@ -818,6 +847,218 @@ if __name__ == "__main__":
                 for entry in log:
                     print(f"  {entry}")
                 print(f"\n  Session: {tools._session_draft_count}/{tools.DRAFT_RATE_LIMIT} drafts{memory.RESET}\n")
+            continue
+
+        if command_lower == "/tasks" or command_lower.startswith("/tasks "):
+            tasks_arg = command[6:].strip().lower() if len(command) > 6 else ""
+
+            if tasks_arg == "done":
+                done = tasks.get_done_tasks()
+                if not done:
+                    print(f"{memory.DIM}No completed tasks.{memory.RESET}\n")
+                else:
+                    print(f"{memory.DIM}Completed tasks:")
+                    for t in done:
+                        print(tasks.format_task_line(t))
+                    print(memory.RESET)
+            elif tasks_arg == "all":
+                all_tasks = tasks.get_all_tasks()
+                if not all_tasks:
+                    print(f"{memory.DIM}No tasks. Use /task add <description> to create one.{memory.RESET}\n")
+                else:
+                    print(f"{memory.DIM}All tasks:")
+                    for t in all_tasks:
+                        print(tasks.format_task_line(t))
+                    print(memory.RESET)
+            else:
+                open_tasks = tasks.get_open_tasks()
+                if not open_tasks:
+                    print(f"{memory.DIM}No open tasks. Use /task add <description> to create one.{memory.RESET}\n")
+                else:
+                    group_headers = {
+                        "overdue": f"{memory.RED}Overdue:{memory.RESET}",
+                        "today": f"{memory.YELLOW}Due today:{memory.RESET}",
+                        "this_week": f"{memory.CYAN}This week:{memory.RESET}",
+                        "upcoming": f"{memory.DIM}Upcoming:{memory.RESET}",
+                        "no_deadline": f"{memory.DIM}No deadline:{memory.RESET}",
+                    }
+                    current_group = None
+                    for t in open_tasks:
+                        group = t.get("_sort_group", "no_deadline")
+                        if group != current_group:
+                            current_group = group
+                            print(f"\n{group_headers.get(group, group)}")
+                        print(tasks.format_task_line(t))
+                    print()
+            continue
+
+        if command_lower.startswith("/task "):
+            task_arg = command[6:].strip()
+            task_arg_lower = task_arg.lower()
+
+            if task_arg_lower.startswith("add "):
+                desc = task_arg[4:].strip()
+                if not desc:
+                    print(f"{memory.DIM}Usage: /task add <description>{memory.RESET}\n")
+                    continue
+
+                # Extract priority flags
+                priority = "normal"
+                if "--high" in desc:
+                    priority = "high"
+                    desc = desc.replace("--high", "").strip()
+                elif "--low" in desc:
+                    priority = "low"
+                    desc = desc.replace("--low", "").strip()
+
+                # Extract due date from "by/due/on <date>" at end of description
+                due_dt = None
+                for prefix in ("by ", "due ", "on "):
+                    pattern = rf"\s+{prefix}(.+)$"
+                    m = re.search(pattern, desc, re.IGNORECASE)
+                    if m:
+                        parsed = tasks.parse_natural_date(m.group(1))
+                        if parsed:
+                            due_dt = parsed
+                            desc = desc[:m.start()].strip()
+                            break
+
+                task = tasks.add_task(desc, due_date=due_dt, priority=priority)
+                due_info = ""
+                if task.get("due_date"):
+                    try:
+                        dt = datetime.fromisoformat(task["due_date"])
+                        due_info = f" (due {dt.strftime('%b %d %I:%M%p')})"
+                    except (ValueError, TypeError):
+                        pass
+                priority_info = f" [{priority}]" if priority != "normal" else ""
+                print(f"{memory.DIM}Task #{task['id']} added: {desc}{priority_info}{due_info}{memory.RESET}\n")
+
+            elif task_arg_lower.startswith("done "):
+                num_str = task_arg[5:].strip()
+                try:
+                    task_id = int(num_str)
+                except ValueError:
+                    print(f"{memory.DIM}Usage: /task done <#>{memory.RESET}\n")
+                    continue
+                task = tasks.complete_task(task_id)
+                if task:
+                    print(f"{memory.DIM}Completed: #{task_id} {task['description']}{memory.RESET}\n")
+                else:
+                    print(f"{memory.DIM}Task #{task_id} not found.{memory.RESET}\n")
+
+            elif task_arg_lower.startswith("remove "):
+                num_str = task_arg[7:].strip()
+                try:
+                    task_id = int(num_str)
+                except ValueError:
+                    print(f"{memory.DIM}Usage: /task remove <#>{memory.RESET}\n")
+                    continue
+                task = tasks.remove_task(task_id)
+                if task:
+                    print(f"{memory.DIM}Removed: #{task_id} {task['description']}{memory.RESET}\n")
+                else:
+                    print(f"{memory.DIM}Task #{task_id} not found.{memory.RESET}\n")
+
+            elif task_arg_lower.startswith("edit "):
+                rest = task_arg[5:].strip()
+                parts = rest.split(None, 1)
+                if len(parts) < 2:
+                    print(f"{memory.DIM}Usage: /task edit <#> <new description>{memory.RESET}\n")
+                    continue
+                try:
+                    task_id = int(parts[0])
+                except ValueError:
+                    print(f"{memory.DIM}Usage: /task edit <#> <new description>{memory.RESET}\n")
+                    continue
+                task = tasks.edit_task(task_id, parts[1])
+                if task:
+                    print(f"{memory.DIM}Updated: #{task_id} {parts[1]}{memory.RESET}\n")
+                else:
+                    print(f"{memory.DIM}Task #{task_id} not found.{memory.RESET}\n")
+
+            elif task_arg_lower.startswith("note "):
+                rest = task_arg[5:].strip()
+                parts = rest.split(None, 1)
+                if len(parts) < 2:
+                    print(f"{memory.DIM}Usage: /task note <#> <note text>{memory.RESET}\n")
+                    continue
+                try:
+                    task_id = int(parts[0])
+                except ValueError:
+                    print(f"{memory.DIM}Usage: /task note <#> <note text>{memory.RESET}\n")
+                    continue
+                task = tasks.add_note(task_id, parts[1])
+                if task:
+                    print(f"{memory.DIM}Note added to task #{task_id}.{memory.RESET}\n")
+                else:
+                    print(f"{memory.DIM}Task #{task_id} not found.{memory.RESET}\n")
+
+            else:
+                print(f"{memory.DIM}Unknown /task subcommand: {task_arg}")
+                print(f"  Use: add, done, remove, edit, note{memory.RESET}\n")
+            continue
+
+        if command_lower == "/reminders":
+            pending = tasks.get_pending_reminders()
+            if not pending:
+                print(f"{memory.DIM}No pending reminders.{memory.RESET}\n")
+            else:
+                print(f"{memory.DIM}Pending reminders:")
+                for r in pending:
+                    print(tasks.format_reminder_line(r))
+                print(memory.RESET)
+            continue
+
+        if command_lower.startswith("/remind "):
+            remind_arg = command[8:].strip()
+            remind_arg_lower = remind_arg.lower()
+
+            if remind_arg_lower.startswith("cancel "):
+                num_str = remind_arg[7:].strip()
+                try:
+                    rid = int(num_str)
+                except ValueError:
+                    print(f"{memory.DIM}Usage: /remind cancel <#>{memory.RESET}\n")
+                    continue
+                r = tasks.cancel_reminder(rid)
+                if r:
+                    print(f"{memory.DIM}Cancelled reminder #{rid}: {r['description']}{memory.RESET}\n")
+                else:
+                    print(f"{memory.DIM}Reminder #{rid} not found.{memory.RESET}\n")
+            else:
+                # Parse: try splitting on " at ", " in ", otherwise greedy right-to-left
+                desc = None
+                time_str = None
+                for sep in (" at ", " in "):
+                    idx = remind_arg.lower().rfind(sep)
+                    if idx > 0:
+                        desc = remind_arg[:idx].strip()
+                        time_str = ("in " if sep == " in " else "") + remind_arg[idx + len(sep):].strip()
+                        break
+                if not desc:
+                    # Greedy: last word(s) as time, try progressively
+                    words = remind_arg.split()
+                    for i in range(len(words) - 1, 0, -1):
+                        candidate = " ".join(words[i:])
+                        if tasks.parse_natural_date(candidate):
+                            desc = " ".join(words[:i])
+                            time_str = candidate
+                            break
+                if not desc or not time_str:
+                    print(f"{memory.DIM}Usage: /remind <description> at <time>")
+                    print(f"  Example: /remind check on PR at tomorrow morning{memory.RESET}\n")
+                    continue
+                r = tasks.add_reminder(desc, time_str)
+                if r:
+                    try:
+                        dt = datetime.fromisoformat(r["remind_at"])
+                        formatted_time = dt.strftime("%b %d %I:%M%p")
+                    except (ValueError, TypeError):
+                        formatted_time = r["remind_at"]
+                    print(f"{memory.DIM}Reminder #{r['id']} set: {desc} — {formatted_time}{memory.RESET}\n")
+                else:
+                    print(f"{memory.DIM}Could not parse time: '{time_str}'. Try 'tomorrow', 'in 2 hours', 'Friday at 3pm'.{memory.RESET}\n")
             continue
 
         if command_lower == "/resume" or command_lower.startswith("/resume "):

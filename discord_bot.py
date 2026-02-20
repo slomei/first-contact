@@ -18,6 +18,7 @@ import discord
 import memory
 import models
 import tools
+import tasks
 
 # Only respond to this Discord user ID
 ALLOWED_USER_ID = 000000000000000000
@@ -222,6 +223,17 @@ def build_help_text():
         "`!jobs apply <#>` — Generate cover letter\n"
         "`!jobs track <#> <status>` — Set job status\n"
         "`!jobs status` — Show tracked jobs by status\n"
+        "`!tasks` — Show open tasks (sorted by urgency)\n"
+        "`!tasks done` — Show completed tasks\n"
+        "`!tasks all` — Show all tasks\n"
+        "`!task add <desc>` — Add a task (--high/--low, date parsing)\n"
+        "`!task done <#>` — Mark a task as done\n"
+        "`!task remove <#>` — Remove a task\n"
+        "`!task edit <#> <desc>` — Edit task description\n"
+        "`!task note <#> <note>` — Add a note to a task\n"
+        "`!remind <desc> at <time>` — Set a reminder\n"
+        "`!reminders` — Show pending reminders\n"
+        "`!remind cancel <#>` — Cancel a reminder\n"
         "`!delegates` — Show specialist agents\n"
         "`!billing` — Show billing link\n"
         "`!conversations` — List saved conversations\n"
@@ -415,8 +427,37 @@ intents.message_content = True
 bot = discord.Client(intents=intents)
 
 
+async def reminder_check_loop():
+    """Background loop: check reminders every 60s and send daily task summary."""
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        try:
+            await asyncio.sleep(60)
+
+            # Check due reminders
+            triggered = tasks.check_due_reminders()
+            if triggered:
+                user = await bot.fetch_user(ALLOWED_USER_ID)
+                if user:
+                    for r in triggered:
+                        await user.send(f"**Reminder:** {r['description']}")
+
+            # Daily task summary (after 8am)
+            now = datetime.now()
+            if now.hour >= 8:
+                summary_text, should_send = tasks.get_daily_summary()
+                if should_send and summary_text:
+                    user = await bot.fetch_user(ALLOWED_USER_ID)
+                    if user:
+                        for chunk in split_message(summary_text):
+                            await user.send(chunk)
+        except Exception:
+            pass  # Never crash the loop
+
+
 @bot.event
 async def on_ready():
+    bot.loop.create_task(reminder_check_loop())
     print(f"Discord bot connected as {bot.user}")
 
 
@@ -627,6 +668,253 @@ async def on_message(message):
 
     if command_lower == "!load":
         await message.channel.send("*Usage: `!load <#>` — use `!conversations` to see the list.*")
+        return
+
+    # --- Tasks ---
+    if command_lower == "!tasks" or command_lower.startswith("!tasks "):
+        tasks_arg = content[6:].strip().lower() if len(content) > 6 else ""
+        sync_state(state)
+
+        if tasks_arg == "done":
+            done = tasks.get_done_tasks()
+            if not done:
+                await message.channel.send("*No completed tasks.*")
+            else:
+                lines = ["**Completed tasks:**"]
+                for t in done:
+                    lines.append(f"~~#{t['id']} {t['description']}~~")
+                await message.channel.send("\n".join(lines))
+        elif tasks_arg == "all":
+            all_t = tasks.get_all_tasks()
+            if not all_t:
+                await message.channel.send("*No tasks. Use `!task add <description>` to create one.*")
+            else:
+                lines = ["**All tasks:**"]
+                for t in all_t:
+                    if t["status"] == "done":
+                        lines.append(f"~~#{t['id']} {t['description']}~~")
+                    else:
+                        due_tag = ""
+                        if t.get("due_date"):
+                            try:
+                                dt = datetime.fromisoformat(t["due_date"])
+                                due_tag = f" (due {dt.strftime('%b %d')})"
+                            except (ValueError, TypeError):
+                                pass
+                        pri = f" **[HIGH]**" if t.get("priority") == "high" else ""
+                        lines.append(f"#{t['id']} {t['description']}{pri}{due_tag}")
+                for chunk in split_message("\n".join(lines)):
+                    await message.channel.send(chunk)
+        else:
+            open_t = tasks.get_open_tasks()
+            if not open_t:
+                await message.channel.send("*No open tasks. Use `!task add <description>` to create one.*")
+            else:
+                group_headers = {
+                    "overdue": "**Overdue:**",
+                    "today": "**Due today:**",
+                    "this_week": "**This week:**",
+                    "upcoming": "**Upcoming:**",
+                    "no_deadline": "**No deadline:**",
+                }
+                lines = []
+                current_group = None
+                for t in open_t:
+                    group = t.get("_sort_group", "no_deadline")
+                    if group != current_group:
+                        current_group = group
+                        lines.append(f"\n{group_headers.get(group, group)}")
+                    due_tag = ""
+                    if t.get("due_date"):
+                        try:
+                            dt = datetime.fromisoformat(t["due_date"])
+                            due_tag = f" (due {dt.strftime('%b %d %I:%M%p')})"
+                        except (ValueError, TypeError):
+                            pass
+                    pri = f" **[HIGH]**" if t.get("priority") == "high" else ""
+                    note_tag = ""
+                    if t.get("notes"):
+                        note_tag = f"\n  > {t['notes'].splitlines()[0][:60]}"
+                    lines.append(f"#{t['id']} {t['description']}{pri}{due_tag}{note_tag}")
+                for chunk in split_message("\n".join(lines)):
+                    await message.channel.send(chunk)
+        return
+
+    if command_lower.startswith("!task "):
+        task_arg = content[6:].strip()
+        task_arg_lower = task_arg.lower()
+        sync_state(state)
+
+        if task_arg_lower.startswith("add "):
+            desc = task_arg[4:].strip()
+            if not desc:
+                await message.channel.send("*Usage: `!task add <description>`*")
+                return
+
+            priority = "normal"
+            if "--high" in desc:
+                priority = "high"
+                desc = desc.replace("--high", "").strip()
+            elif "--low" in desc:
+                priority = "low"
+                desc = desc.replace("--low", "").strip()
+
+            due_dt = None
+            for prefix in ("by ", "due ", "on "):
+                pattern = rf"\s+{prefix}(.+)$"
+                m = re.search(pattern, desc, re.IGNORECASE)
+                if m:
+                    parsed = tasks.parse_natural_date(m.group(1))
+                    if parsed:
+                        due_dt = parsed
+                        desc = desc[:m.start()].strip()
+                        break
+
+            task = tasks.add_task(desc, due_date=due_dt, priority=priority)
+            due_info = ""
+            if task.get("due_date"):
+                try:
+                    dt = datetime.fromisoformat(task["due_date"])
+                    due_info = f" (due {dt.strftime('%b %d %I:%M%p')})"
+                except (ValueError, TypeError):
+                    pass
+            pri_info = f" [{priority}]" if priority != "normal" else ""
+            await message.channel.send(f"*Task #{task['id']} added: {desc}{pri_info}{due_info}*")
+
+        elif task_arg_lower.startswith("done "):
+            try:
+                task_id = int(task_arg[5:].strip())
+            except ValueError:
+                await message.channel.send("*Usage: `!task done <#>`*")
+                return
+            task = tasks.complete_task(task_id)
+            if task:
+                await message.channel.send(f"*Completed: #{task_id} {task['description']}*")
+            else:
+                await message.channel.send(f"*Task #{task_id} not found.*")
+
+        elif task_arg_lower.startswith("remove "):
+            try:
+                task_id = int(task_arg[7:].strip())
+            except ValueError:
+                await message.channel.send("*Usage: `!task remove <#>`*")
+                return
+            task = tasks.remove_task(task_id)
+            if task:
+                await message.channel.send(f"*Removed: #{task_id} {task['description']}*")
+            else:
+                await message.channel.send(f"*Task #{task_id} not found.*")
+
+        elif task_arg_lower.startswith("edit "):
+            rest = task_arg[5:].strip()
+            parts = rest.split(None, 1)
+            if len(parts) < 2:
+                await message.channel.send("*Usage: `!task edit <#> <new description>`*")
+                return
+            try:
+                task_id = int(parts[0])
+            except ValueError:
+                await message.channel.send("*Usage: `!task edit <#> <new description>`*")
+                return
+            task = tasks.edit_task(task_id, parts[1])
+            if task:
+                await message.channel.send(f"*Updated: #{task_id} {parts[1]}*")
+            else:
+                await message.channel.send(f"*Task #{task_id} not found.*")
+
+        elif task_arg_lower.startswith("note "):
+            rest = task_arg[5:].strip()
+            parts = rest.split(None, 1)
+            if len(parts) < 2:
+                await message.channel.send("*Usage: `!task note <#> <note text>`*")
+                return
+            try:
+                task_id = int(parts[0])
+            except ValueError:
+                await message.channel.send("*Usage: `!task note <#> <note text>`*")
+                return
+            task = tasks.add_note(task_id, parts[1])
+            if task:
+                await message.channel.send(f"*Note added to task #{task_id}.*")
+            else:
+                await message.channel.send(f"*Task #{task_id} not found.*")
+
+        else:
+            await message.channel.send(
+                "*Unknown subcommand. Use: add, done, remove, edit, note*"
+            )
+        return
+
+    # --- Reminders ---
+    if command_lower == "!reminders":
+        sync_state(state)
+        pending = tasks.get_pending_reminders()
+        if not pending:
+            await message.channel.send("*No pending reminders.*")
+        else:
+            lines = ["**Pending reminders:**"]
+            for r in pending:
+                time_str = ""
+                if r.get("remind_at"):
+                    try:
+                        dt = datetime.fromisoformat(r["remind_at"])
+                        time_str = dt.strftime("%b %d %I:%M%p")
+                    except (ValueError, TypeError):
+                        time_str = r["remind_at"]
+                proj_tag = f" [{r.get('project', 'general')}]" if r.get("project") != state.active_project else ""
+                lines.append(f"#{r['id']} {r['description']} — {time_str}{proj_tag}")
+            await message.channel.send("\n".join(lines))
+        return
+
+    if command_lower.startswith("!remind "):
+        remind_arg = content[8:].strip()
+        remind_arg_lower = remind_arg.lower()
+        sync_state(state)
+
+        if remind_arg_lower.startswith("cancel "):
+            try:
+                rid = int(remind_arg[7:].strip())
+            except ValueError:
+                await message.channel.send("*Usage: `!remind cancel <#>`*")
+                return
+            r = tasks.cancel_reminder(rid)
+            if r:
+                await message.channel.send(f"*Cancelled reminder #{rid}: {r['description']}*")
+            else:
+                await message.channel.send(f"*Reminder #{rid} not found.*")
+        else:
+            desc = None
+            time_str = None
+            for sep in (" at ", " in "):
+                idx = remind_arg.lower().rfind(sep)
+                if idx > 0:
+                    desc = remind_arg[:idx].strip()
+                    time_str = ("in " if sep == " in " else "") + remind_arg[idx + len(sep):].strip()
+                    break
+            if not desc:
+                words = remind_arg.split()
+                for i in range(len(words) - 1, 0, -1):
+                    candidate = " ".join(words[i:])
+                    if tasks.parse_natural_date(candidate):
+                        desc = " ".join(words[:i])
+                        time_str = candidate
+                        break
+            if not desc or not time_str:
+                await message.channel.send(
+                    "*Usage: `!remind <description> at <time>`*\n"
+                    "*Example: `!remind check on PR at tomorrow morning`*"
+                )
+                return
+            r = tasks.add_reminder(desc, time_str)
+            if r:
+                try:
+                    dt = datetime.fromisoformat(r["remind_at"])
+                    formatted_time = dt.strftime("%b %d %I:%M%p")
+                except (ValueError, TypeError):
+                    formatted_time = r["remind_at"]
+                await message.channel.send(f"*Reminder #{r['id']} set: {desc} — {formatted_time}*")
+            else:
+                await message.channel.send(f"*Could not parse time: '{time_str}'*")
         return
 
     # --- Jobs ---

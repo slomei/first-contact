@@ -14,6 +14,9 @@ import webbrowser
 # ANSI color codes for terminal output
 GREEN = "\033[32m"
 CYAN = "\033[36m"
+RED = "\033[31m"
+YELLOW = "\033[33m"
+BOLD = "\033[1m"
 DIM = "\033[2m"
 RESET = "\033[0m"
 
@@ -118,6 +121,16 @@ def get_memory_file():
 def get_watchlist_file():
     """Return the watchlist file path for the active project."""
     return os.path.join(get_project_dir(), "watchlist.json")
+
+
+def get_tasks_file():
+    """Return the tasks.json path for the active project."""
+    return os.path.join(get_project_dir(), "tasks.json")
+
+
+def get_reminders_file():
+    """Return the global reminders.json path (not per-project)."""
+    return os.path.join(BASE_DIR, "reminders.json")
 
 
 def get_jobs_file():
