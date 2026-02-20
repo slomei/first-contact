@@ -21,6 +21,7 @@ import models
 import tools
 import tasks
 import briefing
+import notifications
 import sync
 import creative
 
@@ -245,6 +246,12 @@ if __name__ == "__main__":
       /briefing            Run daily briefing (email, tasks, jobs, reminders, watchlist)
       /briefing time HH:MM Set auto-briefing time (Discord)
       /briefing on|off     Enable/disable auto-briefing (Discord)
+      /notify              Show email notification status
+      /notify on|off       Enable/disable email notifications (Discord)
+      /notify domain add|remove <domain>  Add/remove priority domain
+      /notify keyword add|remove <word>   Add/remove priority keyword
+      /notify mute add|remove <pattern>   Add/remove mute pattern
+      /notify log          Show recent notification log
       /update [key] [path]  Sync files from source (all keys if omitted, explicit path optional)
       /characters        List all indexed characters (first-light only)
       /character <name>  Show character details (first-light only)
@@ -892,6 +899,129 @@ if __name__ == "__main__":
                 print(f"{memory.DIM}Auto-briefing disabled.{memory.RESET}\n")
             else:
                 print(f"{memory.DIM}Usage: /briefing | /briefing time HH:MM | /briefing on | /briefing off{memory.RESET}\n")
+            continue
+
+        if command_lower == "/notify" or command_lower.startswith("/notify "):
+            notify_arg = command[7:].strip() if len(command) > 7 else ""
+            notify_arg_lower = notify_arg.lower()
+
+            if not notify_arg or notify_arg_lower == "status":
+                config = memory.load_config().get("email_notifications", {})
+                enabled = config.get("enabled", True)
+                status = f"{memory.GREEN}ON{memory.RESET}" if enabled else f"{memory.RED}OFF{memory.RESET}"
+                rate = notifications.get_rate_count()
+                last = config.get("last_checked")
+                last_str = last[:19] if last else "never"
+                print(f"{memory.DIM}Email notifications: {status}")
+                print(f"  Check interval: {config.get('check_interval_minutes', 5)} min")
+                print(f"  Batch interval: {config.get('batch_interval_minutes', 30)} min")
+                print(f"  Last checked: {last_str}")
+                print(f"  Rate: {rate}/{notifications.RATE_LIMIT_PER_HOUR} per hour")
+                print(f"  Priority domains: {len(config.get('priority_domains', []))}")
+                print(f"  Priority keywords: {len(config.get('priority_keywords', []))}")
+                print(f"  Mute patterns: {len(config.get('mute_domains', []))}{memory.RESET}\n")
+
+            elif notify_arg_lower == "on":
+                config = memory.load_config()
+                config["email_notifications"]["enabled"] = True
+                memory.save_config(config)
+                print(f"{memory.DIM}Email notifications enabled.{memory.RESET}\n")
+
+            elif notify_arg_lower == "off":
+                config = memory.load_config()
+                config["email_notifications"]["enabled"] = False
+                memory.save_config(config)
+                print(f"{memory.DIM}Email notifications disabled.{memory.RESET}\n")
+
+            elif notify_arg_lower.startswith("domain "):
+                parts = notify_arg[7:].strip().split(None, 1)
+                if len(parts) < 2 or parts[0].lower() not in ("add", "remove"):
+                    print(f"{memory.DIM}Usage: /notify domain add|remove <domain>{memory.RESET}\n")
+                    continue
+                action, domain = parts[0].lower(), parts[1].strip()
+                config = memory.load_config()
+                domains = config["email_notifications"].get("priority_domains", [])
+                if action == "add":
+                    if domain not in domains:
+                        domains.append(domain)
+                        config["email_notifications"]["priority_domains"] = domains
+                        memory.save_config(config)
+                        print(f"{memory.DIM}Added priority domain: {domain}{memory.RESET}\n")
+                    else:
+                        print(f"{memory.DIM}Already in priority domains: {domain}{memory.RESET}\n")
+                else:
+                    if domain in domains:
+                        domains.remove(domain)
+                        config["email_notifications"]["priority_domains"] = domains
+                        memory.save_config(config)
+                        print(f"{memory.DIM}Removed priority domain: {domain}{memory.RESET}\n")
+                    else:
+                        print(f"{memory.DIM}Not found: {domain}. Current domains: {', '.join(domains)}{memory.RESET}\n")
+
+            elif notify_arg_lower.startswith("keyword "):
+                parts = notify_arg[8:].strip().split(None, 1)
+                if len(parts) < 2 or parts[0].lower() not in ("add", "remove"):
+                    print(f"{memory.DIM}Usage: /notify keyword add|remove <keyword>{memory.RESET}\n")
+                    continue
+                action, keyword = parts[0].lower(), parts[1].strip()
+                config = memory.load_config()
+                keywords = config["email_notifications"].get("priority_keywords", [])
+                if action == "add":
+                    if keyword not in keywords:
+                        keywords.append(keyword)
+                        config["email_notifications"]["priority_keywords"] = keywords
+                        memory.save_config(config)
+                        print(f"{memory.DIM}Added priority keyword: {keyword}{memory.RESET}\n")
+                    else:
+                        print(f"{memory.DIM}Already in priority keywords: {keyword}{memory.RESET}\n")
+                else:
+                    if keyword in keywords:
+                        keywords.remove(keyword)
+                        config["email_notifications"]["priority_keywords"] = keywords
+                        memory.save_config(config)
+                        print(f"{memory.DIM}Removed priority keyword: {keyword}{memory.RESET}\n")
+                    else:
+                        print(f"{memory.DIM}Not found: {keyword}{memory.RESET}\n")
+
+            elif notify_arg_lower.startswith("mute "):
+                parts = notify_arg[5:].strip().split(None, 1)
+                if len(parts) < 2 or parts[0].lower() not in ("add", "remove"):
+                    print(f"{memory.DIM}Usage: /notify mute add|remove <pattern>{memory.RESET}\n")
+                    continue
+                action, pattern = parts[0].lower(), parts[1].strip()
+                config = memory.load_config()
+                mutes = config["email_notifications"].get("mute_domains", [])
+                if action == "add":
+                    if pattern not in mutes:
+                        mutes.append(pattern)
+                        config["email_notifications"]["mute_domains"] = mutes
+                        memory.save_config(config)
+                        print(f"{memory.DIM}Added mute pattern: {pattern}{memory.RESET}\n")
+                    else:
+                        print(f"{memory.DIM}Already muted: {pattern}{memory.RESET}\n")
+                else:
+                    if pattern in mutes:
+                        mutes.remove(pattern)
+                        config["email_notifications"]["mute_domains"] = mutes
+                        memory.save_config(config)
+                        print(f"{memory.DIM}Removed mute pattern: {pattern}{memory.RESET}\n")
+                    else:
+                        print(f"{memory.DIM}Not found: {pattern}{memory.RESET}\n")
+
+            elif notify_arg_lower == "log":
+                if not os.path.exists(notifications.NOTIFICATION_LOG):
+                    print(f"{memory.DIM}No notification log yet.{memory.RESET}\n")
+                else:
+                    with open(notifications.NOTIFICATION_LOG, "r") as f:
+                        lines = f.readlines()
+                    recent = lines[-20:] if len(lines) > 20 else lines
+                    print(f"{memory.DIM}Recent notifications ({len(lines)} total, showing last {len(recent)}):")
+                    for line in recent:
+                        print(f"  {line.rstrip()}")
+                    print(memory.RESET)
+
+            else:
+                print(f"{memory.DIM}Usage: /notify [on|off|status|domain|keyword|mute|log]{memory.RESET}\n")
             continue
 
         if command_lower == "/tasks" or command_lower.startswith("/tasks "):

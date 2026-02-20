@@ -20,6 +20,7 @@ import models
 import tools
 import tasks
 import briefing
+import notifications
 
 # Only respond to this Discord user ID
 ALLOWED_USER_ID = 000000000000000000
@@ -238,6 +239,12 @@ def build_help_text():
         "`!briefing` — Run daily briefing\n"
         "`!briefing time HH:MM` — Set auto-briefing time\n"
         "`!briefing on|off` — Enable/disable auto-briefing\n"
+        "`!notify` — Show email notification status\n"
+        "`!notify on|off` — Enable/disable email notifications\n"
+        "`!notify domain add|remove <domain>` — Manage priority domains\n"
+        "`!notify keyword add|remove <word>` — Manage priority keywords\n"
+        "`!notify mute add|remove <pattern>` — Manage mute patterns\n"
+        "`!notify log` — Show recent notification log\n"
         "`!delegates` — Show specialist agents\n"
         "`!billing` — Show billing link\n"
         "`!conversations` — List saved conversations\n"
@@ -489,9 +496,82 @@ async def reminder_check_loop():
             pass  # Never crash the loop
 
 
+# Buffer for medium-priority emails waiting to be batched
+_medium_batch = []
+_last_batch_sent = datetime.now()
+
+
+async def email_check_loop():
+    """Background loop: check Gmail for new emails every N minutes.
+
+    High priority → immediate DM.
+    Medium priority → buffer for batch send every 30 min.
+    Low priority → log only.
+    """
+    global _medium_batch, _last_batch_sent
+    await bot.wait_until_ready()
+
+    while not bot.is_closed():
+        try:
+            config = memory.load_config().get("email_notifications", {})
+            interval = config.get("check_interval_minutes", 5) * 60
+            await asyncio.sleep(interval)
+
+            if not config.get("enabled", True):
+                continue
+
+            # Check for new emails
+            result = await asyncio.to_thread(notifications.check_new_emails)
+            if result.get("error"):
+                continue
+
+            user = None
+
+            # High priority → immediate DM
+            for email_data, priority in result.get("high", []):
+                if not notifications.check_rate_limit():
+                    notifications.log_notification(email_data, priority, "rate_limited")
+                    continue
+                if user is None:
+                    user = await bot.fetch_user(ALLOWED_USER_ID)
+                if user:
+                    msg = notifications.format_notification_discord(email_data, priority)
+                    await user.send(msg)
+                    notifications.log_notification(email_data, priority, "sent")
+
+            # Medium priority → buffer
+            for email_data, priority in result.get("medium", []):
+                _medium_batch.append(email_data)
+                notifications.log_notification(email_data, priority, "batched")
+
+            # Low priority → log only
+            for email_data, priority in result.get("low", []):
+                notifications.log_notification(email_data, priority, "skipped")
+
+            # Check if it's time to send the batch
+            batch_interval = config.get("batch_interval_minutes", 30) * 60
+            if _medium_batch and (datetime.now() - _last_batch_sent).total_seconds() >= batch_interval:
+                if notifications.check_rate_limit():
+                    if user is None:
+                        user = await bot.fetch_user(ALLOWED_USER_ID)
+                    if user:
+                        msg = notifications.format_batch_discord(_medium_batch)
+                        if msg:
+                            for chunk in split_message(msg):
+                                await user.send(chunk)
+                        for e in _medium_batch:
+                            notifications.log_notification(e, "medium", "sent")
+                _medium_batch = []
+                _last_batch_sent = datetime.now()
+
+        except Exception:
+            pass  # Never crash the loop
+
+
 @bot.event
 async def on_ready():
     bot.loop.create_task(reminder_check_loop())
+    bot.loop.create_task(email_check_loop())
     print(f"Discord bot connected as {bot.user}")
 
 
@@ -706,6 +786,135 @@ async def on_message(message):
         else:
             await message.channel.send(
                 "*Usage: `!briefing` | `!briefing time HH:MM` | `!briefing on` | `!briefing off`*"
+            )
+        return
+
+    # --- Email notifications ---
+    if command_lower == "!notify" or command_lower.startswith("!notify "):
+        notify_arg = content[7:].strip() if len(content) > 7 else ""
+        notify_arg_lower = notify_arg.lower()
+
+        if not notify_arg or notify_arg_lower == "status":
+            config = memory.load_config().get("email_notifications", {})
+            enabled = "ON" if config.get("enabled", True) else "OFF"
+            rate = notifications.get_rate_count()
+            last = config.get("last_checked")
+            last_str = last[:19] if last else "never"
+            await message.channel.send(
+                f"**Email Notifications: {enabled}**\n"
+                f"Check interval: {config.get('check_interval_minutes', 5)} min\n"
+                f"Batch interval: {config.get('batch_interval_minutes', 30)} min\n"
+                f"Last checked: {last_str}\n"
+                f"Rate: {rate}/{notifications.RATE_LIMIT_PER_HOUR} per hour\n"
+                f"Priority domains: {len(config.get('priority_domains', []))}\n"
+                f"Priority keywords: {len(config.get('priority_keywords', []))}\n"
+                f"Mute patterns: {len(config.get('mute_domains', []))}"
+            )
+
+        elif notify_arg_lower == "on":
+            config = memory.load_config()
+            config["email_notifications"]["enabled"] = True
+            memory.save_config(config)
+            await message.channel.send("*Email notifications enabled.*")
+
+        elif notify_arg_lower == "off":
+            config = memory.load_config()
+            config["email_notifications"]["enabled"] = False
+            memory.save_config(config)
+            await message.channel.send("*Email notifications disabled.*")
+
+        elif notify_arg_lower.startswith("domain "):
+            parts = notify_arg[7:].strip().split(None, 1)
+            if len(parts) < 2 or parts[0].lower() not in ("add", "remove"):
+                await message.channel.send("*Usage: `!notify domain add|remove <domain>`*")
+                return
+            action, domain = parts[0].lower(), parts[1].strip()
+            config = memory.load_config()
+            domains = config["email_notifications"].get("priority_domains", [])
+            if action == "add":
+                if domain not in domains:
+                    domains.append(domain)
+                    config["email_notifications"]["priority_domains"] = domains
+                    memory.save_config(config)
+                    await message.channel.send(f"*Added priority domain: {domain}*")
+                else:
+                    await message.channel.send(f"*Already in priority domains: {domain}*")
+            else:
+                if domain in domains:
+                    domains.remove(domain)
+                    config["email_notifications"]["priority_domains"] = domains
+                    memory.save_config(config)
+                    await message.channel.send(f"*Removed priority domain: {domain}*")
+                else:
+                    await message.channel.send(f"*Not found: {domain}*")
+
+        elif notify_arg_lower.startswith("keyword "):
+            parts = notify_arg[8:].strip().split(None, 1)
+            if len(parts) < 2 or parts[0].lower() not in ("add", "remove"):
+                await message.channel.send("*Usage: `!notify keyword add|remove <keyword>`*")
+                return
+            action, keyword = parts[0].lower(), parts[1].strip()
+            config = memory.load_config()
+            keywords = config["email_notifications"].get("priority_keywords", [])
+            if action == "add":
+                if keyword not in keywords:
+                    keywords.append(keyword)
+                    config["email_notifications"]["priority_keywords"] = keywords
+                    memory.save_config(config)
+                    await message.channel.send(f"*Added priority keyword: {keyword}*")
+                else:
+                    await message.channel.send(f"*Already in priority keywords: {keyword}*")
+            else:
+                if keyword in keywords:
+                    keywords.remove(keyword)
+                    config["email_notifications"]["priority_keywords"] = keywords
+                    memory.save_config(config)
+                    await message.channel.send(f"*Removed priority keyword: {keyword}*")
+                else:
+                    await message.channel.send(f"*Not found: {keyword}*")
+
+        elif notify_arg_lower.startswith("mute "):
+            parts = notify_arg[5:].strip().split(None, 1)
+            if len(parts) < 2 or parts[0].lower() not in ("add", "remove"):
+                await message.channel.send("*Usage: `!notify mute add|remove <pattern>`*")
+                return
+            action, pattern = parts[0].lower(), parts[1].strip()
+            config = memory.load_config()
+            mutes = config["email_notifications"].get("mute_domains", [])
+            if action == "add":
+                if pattern not in mutes:
+                    mutes.append(pattern)
+                    config["email_notifications"]["mute_domains"] = mutes
+                    memory.save_config(config)
+                    await message.channel.send(f"*Added mute pattern: {pattern}*")
+                else:
+                    await message.channel.send(f"*Already muted: {pattern}*")
+            else:
+                if pattern in mutes:
+                    mutes.remove(pattern)
+                    config["email_notifications"]["mute_domains"] = mutes
+                    memory.save_config(config)
+                    await message.channel.send(f"*Removed mute pattern: {pattern}*")
+                else:
+                    await message.channel.send(f"*Not found: {pattern}*")
+
+        elif notify_arg_lower == "log":
+            if not os.path.exists(notifications.NOTIFICATION_LOG):
+                await message.channel.send("*No notification log yet.*")
+            else:
+                with open(notifications.NOTIFICATION_LOG, "r") as f:
+                    lines = f.readlines()
+                recent = lines[-15:] if len(lines) > 15 else lines
+                text = f"**Notification log** ({len(lines)} total, last {len(recent)}):\n```\n"
+                for line in recent:
+                    text += line.rstrip() + "\n"
+                text += "```"
+                for chunk in split_message(text):
+                    await message.channel.send(chunk)
+
+        else:
+            await message.channel.send(
+                "*Usage: `!notify [on|off|status|domain|keyword|mute|log]`*"
             )
         return
 

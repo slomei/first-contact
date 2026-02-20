@@ -148,6 +148,27 @@ def load_config():
             "timezone": "America/New_York",
             "last_sent": None,
         },
+        "email_notifications": {
+            "enabled": True,
+            "check_interval_minutes": 5,
+            "batch_interval_minutes": 30,
+            "last_checked": None,
+            "priority_domains": [
+                "netflix.com", "disney.com", "dreamworks.com",
+                "illumination.com", "sony.com", "warnerbros.com",
+                "paramount.com", "apple.com", "amazon.com",
+                "blueskyanimation.com", "pixar.com", "dneg.com",
+                "framestore.com",
+            ],
+            "priority_keywords": [
+                "interview", "offer", "application", "schedule",
+                "follow up", "hiring", "position", "opportunity",
+                "editorial", "editor",
+            ],
+            "mute_domains": [
+                "noreply@google.com", "marketing@", "newsletter@",
+            ],
+        },
     }
     if os.path.exists(path):
         try:
