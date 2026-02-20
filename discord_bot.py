@@ -19,6 +19,7 @@ import memory
 import models
 import tools
 import tasks
+import briefing
 
 # Only respond to this Discord user ID
 ALLOWED_USER_ID = 000000000000000000
@@ -234,6 +235,9 @@ def build_help_text():
         "`!remind <desc> at <time>` — Set a reminder\n"
         "`!reminders` — Show pending reminders\n"
         "`!remind cancel <#>` — Cancel a reminder\n"
+        "`!briefing` — Run daily briefing\n"
+        "`!briefing time HH:MM` — Set auto-briefing time\n"
+        "`!briefing on|off` — Enable/disable auto-briefing\n"
         "`!delegates` — Show specialist agents\n"
         "`!billing` — Show billing link\n"
         "`!conversations` — List saved conversations\n"
@@ -428,7 +432,7 @@ bot = discord.Client(intents=intents)
 
 
 async def reminder_check_loop():
-    """Background loop: check reminders every 60s and send daily task summary."""
+    """Background loop: check reminders every 60s, daily briefing, and task summary."""
     await bot.wait_until_ready()
     while not bot.is_closed():
         try:
@@ -442,8 +446,38 @@ async def reminder_check_loop():
                     for r in triggered:
                         await user.send(f"**Reminder:** {r['description']}")
 
-            # Daily task summary (after 8am)
+            # Auto-briefing check
             now = datetime.now()
+            config = memory.load_config()
+            briefing_cfg = config.get("briefing", {})
+            if briefing_cfg.get("enabled", True):
+                today_str = now.strftime("%Y-%m-%d")
+                if briefing_cfg.get("last_sent") != today_str:
+                    # Check if it's time
+                    tz_name = briefing_cfg.get("timezone", "America/New_York")
+                    try:
+                        from zoneinfo import ZoneInfo
+                        local_now = datetime.now(ZoneInfo(tz_name))
+                    except Exception:
+                        local_now = now
+                    target_time = briefing_cfg.get("time", "08:00")
+                    target_parts = target_time.split(":")
+                    target_hour = int(target_parts[0])
+                    target_minute = int(target_parts[1]) if len(target_parts) > 1 else 0
+                    if local_now.hour > target_hour or (local_now.hour == target_hour and local_now.minute >= target_minute):
+                        # Time to send briefing
+                        config["briefing"]["last_sent"] = today_str
+                        memory.save_config(config)
+                        try:
+                            text = await asyncio.to_thread(briefing.run_briefing_discord)
+                            user = await bot.fetch_user(ALLOWED_USER_ID)
+                            if user:
+                                for chunk in split_message(text):
+                                    await user.send(chunk)
+                        except Exception:
+                            pass
+
+            # Daily task summary (after 8am, separate from briefing)
             if now.hour >= 8:
                 summary_text, should_send = tasks.get_daily_summary()
                 if should_send and summary_text:
@@ -623,6 +657,56 @@ async def on_message(message):
             result = await run_digest_discord(state, message.channel)
         for chunk in split_message(result):
             await message.channel.send(chunk)
+        return
+
+    # --- Briefing ---
+    if command_lower == "!briefing" or command_lower.startswith("!briefing "):
+        briefing_arg = content[9:].strip().lower() if len(content) > 9 else ""
+
+        if not briefing_arg:
+            async with message.channel.typing():
+                await message.channel.send("*Generating briefing...*")
+                try:
+                    text = await asyncio.to_thread(briefing.run_briefing_discord)
+                except Exception as e:
+                    await message.channel.send(f"*Briefing failed: {e}*")
+                    return
+            for chunk in split_message(text):
+                await message.channel.send(chunk)
+        elif briefing_arg.startswith("time "):
+            time_str = briefing_arg[5:].strip()
+            if not re.match(r"^\d{1,2}:\d{2}$", time_str):
+                await message.channel.send("*Usage: `!briefing time HH:MM` (e.g. `!briefing time 08:00`)*")
+                return
+            parts = time_str.split(":")
+            hour, minute = int(parts[0]), int(parts[1])
+            if hour > 23 or minute > 59:
+                await message.channel.send("*Invalid time. Use 24-hour format (00:00 - 23:59).*")
+                return
+            config = memory.load_config()
+            config["briefing"]["time"] = f"{hour:02d}:{minute:02d}"
+            memory.save_config(config)
+            await message.channel.send(
+                f"*Auto-briefing time set to {hour:02d}:{minute:02d} "
+                f"({config['briefing']['timezone']})*"
+            )
+        elif briefing_arg == "on":
+            config = memory.load_config()
+            config["briefing"]["enabled"] = True
+            memory.save_config(config)
+            await message.channel.send(
+                f"*Auto-briefing enabled. "
+                f"Time: {config['briefing']['time']} {config['briefing']['timezone']}*"
+            )
+        elif briefing_arg == "off":
+            config = memory.load_config()
+            config["briefing"]["enabled"] = False
+            memory.save_config(config)
+            await message.channel.send("*Auto-briefing disabled.*")
+        else:
+            await message.channel.send(
+                "*Usage: `!briefing` | `!briefing time HH:MM` | `!briefing on` | `!briefing off`*"
+            )
         return
 
     # --- Billing ---

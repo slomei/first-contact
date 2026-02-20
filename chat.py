@@ -20,6 +20,7 @@ import memory
 import models
 import tools
 import tasks
+import briefing
 import sync
 import creative
 
@@ -241,6 +242,9 @@ if __name__ == "__main__":
       /remind <desc> <time>  Set a reminder (natural language time)
       /reminders          Show pending reminders
       /remind cancel <#>  Cancel a reminder
+      /briefing            Run daily briefing (email, tasks, jobs, reminders, watchlist)
+      /briefing time HH:MM Set auto-briefing time (Discord)
+      /briefing on|off     Enable/disable auto-briefing (Discord)
       /update [key] [path]  Sync files from source (all keys if omitted, explicit path optional)
       /characters        List all indexed characters (first-light only)
       /character <name>  Show character details (first-light only)
@@ -847,6 +851,47 @@ if __name__ == "__main__":
                 for entry in log:
                     print(f"  {entry}")
                 print(f"\n  Session: {tools._session_draft_count}/{tools.DRAFT_RATE_LIMIT} drafts{memory.RESET}\n")
+            continue
+
+        if command_lower == "/briefing" or command_lower.startswith("/briefing "):
+            briefing_arg = command[9:].strip().lower() if len(command) > 9 else ""
+
+            if not briefing_arg:
+                # Run the briefing
+                def briefing_progress(msg):
+                    print(f"{memory.DIM}  {msg}{memory.RESET}")
+                result = briefing.run_briefing_terminal(progress_fn=briefing_progress)
+                print(result)
+            elif briefing_arg.startswith("time "):
+                time_str = briefing_arg[5:].strip()
+                # Validate HH:MM format
+                import re as _re
+                if not _re.match(r"^\d{1,2}:\d{2}$", time_str):
+                    print(f"{memory.DIM}Usage: /briefing time HH:MM (e.g. /briefing time 08:00){memory.RESET}\n")
+                    continue
+                parts = time_str.split(":")
+                hour, minute = int(parts[0]), int(parts[1])
+                if hour > 23 or minute > 59:
+                    print(f"{memory.DIM}Invalid time. Use 24-hour format (00:00 - 23:59).{memory.RESET}\n")
+                    continue
+                config = memory.load_config()
+                config["briefing"]["time"] = f"{hour:02d}:{minute:02d}"
+                memory.save_config(config)
+                print(f"{memory.DIM}Auto-briefing time set to {hour:02d}:{minute:02d} "
+                      f"({config['briefing']['timezone']}){memory.RESET}\n")
+            elif briefing_arg == "on":
+                config = memory.load_config()
+                config["briefing"]["enabled"] = True
+                memory.save_config(config)
+                print(f"{memory.DIM}Auto-briefing enabled (Discord). "
+                      f"Time: {config['briefing']['time']} {config['briefing']['timezone']}{memory.RESET}\n")
+            elif briefing_arg == "off":
+                config = memory.load_config()
+                config["briefing"]["enabled"] = False
+                memory.save_config(config)
+                print(f"{memory.DIM}Auto-briefing disabled.{memory.RESET}\n")
+            else:
+                print(f"{memory.DIM}Usage: /briefing | /briefing time HH:MM | /briefing on | /briefing off{memory.RESET}\n")
             continue
 
         if command_lower == "/tasks" or command_lower.startswith("/tasks "):

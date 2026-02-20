@@ -133,6 +133,47 @@ def get_reminders_file():
     return os.path.join(BASE_DIR, "reminders.json")
 
 
+def get_config_file():
+    """Return the global config.json path."""
+    return os.path.join(BASE_DIR, "config.json")
+
+
+def load_config():
+    """Load config from config.json, creating with defaults if needed."""
+    path = get_config_file()
+    defaults = {
+        "briefing": {
+            "enabled": True,
+            "time": "08:00",
+            "timezone": "America/New_York",
+            "last_sent": None,
+        },
+    }
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                config = json.load(f)
+            # Merge in any missing default keys
+            for key, val in defaults.items():
+                if key not in config:
+                    config[key] = val
+                elif isinstance(val, dict):
+                    for k, v in val.items():
+                        if k not in config[key]:
+                            config[key][k] = v
+            return config
+        except (json.JSONDecodeError, OSError):
+            pass
+    return defaults
+
+
+def save_config(config):
+    """Save config to config.json."""
+    path = get_config_file()
+    with open(path, "w") as f:
+        json.dump(config, f, indent=2)
+
+
 def get_jobs_file():
     """Return the jobs.json path, always in the job-search project."""
     d = os.path.join(PROJECTS_DIR, JOB_SEARCH_PROJECT)
