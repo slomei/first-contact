@@ -24,6 +24,8 @@ import memory
 ACCENT_COLOR = HexColor("#145545")
 HEADER_GRAY = HexColor("#666666")
 
+PAGE_WIDTH, PAGE_HEIGHT = letter  # 612 x 792 points
+
 # Contact info (matches resume)
 CONTACT = {
     "name": "Stephen M. Lomei",
@@ -41,7 +43,7 @@ COVER_LETTER_DIR = os.path.join(
 
 # --- Styles ---
 
-def _base_styles():
+def _base_styles(body_font_size=11, body_space_after=10):
     """Return a dict of ParagraphStyles for cover letter PDFs."""
     return {
         "name": ParagraphStyle(
@@ -61,30 +63,30 @@ def _base_styles():
         "date": ParagraphStyle(
             "Date",
             fontName="Helvetica",
-            fontSize=11,
-            leading=15,
+            fontSize=body_font_size,
+            leading=body_font_size + 4,
             textColor=black,
         ),
         "recipient": ParagraphStyle(
             "Recipient",
             fontName="Helvetica",
-            fontSize=11,
-            leading=15,
+            fontSize=body_font_size,
+            leading=body_font_size + 4,
             textColor=black,
         ),
         "body": ParagraphStyle(
             "Body",
             fontName="Helvetica",
-            fontSize=11,
-            leading=15.4,  # 1.4x line spacing
+            fontSize=body_font_size,
+            leading=body_font_size * 1.4,
             textColor=black,
-            spaceAfter=10,
+            spaceAfter=body_space_after,
         ),
         "signature": ParagraphStyle(
             "Signature",
             fontName="Helvetica",
-            fontSize=11,
-            leading=15,
+            fontSize=body_font_size,
+            leading=body_font_size + 4,
             textColor=black,
         ),
         "title": ParagraphStyle(
@@ -100,43 +102,13 @@ def _base_styles():
 
 # --- Cover Letter PDF ---
 
-def generate_cover_letter_pdf(
-    recipient_name,
-    company_name,
-    job_title,
-    cover_letter_text,
-    output_path=None,
-):
-    """Generate a professional cover letter PDF.
+def _build_cover_story(recipient_name, company_name, job_title, paragraphs,
+                       body_font_size=11, body_space_after=10):
+    """Build the platypus story list for a cover letter.
 
-    Args:
-        recipient_name: Name of recipient (e.g. "Hiring Manager")
-        company_name: Company name
-        job_title: Position title
-        cover_letter_text: Full cover letter body text
-        output_path: Where to save. If None, auto-generates in COVER_LETTER_DIR.
-
-    Returns:
-        The output file path.
+    Returns (story, styles) so the caller can measure or build.
     """
-    if output_path is None:
-        os.makedirs(COVER_LETTER_DIR, exist_ok=True)
-        slug = re.sub(r'[^\w]+', '_', f"{company_name}_{job_title}").strip('_')
-        output_path = os.path.join(COVER_LETTER_DIR, f"{slug}_cover.pdf")
-
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-
-    styles = _base_styles()
-
-    doc = SimpleDocTemplate(
-        output_path,
-        pagesize=letter,
-        leftMargin=1 * inch,
-        rightMargin=1 * inch,
-        topMargin=1 * inch,
-        bottomMargin=1 * inch,
-    )
-
+    styles = _base_styles(body_font_size, body_space_after)
     story = []
 
     # Header: name
@@ -172,20 +144,144 @@ def generate_cover_letter_pdf(
     story.append(Spacer(1, 16))
 
     # Body paragraphs
-    paragraphs = _split_paragraphs(cover_letter_text)
     for para in paragraphs:
-        # Escape XML entities for reportlab
         safe = _escape_xml(para)
         story.append(Paragraph(safe, styles["body"]))
 
-    # Signature
-    story.append(Spacer(1, 12))
+    # Signature — tight spacing
+    story.append(Spacer(1, 10))
     story.append(Paragraph("Sincerely,", styles["signature"]))
-    story.append(Spacer(1, 20))
+    story.append(Spacer(1, 4))
     story.append(Paragraph(CONTACT["name"], styles["signature"]))
+
+    return story, styles
+
+
+def _measure_story(story, avail_width, avail_height):
+    """Measure total height of a story. Returns height in points."""
+    total = 0
+    for flowable in story:
+        w, h = flowable.wrap(avail_width, avail_height)
+        total += h
+        # Account for spaceAfter/spaceBefore on flowables that have it
+        total += getattr(flowable, 'spaceAfter', 0)
+        total += getattr(flowable, 'spaceBefore', 0)
+    return total
+
+
+def generate_cover_letter_pdf(
+    recipient_name,
+    company_name,
+    job_title,
+    cover_letter_text,
+    output_path=None,
+):
+    """Generate a professional one-page cover letter PDF.
+
+    Automatically adjusts spacing, margins, and font size to fit one page.
+    As a last resort, asks Opus to shorten the letter.
+
+    Args:
+        recipient_name: Name of recipient (e.g. "Hiring Manager")
+        company_name: Company name
+        job_title: Position title
+        cover_letter_text: Full cover letter body text
+        output_path: Where to save. If None, auto-generates in COVER_LETTER_DIR.
+
+    Returns:
+        The output file path.
+    """
+    if output_path is None:
+        os.makedirs(COVER_LETTER_DIR, exist_ok=True)
+        slug = re.sub(r'[^\w]+', '_', f"{company_name}_{job_title}").strip('_')
+        output_path = os.path.join(COVER_LETTER_DIR, f"{slug}_cover.pdf")
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    paragraphs = _split_paragraphs(cover_letter_text)
+
+    # Try progressively tighter settings to fit one page
+    #   (margin_inches, body_font_size, body_space_after)
+    fit_attempts = [
+        (1.0,  11, 10),   # default
+        (1.0,  11,  6),   # tighter paragraph spacing
+        (1.0,  11,  3),   # minimal paragraph spacing
+        (0.85, 11,  3),   # smaller margins
+        (0.75, 11,  3),   # minimum margins
+        (0.75, 10.5, 2),  # slightly smaller font
+        (0.75, 10,  2),   # minimum font
+    ]
+
+    chosen_margin = 1.0
+    chosen_font = 11
+    chosen_space = 10
+    fits = False
+
+    for margin, font_size, space_after in fit_attempts:
+        story, styles = _build_cover_story(
+            recipient_name, company_name, job_title, paragraphs,
+            body_font_size=font_size, body_space_after=space_after,
+        )
+        avail_w = PAGE_WIDTH - 2 * margin * inch
+        avail_h = PAGE_HEIGHT - 2 * margin * inch
+        height = _measure_story(story, avail_w, avail_h)
+
+        if height <= avail_h:
+            chosen_margin = margin
+            chosen_font = font_size
+            chosen_space = space_after
+            fits = True
+            break
+
+    # Last resort: ask Opus to shorten
+    if not fits:
+        cover_letter_text = _shorten_with_opus(cover_letter_text)
+        paragraphs = _split_paragraphs(cover_letter_text)
+        chosen_margin = 0.75
+        chosen_font = 10
+        chosen_space = 2
+
+    # Build final PDF
+    story, styles = _build_cover_story(
+        recipient_name, company_name, job_title, paragraphs,
+        body_font_size=chosen_font, body_space_after=chosen_space,
+    )
+
+    doc = SimpleDocTemplate(
+        output_path,
+        pagesize=letter,
+        leftMargin=chosen_margin * inch,
+        rightMargin=chosen_margin * inch,
+        topMargin=chosen_margin * inch,
+        bottomMargin=chosen_margin * inch,
+    )
 
     doc.build(story)
     return output_path
+
+
+def _shorten_with_opus(text):
+    """Ask Opus to tighten a cover letter to fit one page."""
+    import models
+    try:
+        response = models.client.messages.create(
+            model="claude-opus-4-6",
+            max_tokens=800,
+            messages=[{"role": "user", "content":
+                "This cover letter is too long for one page. Tighten it to fit "
+                "while keeping all key points and specific details. Remove filler "
+                "and condense, but keep the professional tone and specific project "
+                "references. Do NOT add a greeting or signature — just the body "
+                "paragraphs.\n\n" + text}],
+        )
+        models.track_usage(response.usage.input_tokens,
+                           response.usage.output_tokens,
+                           "claude-opus-4-6")
+        return response.content[0].text
+    except Exception:
+        # If API fails, just truncate to first 4 paragraphs
+        paras = text.strip().split("\n\n")
+        return "\n\n".join(paras[:4])
 
 
 # --- Generic PDF ---
