@@ -1,5 +1,5 @@
 """
-Shared memory, project, persona, and utility functions.
+Shared memory, project, and utility functions.
 
 This is the base module with no internal dependencies.
 All three interfaces (chat.py, discord_bot.py, gui.py) import from here.
@@ -19,7 +19,6 @@ RESET = "\033[0m"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECTS_DIR = os.path.join(BASE_DIR, "projects")
-PERSONAS_FILE = os.path.join(BASE_DIR, "personas.json")
 JOB_SEARCH_PROJECT = "job-search"
 
 # Gmail constants
@@ -27,42 +26,36 @@ GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 GMAIL_CLIENT_SECRET = os.path.join(BASE_DIR, "gmail_client_secret.json")
 GMAIL_CREDENTIALS = os.path.join(BASE_DIR, "gmail_credentials.json")
 
-# Built-in personas
-BUILTIN_PERSONAS = {
-    "default": (
-        "You are a blunt, witty collaborator. You give honest, direct answers "
-        "without sugarcoating. You're not rude for the sake of it\u2014you're just "
-        "efficient and real. If something is a bad idea, you say so. If someone's "
-        "on the right track, you tell them that too, briefly. You have a dry sense "
-        "of humor and zero patience for fluff."
-    ),
-    "writer": (
-        "You are a screenplay collaborator. You focus on dialogue, structure, "
-        "pacing, and character voice. You give feedback like a seasoned writer's "
-        "room partner\u2014direct, constructive, and always in service of the story. "
-        "You think in terms of scenes, beats, and subtext."
-    ),
-    "coder": (
-        "You are a coding partner. You explain concepts clearly, write clean "
-        "and well-structured code, and think through edge cases. You prefer "
-        "practical solutions over clever ones. When reviewing code, you focus "
-        "on correctness, readability, and maintainability."
-    ),
-    "critic": (
-        "You are a brutally honest critic. You don't sugarcoat anything. You "
-        "find weaknesses, logical gaps, and mediocrity. Your feedback is harsh "
-        "but always specific and actionable. You have high standards and zero "
-        "tolerance for hand-waving or half-baked ideas."
-    ),
-}
+# Default system prompt
+SYSTEM_PROMPT = (
+    "You are Steve's personal assistant. You know his background, his projects, "
+    "and his priorities through stored memories.\n\n"
+    "Be honest. If an idea is good, say so and explain why. If it's bad, say so "
+    "and explain why. Don't hedge to be polite and don't praise to make him feel "
+    "good. Steve respects directness and can handle being wrong \u2014 what he can't "
+    "handle is wasted time from someone telling him what he wants to hear.\n\n"
+    "Don't perform enthusiasm. Don't over-explain things he already understands. "
+    "Don't ask unnecessary clarifying questions when the intent is obvious. Match "
+    "the energy of the conversation \u2014 if he's brief, be brief. If he wants depth, "
+    "go deep.\n\n"
+    "When you don't know something, say so. When you're uncertain, say that too. "
+    "Don't guess and present it as fact.\n\n"
+    "You have tools available \u2014 web search, file operations, memory, email, code "
+    "execution, job search. Use them when they'd help. Don't ask permission to use "
+    "tools unless the action is irreversible or costly.\n\n"
+    "Steve is a video editor with 13 years in animation, currently job searching "
+    "and building an AI agent system. He's working on a sci-fi screenplay called "
+    "First Light. He's smart, technically capable, and learning fast. Treat him "
+    "accordingly."
+)
 
-# Default models for built-in personas
-BUILTIN_PERSONA_MODELS = {
-    "default": "claude-sonnet-4-6",
-    "writer":  "claude-opus-4-6",
-    "coder":   "claude-opus-4-6",
-    "critic":  "claude-sonnet-4-6",
-}
+# Challenge mode addendum (appended when challenge_mode is True)
+CHALLENGE_ADDENDUM = (
+    "\n\nCHALLENGE MODE IS ON. Actively look for flaws, gaps, and weak assumptions "
+    "in Steve's reasoning. Play devil's advocate. Push back on ideas that seem "
+    "under-examined. Don't be contrarian for its own sake \u2014 but if there's a hole, "
+    "find it and call it out."
+)
 
 
 def _is_wsl():
@@ -90,7 +83,7 @@ def open_url(url):
 
 # --- Mutable globals ---
 active_project = "general"
-active_persona = "default"
+challenge_mode = False
 
 
 def get_project_dir():
@@ -136,47 +129,6 @@ def get_resume_path():
     return os.path.join(PROJECTS_DIR, JOB_SEARCH_PROJECT, "resume.md")
 
 
-# --- Persona functions ---
-
-def load_personas():
-    """Load custom personas from the JSON file.
-
-    Supports both old format (string values) and new format (dict with
-    'description' and optional 'model' keys).
-    """
-    if os.path.exists(PERSONAS_FILE):
-        with open(PERSONAS_FILE, "r") as f:
-            data = json.load(f)
-        migrated = {}
-        for k, v in data.items():
-            if isinstance(v, str):
-                migrated[k] = {"description": v}
-            else:
-                migrated[k] = v
-        return migrated
-    return {}
-
-
-def save_personas(personas):
-    """Save custom personas to the JSON file."""
-    with open(PERSONAS_FILE, "w") as f:
-        json.dump(personas, f, indent=2)
-
-
-custom_personas = load_personas()
-
-
-def get_persona_model(name):
-    """Get the default model for a persona.
-
-    Checks for a user override in custom_personas first, then falls back
-    to the built-in default, then to sonnet.
-    """
-    if name in custom_personas and "model" in custom_personas[name]:
-        return custom_personas[name]["model"]
-    return BUILTIN_PERSONA_MODELS.get(name, "claude-sonnet-4-6")
-
-
 # --- Memory functions ---
 
 def load_memories():
@@ -200,36 +152,13 @@ def save_memories(mems):
 
 
 def build_system_prompt(mems):
-    """Build the system prompt, including any stored memories."""
-    if active_persona in BUILTIN_PERSONAS:
-        personality = BUILTIN_PERSONAS[active_persona]
-    elif active_persona in custom_personas and "description" in custom_personas[active_persona]:
-        personality = custom_personas[active_persona]["description"]
-    else:
-        personality = BUILTIN_PERSONAS["default"]
-
-    tools_paragraph = (
-        "You have tools available: web search, file read/write, memory, and "
-        "Python code execution. Use them autonomously when appropriate. Search "
-        "the web when asked about current events or when you're unsure about "
-        "something factual. Read files when the user references them. Save facts "
-        "to memory when the user shares personal preferences or important details. "
-        "Run Python code when the user asks you to execute, test, or demonstrate "
-        "code. Don't ask permission\u2014just use the tools."
-    )
-
-    specialist_paragraph = (
-        "You also have specialist agents that handle tasks on your behalf. "
-        "When a specialist has been consulted, their output will appear in the "
-        "conversation as [Specialist result from <name>]. Synthesize their output "
-        "into a coherent response for the user \u2014 you may present it as-is if it's "
-        "already well-formatted, or add context, framing, and polish as needed."
-    )
-
-    base = personality + "\n\n" + tools_paragraph + "\n\n" + specialist_paragraph
+    """Build the system prompt, including stored memories and challenge mode."""
+    base = SYSTEM_PROMPT
+    if challenge_mode:
+        base += CHALLENGE_ADDENDUM
     if mems:
         memory_block = "\n".join(f"- {m}" for m in mems)
-        base += f"\n\nThings the user has asked you to remember:\n{memory_block}"
+        base += f"\n\nThings you've been asked to remember:\n{memory_block}"
     return base
 
 

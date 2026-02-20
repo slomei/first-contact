@@ -154,10 +154,7 @@ if __name__ == "__main__":
       /remember <fact>   Save a fact to persistent memory
       /forget <fact>     Remove a fact from memory
       /memories          List all stored memories
-      /persona           List available personas
-      /persona <name>    Switch persona (default, writer, coder, critic)
-      /persona custom <desc>  Create a custom persona
-      /persona model <name> <model>  Set a persona's default model
+      /challenge on|off  Toggle devil's advocate mode
       /project           Create a new project (prompts for name)
       /project <name>    Switch to a project (creates if needed)
       /project list      List all projects
@@ -197,9 +194,9 @@ if __name__ == "__main__":
 
     while True:
         short_name = models.MODEL_SHORT_NAMES.get(models.active_model, models.active_model)
-        persona_tag = f"/{memory.active_persona}" if memory.active_persona != "default" else ""
+        challenge_tag = " challenge" if memory.challenge_mode else ""
         try:
-            user_input = input(f"{memory.GREEN}You {memory.DIM}[{short_name}{persona_tag}/{memory.active_project}]{memory.RESET}{memory.GREEN}: {memory.RESET}")
+            user_input = input(f"{memory.GREEN}You {memory.DIM}[{short_name}/{memory.active_project}{challenge_tag}]{memory.RESET}{memory.GREEN}: {memory.RESET}")
         except (EOFError, KeyboardInterrupt):
             print()
             print_session_summary()
@@ -339,72 +336,10 @@ if __name__ == "__main__":
                 print(f"{memory.DIM}No memories stored. Use /remember <fact> to add one.{memory.RESET}\n")
             continue
 
-        if command_lower == "/persona" or command_lower.startswith("/persona "):
-            arg = command[8:].strip()
-            if not arg:
-                print(f"{memory.DIM}Available personas:")
-                all_personas = list(memory.BUILTIN_PERSONAS.keys()) + [
-                    k for k in memory.custom_personas if k not in memory.BUILTIN_PERSONAS
-                    and "description" in memory.custom_personas[k]
-                ]
-                for name in all_personas:
-                    marker = " \u2190" if name == memory.active_persona else ""
-                    source = "custom" if name in memory.custom_personas and name not in memory.BUILTIN_PERSONAS else "built-in"
-                    model_name = models.MODEL_SHORT_NAMES.get(memory.get_persona_model(name), memory.get_persona_model(name))
-                    print(f"  {name} ({source}, {model_name}){marker}")
-                print(memory.RESET)
-            elif arg.lower().startswith("model "):
-                parts = arg[6:].strip().split()
-                model_map = {"opus": "claude-opus-4-6", "sonnet": "claude-sonnet-4-6", "haiku": "claude-haiku-4-5"}
-                if len(parts) != 2:
-                    print(f"{memory.DIM}Usage: /persona model <name> <opus|sonnet|haiku>{memory.RESET}\n")
-                else:
-                    pname = parts[0].lower()
-                    model_arg = parts[1].lower()
-                    persona_exists = (pname in memory.BUILTIN_PERSONAS or
-                        (pname in memory.custom_personas and "description" in memory.custom_personas[pname]))
-                    if model_arg not in model_map:
-                        print(f"{memory.DIM}Unknown model: {model_arg}. Use opus, sonnet, or haiku.{memory.RESET}\n")
-                    elif not persona_exists:
-                        print(f"{memory.DIM}Unknown persona: {pname}{memory.RESET}\n")
-                    else:
-                        if pname not in memory.custom_personas:
-                            memory.custom_personas[pname] = {}
-                        memory.custom_personas[pname]["model"] = model_map[model_arg]
-                        memory.save_personas(memory.custom_personas)
-                        if pname == memory.active_persona:
-                            models.active_model = model_map[model_arg]
-                        print(f"{memory.DIM}Set {pname}'s default model to {model_arg}.{memory.RESET}\n")
-            elif arg.lower().startswith("custom "):
-                description = arg[7:].strip()
-                if not description:
-                    print(f"{memory.DIM}Usage: /persona custom <description>{memory.RESET}\n")
-                else:
-                    existing_model = memory.custom_personas.get("custom", {}).get("model")
-                    memory.custom_personas["custom"] = {"description": description}
-                    if existing_model:
-                        memory.custom_personas["custom"]["model"] = existing_model
-                    memory.save_personas(memory.custom_personas)
-                    memory.active_persona = "custom"
-                    models.active_model = memory.get_persona_model("custom")
-                    model_name = models.MODEL_SHORT_NAMES.get(models.active_model, models.active_model)
-                    print(f"{memory.DIM}Custom persona set and activated (model: {model_name}).{memory.RESET}\n")
-            else:
-                name = arg.lower()
-                persona_exists = (name in memory.BUILTIN_PERSONAS or
-                    (name in memory.custom_personas and "description" in memory.custom_personas[name]))
-                if persona_exists:
-                    memory.active_persona = name
-                    models.active_model = memory.get_persona_model(name)
-                    model_name = models.MODEL_SHORT_NAMES.get(models.active_model, models.active_model)
-                    print(f"{memory.DIM}Switched to persona: {name} (model: {model_name}){memory.RESET}\n")
-                else:
-                    available = list(memory.BUILTIN_PERSONAS.keys()) + [
-                        k for k in memory.custom_personas if k not in memory.BUILTIN_PERSONAS
-                        and "description" in memory.custom_personas[k]
-                    ]
-                    print(f"{memory.DIM}Unknown persona: {name}")
-                    print(f"  Available: {', '.join(available)}{memory.RESET}\n")
+        if command_lower in ("/challenge on", "/challenge off"):
+            memory.challenge_mode = command_lower == "/challenge on"
+            status = "ON" if memory.challenge_mode else "OFF"
+            print(f"{memory.DIM}Challenge mode: {status}{memory.RESET}\n")
             continue
 
         if command_lower == "/project" or command_lower.startswith("/project "):

@@ -19,19 +19,9 @@ class SessionState:
     def __init__(self):
         self.conversation_history = []
         self.active_model = "claude-sonnet-4-6"
-        self.active_persona = "default"
         self.input_tokens = 0
         self.output_tokens = 0
         self.cost = 0.0
-
-
-def get_persona_choices():
-    """Build the list of persona names for the dropdown."""
-    names = list(memory.BUILTIN_PERSONAS.keys())
-    for k in memory.custom_personas:
-        if k not in memory.BUILTIN_PERSONAS and "description" in memory.custom_personas[k]:
-            names.append(k)
-    return names
 
 
 def get_model_choices():
@@ -75,9 +65,6 @@ def user_message(message, history, state):
 
 def bot_response(history, state):
     """Stream Claude's response, handling tool-use loops."""
-    # Set memory's active_persona so build_system_prompt works
-    memory.active_persona = state.active_persona
-
     for turn in range(10):
         with models.client.messages.stream(
             model=state.active_model,
@@ -162,15 +149,6 @@ def format_cost(state):
     )
 
 
-def on_persona_change(persona_name, state):
-    """Handle persona dropdown change — sync model."""
-    state.active_persona = persona_name
-    new_model = memory.get_persona_model(persona_name)
-    state.active_model = new_model
-    display = MODEL_ID_TO_DISPLAY.get(new_model, "Sonnet")
-    return state, display, format_cost(state)
-
-
 def on_model_change(model_display, state):
     """Handle model dropdown change."""
     state.active_model = MODEL_DISPLAY_TO_ID.get(model_display, "claude-sonnet-4-6")
@@ -201,12 +179,6 @@ def build_ui():
                     label="Model",
                     interactive=True,
                 )
-                persona_dropdown = gr.Dropdown(
-                    choices=get_persona_choices(),
-                    value="default",
-                    label="Persona",
-                    interactive=True,
-                )
                 new_chat_btn = gr.Button("New Chat")
                 cost_display = gr.Markdown(value=format_cost(SessionState()), label="Usage")
                 gr.Markdown("### Memories")
@@ -232,12 +204,6 @@ def build_ui():
             fn=bot_response,
             inputs=[chatbot, state],
             outputs=[chatbot, state, cost_display, memories_display],
-        )
-
-        persona_dropdown.change(
-            fn=on_persona_change,
-            inputs=[persona_dropdown, state],
-            outputs=[state, model_dropdown, cost_display],
         )
 
         model_dropdown.change(

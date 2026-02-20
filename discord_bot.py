@@ -35,8 +35,8 @@ class ChannelState:
     def __init__(self):
         self.conversation_history = []
         self.active_model = "claude-sonnet-4-6"
-        self.active_persona = "default"
         self.active_project = "general"
+        self.challenge_mode = False
         self.last_job_results = []
         self.input_tokens = 0
         self.output_tokens = 0
@@ -57,7 +57,7 @@ def get_state(channel_id):
 def sync_state(state):
     """Sync module globals with this channel's state before operations."""
     memory.active_project = state.active_project
-    memory.active_persona = state.active_persona
+    memory.challenge_mode = state.challenge_mode
     memory.memories = memory.load_memories()
 
 
@@ -205,8 +205,7 @@ def build_help_text():
         "**Available commands:**\n"
         "`!help` — Show this help message\n"
         "`!opus` / `!sonnet` / `!haiku` — Switch model\n"
-        "`!persona` — List available personas\n"
-        "`!persona <name>` — Switch persona\n"
+        "`!challenge on|off` — Toggle devil's advocate mode\n"
         "`!memories` — List stored memories\n"
         "`!remember <fact>` — Save a fact to memory\n"
         "`!forget <fact>` — Remove a fact from memory\n"
@@ -232,27 +231,6 @@ def build_help_text():
         "`!new` — Reset conversation history\n\n"
         "Claude also uses tools autonomously (web search, file read/write, memory, code execution)."
     )
-
-
-def build_persona_list(state):
-    """Build a formatted persona list."""
-    all_personas = list(memory.BUILTIN_PERSONAS.keys()) + [
-        k for k in memory.custom_personas
-        if k not in memory.BUILTIN_PERSONAS and "description" in memory.custom_personas[k]
-    ]
-    lines = ["**Available personas:**"]
-    for name in all_personas:
-        marker = " **<<**" if name == state.active_persona else ""
-        source = (
-            "custom"
-            if name in memory.custom_personas and name not in memory.BUILTIN_PERSONAS
-            else "built-in"
-        )
-        model_name = models.MODEL_SHORT_NAMES.get(
-            memory.get_persona_model(name), memory.get_persona_model(name)
-        )
-        lines.append(f"`{name}` ({source}, {model_name}){marker}")
-    return "\n".join(lines)
 
 
 def build_memories_text(state):
@@ -485,36 +463,10 @@ async def on_message(message):
         await message.channel.send(f"*Switched to {name}.*")
         return
 
-    if command_lower == "!persona" or command_lower.startswith("!persona "):
-        arg = content[8:].strip()
-        if not arg:
-            await message.channel.send(build_persona_list(state))
-        else:
-            name = arg.lower()
-            persona_exists = name in memory.BUILTIN_PERSONAS or (
-                name in memory.custom_personas
-                and "description" in memory.custom_personas[name]
-            )
-            if persona_exists:
-                state.active_persona = name
-                state.active_model = memory.get_persona_model(name)
-                model_name = MODEL_DISPLAY_NAMES.get(
-                    state.active_model, state.active_model
-                )
-                await message.channel.send(
-                    f"*Switched to persona: {name} (model: {model_name})*"
-                )
-            else:
-                available = list(memory.BUILTIN_PERSONAS.keys()) + [
-                    k
-                    for k in memory.custom_personas
-                    if k not in memory.BUILTIN_PERSONAS
-                    and "description" in memory.custom_personas[k]
-                ]
-                await message.channel.send(
-                    f"Unknown persona: `{name}`\n"
-                    f"Available: {', '.join(f'`{p}`' for p in available)}"
-                )
+    if command_lower in ("!challenge on", "!challenge off"):
+        state.challenge_mode = command_lower == "!challenge on"
+        status = "ON" if state.challenge_mode else "OFF"
+        await message.channel.send(f"*Challenge mode: {status}*")
         return
 
     if command_lower == "!memories":
