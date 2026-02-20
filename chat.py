@@ -182,7 +182,7 @@ if __name__ == "__main__":
       /email check         Show recent unread emails
       /email read <#>      Read full email by number
       /email search <q>    Search emails by keyword
-      /update [key]      Sync files from Windows source (all keys if omitted)
+      /update [key] [path]  Sync files from source (all keys if omitted, explicit path optional)
       /characters        List all indexed characters (first-light only)
       /character <name>  Show character details (first-light only)
       /locations         List all indexed locations (first-light only)
@@ -919,13 +919,26 @@ if __name__ == "__main__":
                 return None
 
             if update_arg:
-                key = update_arg.lower()
+                parts = update_arg.split(None, 1)
+                key = parts[0].lower()
+                explicit_path = parts[1] if len(parts) > 1 else None
+
                 sources = sync.load_sources()
                 if key not in sources:
                     print(f"{memory.DIM}Unknown sync key: {key}. Available: {', '.join(sources.keys())}{memory.RESET}\n")
                     continue
-                print(f"{memory.DIM}Syncing {key}...{memory.RESET}")
-                sync_result = sync.get_latest(key, prompt_fn=sync_prompt)
+
+                if explicit_path:
+                    explicit_path = os.path.expanduser(explicit_path)
+                    if not os.path.exists(explicit_path):
+                        print(f"{memory.DIM}File not found: {explicit_path}{memory.RESET}\n")
+                        continue
+                    print(f"{memory.DIM}Syncing {key} from {explicit_path}...{memory.RESET}")
+                    sync_result = sync.sync_file(key, explicit_path)
+                else:
+                    print(f"{memory.DIM}Syncing {key}...{memory.RESET}")
+                    sync_result = sync.get_latest(key, prompt_fn=sync_prompt)
+
                 if sync_result is None:
                     print(f"{memory.DIM}No source files found for {key}.{memory.RESET}")
                 else:

@@ -156,6 +156,40 @@ def get_latest(key, prompt_fn=None):
     return (dest_path, True)
 
 
+def sync_file(key, filepath):
+    """Sync a specific file to the destination for the given key.
+
+    Skips the glob scan entirely — copies the provided file directly,
+    replacing whatever is currently in the destination.
+
+    Returns (dest_path, True) on success, or None if the key is unknown
+    or the file doesn't exist.
+    """
+    sources = load_sources()
+    if key not in sources:
+        return None
+
+    if not os.path.exists(filepath):
+        return None
+
+    config = sources[key]
+    destination = os.path.join(memory.BASE_DIR, config["destination"])
+    pattern = config["pattern"]
+    filename = os.path.basename(filepath)
+
+    os.makedirs(destination, exist_ok=True)
+
+    # Remove old files matching the pattern in destination
+    dest_pattern = pattern.replace("{version}", "*")
+    for old_file in glob.glob(os.path.join(destination, dest_pattern)):
+        os.remove(old_file)
+
+    dest_path = os.path.join(destination, filename)
+    shutil.copy2(filepath, dest_path)
+
+    return (dest_path, True)
+
+
 def sync_status(key):
     """Check sync status for a key without syncing.
 
