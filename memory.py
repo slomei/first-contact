@@ -151,14 +151,21 @@ def save_memories(mems):
         json.dump(mems, f, indent=2)
 
 
-def build_system_prompt(mems):
-    """Build the system prompt, including stored memories and challenge mode."""
+def build_system_prompt(mems, creative_context=""):
+    """Build the system prompt, including stored memories, challenge mode, and creative context."""
     base = SYSTEM_PROMPT
     if challenge_mode:
         base += CHALLENGE_ADDENDUM
     if mems:
         memory_block = "\n".join(f"- {m}" for m in mems)
         base += f"\n\nThings you've been asked to remember:\n{memory_block}"
+    if creative_context:
+        base += (
+            "\n\nYou are working on the First Light sci-fi project. Here is the world bible "
+            "reference material. Use this to write in-universe — maintain consistent characterization, "
+            "locations, and tone. Route dialogue and scene work through your best creative writing.\n\n"
+            + creative_context
+        )
     return base
 
 

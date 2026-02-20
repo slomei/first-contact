@@ -19,6 +19,8 @@ import pdfplumber
 import memory
 import models
 import tools
+import sync
+import creative
 
 
 # --- Terminal-specific helpers ---
@@ -66,6 +68,11 @@ def chat_turn():
     total_output = 0
     total_cost = 0
 
+    # Inject creative context when first-light project is active
+    creative_ctx = ""
+    if memory.active_project == "first-light":
+        creative_ctx = creative.get_creative_context()
+
     for turn in range(10):
         if turn == 0:
             print(f"\n{memory.CYAN}Claude:{memory.RESET} ", end="", flush=True)
@@ -73,7 +80,7 @@ def chat_turn():
         with models.client.messages.stream(
             model=models.active_model,
             max_tokens=4096,
-            system=memory.build_system_prompt(memory.memories),
+            system=memory.build_system_prompt(memory.memories, creative_context=creative_ctx),
             messages=models.conversation_history,
             tools=tools.TOOLS,
         ) as stream:
@@ -175,6 +182,11 @@ if __name__ == "__main__":
       /email check         Show recent unread emails
       /email read <#>      Read full email by number
       /email search <q>    Search emails by keyword
+      /update [key]      Sync files from Windows source (all keys if omitted)
+      /characters        List all indexed characters (first-light only)
+      /character <name>  Show character details (first-light only)
+      /locations         List all indexed locations (first-light only)
+      /location <name>   Show location details (first-light only)
       /delegates         Show specialist agents and their models
       /billing           Show billing link for API credits
       /load              Load a previous conversation into context
@@ -889,6 +901,125 @@ if __name__ == "__main__":
                 print(f"{memory.DIM}Error:{memory.RESET}\n{output}\n")
             else:
                 print(f"{output}\n")
+            continue
+
+        if command_lower == "/update" or command_lower.startswith("/update "):
+            update_arg = command[7:].strip() if len(command) > 7 else ""
+
+            def sync_prompt(message, num_choices):
+                """Prompt user to pick from a numbered list."""
+                print(f"\n{memory.DIM}{message}{memory.RESET}")
+                try:
+                    choice = input(f"{memory.DIM}Pick #: {memory.RESET}")
+                    idx = int(choice.strip()) - 1
+                    if 0 <= idx < num_choices:
+                        return idx
+                except (ValueError, EOFError, KeyboardInterrupt):
+                    pass
+                return None
+
+            if update_arg:
+                key = update_arg.lower()
+                sources = sync.load_sources()
+                if key not in sources:
+                    print(f"{memory.DIM}Unknown sync key: {key}. Available: {', '.join(sources.keys())}{memory.RESET}\n")
+                    continue
+                print(f"{memory.DIM}Syncing {key}...{memory.RESET}")
+                dest = sync.get_latest(key, prompt_fn=sync_prompt)
+                if dest:
+                    print(f"{memory.DIM}Synced: {os.path.basename(dest)}{memory.RESET}")
+                    if key == "bible":
+                        print(f"{memory.DIM}Rebuilding character/location indexes...{memory.RESET}")
+                        result = creative.rebuild_indexes(
+                            bible_path=dest,
+                            progress_fn=lambda msg: print(f"{memory.DIM}  {msg}{memory.RESET}"),
+                        )
+                        if result:
+                            chars, locs, cost = result
+                            print(f"{memory.DIM}Indexed {chars} characters and {locs} locations (${cost:.4f}){memory.RESET}")
+                else:
+                    print(f"{memory.DIM}No source files found for {key}.{memory.RESET}")
+                print()
+            else:
+                print(f"{memory.DIM}Syncing all sources...{memory.RESET}")
+                results = sync.sync_all(
+                    prompt_fn=sync_prompt,
+                    progress_fn=lambda msg: print(f"{memory.DIM}  {msg}{memory.RESET}"),
+                )
+                for key, dest in results:
+                    if dest:
+                        print(f"{memory.DIM}  {key}: {os.path.basename(dest)}{memory.RESET}")
+                        if key == "bible":
+                            print(f"{memory.DIM}  Rebuilding character/location indexes...{memory.RESET}")
+                            result = creative.rebuild_indexes(
+                                bible_path=dest,
+                                progress_fn=lambda msg: print(f"{memory.DIM}    {msg}{memory.RESET}"),
+                            )
+                            if result:
+                                chars, locs, cost = result
+                                print(f"{memory.DIM}    Indexed {chars} characters and {locs} locations (${cost:.4f}){memory.RESET}")
+                    else:
+                        print(f"{memory.DIM}  {key}: no source files found{memory.RESET}")
+                print()
+            continue
+
+        if command_lower == "/characters":
+            if memory.active_project != "first-light":
+                print(f"{memory.DIM}Switch to the first-light project first: /project first-light{memory.RESET}\n")
+                continue
+            characters = creative.load_characters()
+            if not characters:
+                print(f"{memory.DIM}No characters indexed. Run /update bible to build the index.{memory.RESET}\n")
+                continue
+            print(f"{memory.DIM}Characters ({len(characters)}):")
+            for i, c in enumerate(characters, 1):
+                role = f" — {c['role']}" if c.get('role') else ""
+                print(f"  {i}. {memory.CYAN}{c['name']}{memory.RESET}{memory.DIM}{role}")
+            print(memory.RESET)
+            continue
+
+        if command_lower.startswith("/character "):
+            if memory.active_project != "first-light":
+                print(f"{memory.DIM}Switch to the first-light project first: /project first-light{memory.RESET}\n")
+                continue
+            name = command[11:].strip()
+            if not name:
+                print(f"{memory.DIM}Usage: /character <name>{memory.RESET}\n")
+                continue
+            char = creative.find_character(name)
+            if char is None:
+                print(f"{memory.DIM}No character found matching: {name}{memory.RESET}\n")
+                continue
+            print(f"\n{memory.CYAN}{creative.format_character(char)}{memory.RESET}\n")
+            continue
+
+        if command_lower == "/locations":
+            if memory.active_project != "first-light":
+                print(f"{memory.DIM}Switch to the first-light project first: /project first-light{memory.RESET}\n")
+                continue
+            locations = creative.load_locations()
+            if not locations:
+                print(f"{memory.DIM}No locations indexed. Run /update bible to build the index.{memory.RESET}\n")
+                continue
+            print(f"{memory.DIM}Locations ({len(locations)}):")
+            for i, loc in enumerate(locations, 1):
+                print(f"  {i}. {memory.CYAN}{loc['name']}{memory.RESET}")
+            print(memory.RESET)
+            continue
+
+        if command_lower.startswith("/location "):
+            if memory.active_project != "first-light":
+                print(f"{memory.DIM}Switch to the first-light project first: /project first-light{memory.RESET}\n")
+                continue
+            name = command[10:].strip()
+            if not name:
+                print(f"{memory.DIM}Usage: /location <name>{memory.RESET}\n")
+                continue
+            loc = creative.find_location(name)
+            if loc is None:
+                print(f"{memory.DIM}No location found matching: {name}{memory.RESET}\n")
+                continue
+            print(f"\n{memory.CYAN}{creative.format_location(loc)}{memory.RESET}\n")
             continue
 
         # Skip empty messages
