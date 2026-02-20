@@ -32,6 +32,13 @@ GMAIL_SCOPES = [
 GMAIL_CLIENT_SECRET = os.path.join(BASE_DIR, "gmail_client_secret.json")
 GMAIL_CREDENTIALS = os.path.join(BASE_DIR, "gmail_credentials.json")
 
+# Google Calendar constants — read + create (NO delete, NO modify)
+CALENDAR_SCOPES = [
+    "https://www.googleapis.com/auth/calendar.readonly",
+    "https://www.googleapis.com/auth/calendar",
+]
+CALENDAR_CREDENTIALS = os.path.join(BASE_DIR, "calendar_credentials.json")
+
 # Default system prompt
 SYSTEM_PROMPT = (
     "You are Steve's personal assistant. You know his background, his projects, "

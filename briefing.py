@@ -19,6 +19,22 @@ import tools
 
 # --- Data gathering (each returns a dict, never raises) ---
 
+def _gather_calendar():
+    """Check today's calendar events. Returns dict with events list."""
+    try:
+        service = tools.get_calendar_service()
+        if not service:
+            return {"ok": False, "error": "Calendar not configured"}
+        events = tools.calendar_get_events("today")
+        if events is None:
+            return {"ok": False, "error": "Calendar not configured"}
+        if isinstance(events, str):
+            return {"ok": False, "error": events}
+        return {"ok": True, "events": events}
+    except Exception as e:
+        return {"ok": False, "error": f"Error checking calendar: {e}"}
+
+
 def _gather_email():
     """Check Gmail for unread emails. Returns dict with count and top 5."""
     try:
@@ -233,7 +249,7 @@ def _format_sender(sender):
     return sender
 
 
-def format_briefing_ansi(email_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost):
+def format_briefing_ansi(email_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost, calendar_data=None):
     """Format the briefing for terminal output with ANSI colors."""
     R = memory.RESET
     C = memory.CYAN
@@ -257,6 +273,20 @@ def format_briefing_ansi(email_data, tasks_data, jobs_data, reminders_data, watc
         for e in email_data["emails"]:
             sender = _format_sender(e["sender"])
             lines.append(f"  {BOLD}•{R} {BOLD}{sender}{R} — {e['subject']}")
+
+    # CALENDAR
+    if calendar_data is not None:
+        lines.append(f"\n{C}📅 CALENDAR{R}")
+        if not calendar_data["ok"]:
+            lines.append(f"  {D}{calendar_data['error']}{R}")
+        elif not calendar_data["events"]:
+            lines.append(f"  {D}No events today.{R}")
+        else:
+            for ev in calendar_data["events"]:
+                if ev["all_day"]:
+                    lines.append(f"  {C}ALL DAY{R} — {ev['title']}")
+                else:
+                    lines.append(f"  {C}{ev['start']}{R} — {ev['title']}")
 
     # TASKS
     lines.append(f"\n{C}✅ TASKS{R}")
@@ -325,7 +355,7 @@ def format_briefing_ansi(email_data, tasks_data, jobs_data, reminders_data, watc
     return "\n".join(lines)
 
 
-def format_briefing_discord(email_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost):
+def format_briefing_discord(email_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost, calendar_data=None):
     """Format the briefing for Discord (markdown, no ANSI)."""
     now = datetime.now()
     date_str = now.strftime("%a %b %d")
@@ -342,6 +372,20 @@ def format_briefing_discord(email_data, tasks_data, jobs_data, reminders_data, w
         for e in email_data["emails"]:
             sender = _format_sender(e["sender"])
             lines.append(f"  • **{sender}** — {e['subject']}")
+
+    # CALENDAR
+    if calendar_data is not None:
+        lines.append(f"\n**📅 CALENDAR**")
+        if not calendar_data["ok"]:
+            lines.append(f"  {calendar_data['error']}")
+        elif not calendar_data["events"]:
+            lines.append("  No events today.")
+        else:
+            for ev in calendar_data["events"]:
+                if ev["all_day"]:
+                    lines.append(f"  • `ALL DAY` — {ev['title']}")
+                else:
+                    lines.append(f"  • `{ev['start']}` — {ev['title']}")
 
     # TASKS
     lines.append(f"\n**✅ TASKS**")
@@ -421,7 +465,7 @@ def _get_session_cost():
 # --- Main entry points ---
 
 def generate_briefing(progress_fn=None):
-    """Gather all data and return (email, tasks, jobs, reminders, watchlist, total_cost).
+    """Gather all data and return (email, calendar, tasks, jobs, reminders, watchlist, total_cost).
 
     progress_fn(msg): optional callback for status updates.
     """
@@ -430,6 +474,10 @@ def generate_briefing(progress_fn=None):
     if progress_fn:
         progress_fn("Checking email...")
     email_data = _gather_email()
+
+    if progress_fn:
+        progress_fn("Checking calendar...")
+    calendar_data = _gather_calendar()
 
     if progress_fn:
         progress_fn("Checking tasks...")
@@ -449,18 +497,18 @@ def generate_briefing(progress_fn=None):
     if watchlist_data.get("cost"):
         total_cost += watchlist_data["cost"]
 
-    return email_data, tasks_data, jobs_data, reminders_data, watchlist_data, total_cost
+    return email_data, calendar_data, tasks_data, jobs_data, reminders_data, watchlist_data, total_cost
 
 
 def run_briefing_terminal(progress_fn=None):
     """Run the full briefing and return ANSI-formatted text."""
     data = generate_briefing(progress_fn=progress_fn)
-    email_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost = data
-    return format_briefing_ansi(email_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost)
+    email_data, calendar_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost = data
+    return format_briefing_ansi(email_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost, calendar_data=calendar_data)
 
 
 def run_briefing_discord(progress_fn=None):
     """Run the full briefing and return Discord-formatted text."""
     data = generate_briefing(progress_fn=progress_fn)
-    email_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost = data
-    return format_briefing_discord(email_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost)
+    email_data, calendar_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost = data
+    return format_briefing_discord(email_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost, calendar_data=calendar_data)

@@ -12,9 +12,11 @@ import subprocess
 import tempfile
 import base64
 import email as email_lib
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from ddgs import DDGS
 import pdfplumber
+from dateutil import parser as dateutil_parser
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -336,6 +338,56 @@ TOOLS = [
                 },
             },
             "required": ["type"],
+        },
+    },
+    {
+        "name": "get_calendar_events",
+        "description": (
+            "Check Google Calendar events for a date range. Use when the user "
+            "asks about their schedule, availability, or upcoming events."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {
+                    "type": "string",
+                    "description": "Start date (natural language: 'today', 'tomorrow', 'Monday', 'Feb 25')",
+                },
+                "end_date": {
+                    "type": "string",
+                    "description": "End date (natural language, optional — defaults to same day as start_date)",
+                },
+            },
+            "required": ["start_date"],
+        },
+    },
+    {
+        "name": "create_calendar_event",
+        "description": (
+            "Create a Google Calendar event. ALWAYS requires user confirmation "
+            "before saving. Use when the user asks to schedule something."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Event title",
+                },
+                "start_datetime": {
+                    "type": "string",
+                    "description": "Start date and time (natural language: 'Tuesday at 2pm', 'March 5 10:00 AM')",
+                },
+                "end_datetime": {
+                    "type": "string",
+                    "description": "End date and time (optional — defaults to 1 hour after start, or all-day if no time given)",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Event description (optional)",
+                },
+            },
+            "required": ["title", "start_datetime"],
         },
     },
 ]
@@ -818,6 +870,339 @@ def gmail_create_draft(to, subject, body_text, reply_to=None):
         return None
 
 
+# --- Google Calendar functions ---
+
+def _check_calendar_scopes():
+    """Check if stored calendar credentials have all required scopes."""
+    if not os.path.exists(memory.CALENDAR_CREDENTIALS):
+        return False
+    try:
+        with open(memory.CALENDAR_CREDENTIALS, "r") as f:
+            data = json.load(f)
+        stored = set(data.get("scopes", []))
+        required = set(memory.CALENDAR_SCOPES)
+        return required.issubset(stored)
+    except Exception:
+        return False
+
+
+def get_calendar_service():
+    """Load saved OAuth token and return a Calendar API service object."""
+    if not os.path.exists(memory.CALENDAR_CREDENTIALS):
+        return None
+    if not _check_calendar_scopes():
+        return None
+    try:
+        creds = Credentials.from_authorized_user_file(
+            memory.CALENDAR_CREDENTIALS, memory.CALENDAR_SCOPES)
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            with open(memory.CALENDAR_CREDENTIALS, "w") as f:
+                f.write(creds.to_json())
+        if not creds or not creds.valid:
+            return None
+        return build("calendar", "v3", credentials=creds)
+    except Exception:
+        return None
+
+
+def calendar_setup():
+    """Run the OAuth2 flow to authenticate with Google Calendar.
+
+    Returns True on success, False on failure.
+    """
+    if not os.path.exists(memory.GMAIL_CLIENT_SECRET):
+        return False
+    # Delete stale token if scopes changed
+    if os.path.exists(memory.CALENDAR_CREDENTIALS) and not _check_calendar_scopes():
+        os.remove(memory.CALENDAR_CREDENTIALS)
+    try:
+        flow = InstalledAppFlow.from_client_secrets_file(
+            memory.GMAIL_CLIENT_SECRET, memory.CALENDAR_SCOPES)
+        creds = flow.run_local_server(port=0)
+        with open(memory.CALENDAR_CREDENTIALS, "w") as f:
+            f.write(creds.to_json())
+        return True
+    except Exception:
+        return False
+
+
+def _get_user_timezone():
+    """Get timezone from config, defaulting to America/New_York."""
+    config = memory.load_config()
+    tz_name = config.get("briefing", {}).get("timezone", "America/New_York")
+    try:
+        return ZoneInfo(tz_name)
+    except Exception:
+        return ZoneInfo("America/New_York")
+
+
+def _parse_date_to_aware(text):
+    """Parse a natural language date string into a timezone-aware datetime.
+
+    Returns a datetime in the user's timezone, or None if parsing fails.
+    """
+    tz = _get_user_timezone()
+    now = datetime.now(tz)
+    try:
+        dt = dateutil_parser.parse(text, fuzzy=True, default=now.replace(
+            hour=0, minute=0, second=0, microsecond=0))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=tz)
+        return dt
+    except (ValueError, OverflowError):
+        return None
+
+
+def _has_time_component(text):
+    """Heuristic: does the text include a time (not just a date)?"""
+    text_lower = text.lower()
+    # Check for explicit time patterns
+    if re.search(r'\d{1,2}:\d{2}', text):
+        return True
+    if re.search(r'\d{1,2}\s*(am|pm)', text_lower):
+        return True
+    for kw in ("morning", "afternoon", "evening", "night", "noon", "midnight"):
+        if kw in text_lower:
+            return True
+    return False
+
+
+def calendar_get_events(start_date_str, end_date_str=None):
+    """Get calendar events for a date range.
+
+    Returns list of event dicts, or error string.
+    """
+    service = get_calendar_service()
+    if not service:
+        return None
+
+    tz = _get_user_timezone()
+    start_dt = _parse_date_to_aware(start_date_str)
+    if start_dt is None:
+        return f"Could not parse date: '{start_date_str}'"
+
+    if end_date_str:
+        end_dt = _parse_date_to_aware(end_date_str)
+        if end_dt is None:
+            return f"Could not parse date: '{end_date_str}'"
+        # End of that day
+        end_dt = end_dt.replace(hour=23, minute=59, second=59)
+    else:
+        end_dt = start_dt.replace(hour=23, minute=59, second=59)
+
+    time_min = start_dt.isoformat()
+    time_max = end_dt.isoformat()
+
+    try:
+        result = service.events().list(
+            calendarId="primary",
+            timeMin=time_min,
+            timeMax=time_max,
+            singleEvents=True,
+            orderBy="startTime",
+            maxResults=50,
+        ).execute()
+
+        events = []
+        for item in result.get("items", []):
+            start = item.get("start", {})
+            end = item.get("end", {})
+
+            # Determine if all-day event
+            all_day = "date" in start and "dateTime" not in start
+
+            if all_day:
+                start_str = start.get("date", "")
+                end_str = end.get("date", "")
+                events.append({
+                    "title": item.get("summary", "(No title)"),
+                    "start": start_str,
+                    "end": end_str,
+                    "all_day": True,
+                    "description": item.get("description", ""),
+                    "location": item.get("location", ""),
+                })
+            else:
+                start_iso = start.get("dateTime", "")
+                end_iso = end.get("dateTime", "")
+                # Convert to local timezone for display
+                try:
+                    s_dt = datetime.fromisoformat(start_iso).astimezone(tz)
+                    e_dt = datetime.fromisoformat(end_iso).astimezone(tz)
+                    start_formatted = s_dt.strftime("%-I:%M %p")
+                    end_formatted = e_dt.strftime("%-I:%M %p")
+                except Exception:
+                    start_formatted = start_iso
+                    end_formatted = end_iso
+                    s_dt = None
+
+                events.append({
+                    "title": item.get("summary", "(No title)"),
+                    "start": start_formatted,
+                    "end": end_formatted,
+                    "start_dt": s_dt,
+                    "all_day": False,
+                    "description": item.get("description", ""),
+                    "location": item.get("location", ""),
+                })
+
+        return events
+    except Exception as e:
+        return f"Calendar error: {e}"
+
+
+def calendar_create_event(title, start_str, end_str=None, description=None):
+    """Create a calendar event.
+
+    Returns the created event dict on success, or error string.
+    """
+    service = get_calendar_service()
+    if not service:
+        return None
+
+    tz = _get_user_timezone()
+    tz_name = str(tz)
+
+    start_dt = _parse_date_to_aware(start_str)
+    if start_dt is None:
+        return f"Could not parse start time: '{start_str}'"
+
+    is_all_day = not _has_time_component(start_str)
+
+    if is_all_day:
+        # All-day event
+        start_date = start_dt.strftime("%Y-%m-%d")
+        if end_str:
+            end_dt = _parse_date_to_aware(end_str)
+            if end_dt is None:
+                return f"Could not parse end time: '{end_str}'"
+            # Google Calendar all-day end date is exclusive
+            end_date = (end_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+        else:
+            end_date = (start_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+
+        event_body = {
+            "summary": title,
+            "start": {"date": start_date},
+            "end": {"date": end_date},
+        }
+    else:
+        # Timed event
+        if end_str and _has_time_component(end_str):
+            end_dt = _parse_date_to_aware(end_str)
+            if end_dt is None:
+                return f"Could not parse end time: '{end_str}'"
+        elif end_str:
+            # end_str is a duration like "1 hour", "30 minutes"
+            end_dt = _parse_duration_end(start_dt, end_str)
+            if end_dt is None:
+                end_dt = start_dt + timedelta(hours=1)
+        else:
+            end_dt = start_dt + timedelta(hours=1)
+
+        event_body = {
+            "summary": title,
+            "start": {"dateTime": start_dt.isoformat(), "timeZone": tz_name},
+            "end": {"dateTime": end_dt.isoformat(), "timeZone": tz_name},
+        }
+
+    if description:
+        event_body["description"] = description
+
+    try:
+        created = service.events().insert(
+            calendarId="primary", body=event_body
+        ).execute()
+        return {
+            "id": created.get("id"),
+            "title": created.get("summary"),
+            "link": created.get("htmlLink"),
+            "start": event_body["start"],
+            "end": event_body["end"],
+        }
+    except Exception as e:
+        return f"Calendar error: {e}"
+
+
+def _parse_duration_end(start_dt, duration_str):
+    """Try to parse a duration string and add to start_dt."""
+    dur_lower = duration_str.lower().strip()
+    match = re.search(r'(\d+)\s*(hour|hr|minute|min)', dur_lower)
+    if match:
+        amount = int(match.group(1))
+        unit = match.group(2)
+        if unit.startswith("hour") or unit.startswith("hr"):
+            return start_dt + timedelta(hours=amount)
+        elif unit.startswith("min"):
+            return start_dt + timedelta(minutes=amount)
+    return None
+
+
+def format_events_ansi(events, date_label=""):
+    """Format calendar events for terminal display with ANSI colors."""
+    if isinstance(events, str):
+        return f"{memory.RED}{events}{memory.RESET}"
+    if not events:
+        return f"{memory.DIM}  No events{' ' + date_label if date_label else ''}.{memory.RESET}"
+
+    now = datetime.now(_get_user_timezone())
+    lines = []
+    for ev in events:
+        if ev["all_day"]:
+            tag = f"{memory.CYAN}ALL DAY{memory.RESET}"
+            lines.append(f"  {tag}  {memory.BOLD}{ev['title']}{memory.RESET}")
+        else:
+            time_str = f"{ev['start']} — {ev['end']}"
+            # Highlight current/upcoming vs past
+            is_past = ev.get("start_dt") and ev["start_dt"] < now
+            if is_past:
+                lines.append(f"  {memory.DIM}{time_str}  {ev['title']}{memory.RESET}")
+            else:
+                lines.append(f"  {memory.CYAN}{time_str}{memory.RESET}  {memory.BOLD}{ev['title']}{memory.RESET}")
+        if ev.get("location"):
+            lines.append(f"    {memory.DIM}📍 {ev['location']}{memory.RESET}")
+    return "\n".join(lines)
+
+
+def format_events_discord(events, date_label=""):
+    """Format calendar events for Discord display."""
+    if isinstance(events, str):
+        return f"  *{events}*"
+    if not events:
+        return f"  No events{' ' + date_label if date_label else ''}."
+
+    lines = []
+    for ev in events:
+        if ev["all_day"]:
+            lines.append(f"  • `ALL DAY` **{ev['title']}**")
+        else:
+            lines.append(f"  • `{ev['start']} — {ev['end']}` **{ev['title']}**")
+        if ev.get("location"):
+            lines.append(f"    📍 {ev['location']}")
+    return "\n".join(lines)
+
+
+def format_events_plain(events):
+    """Format calendar events as plain text (for tool results)."""
+    if isinstance(events, str):
+        return events
+    if not events:
+        return "No events scheduled."
+    lines = []
+    for ev in events:
+        if ev["all_day"]:
+            lines.append(f"• ALL DAY: {ev['title']}")
+        else:
+            lines.append(f"• {ev['start']} — {ev['end']}: {ev['title']}")
+        if ev.get("location"):
+            lines.append(f"  Location: {ev['location']}")
+        if ev.get("description"):
+            desc = ev["description"][:200]
+            lines.append(f"  Notes: {desc}")
+    return "\n".join(lines)
+
+
 # --- Tool status ---
 
 def tool_status_text(name, tool_input):
@@ -838,6 +1223,8 @@ def tool_status_text(name, tool_input):
         "create_reminder": f'Setting reminder: "{tool_input.get("description", "")}"',
         "web_fetch": f'Fetching page: {tool_input.get("url", "")}',
         "generate_pdf": f'Generating PDF: {tool_input.get("type", "document")}',
+        "get_calendar_events": f'Checking calendar: {tool_input.get("start_date", "")}',
+        "create_calendar_event": f'Creating event: "{tool_input.get("title", "")}"',
     }
     return labels.get(name, f"Using tool: {name}")
 
@@ -1053,6 +1440,63 @@ def execute_tool(name, tool_input, confirm_fn=None):
             content += ("\n\n[This appears to be a job posting. Extract key details "
                         "and offer to save it to the job pipeline.]")
         return content, False
+
+    elif name == "get_calendar_events":
+        start_date = tool_input["start_date"]
+        end_date = tool_input.get("end_date")
+        events = calendar_get_events(start_date, end_date)
+        if events is None:
+            return "Google Calendar not authenticated. User needs to run /cal setup first.", True
+        if isinstance(events, str):
+            return events, True
+        return format_events_plain(events), False
+
+    elif name == "create_calendar_event":
+        title = tool_input["title"]
+        start_str = tool_input["start_datetime"]
+        end_str = tool_input.get("end_datetime")
+        description = tool_input.get("description")
+
+        # Parse and show event details for confirmation
+        tz = _get_user_timezone()
+        start_dt = _parse_date_to_aware(start_str)
+        if start_dt is None:
+            return f"Could not parse date/time: '{start_str}'. Try something like 'Tuesday at 2pm'.", True
+
+        is_all_day = not _has_time_component(start_str)
+        if is_all_day:
+            time_display = f"All day — {start_dt.strftime('%A, %B %d, %Y')}"
+        else:
+            time_display = start_dt.strftime("%A, %B %d, %Y at %-I:%M %p")
+            if end_str:
+                end_dt = _parse_date_to_aware(end_str)
+                if end_dt:
+                    time_display += f" — {end_dt.strftime('%-I:%M %p')}"
+            else:
+                time_display += f" — {(start_dt + timedelta(hours=1)).strftime('%-I:%M %p')}"
+
+        # Require confirmation
+        if confirm_fn is not None:
+            prompt = (
+                f"Create calendar event?\n"
+                f"  Title: {title}\n"
+                f"  When: {time_display}\n"
+            )
+            if description:
+                prompt += f"  Notes: {description}\n"
+            prompt += "Confirm? [y/N]: "
+            if not confirm_fn(prompt):
+                return "Event creation cancelled by user.", False
+
+        result = calendar_create_event(title, start_str, end_str, description)
+        if result is None:
+            return "Google Calendar not authenticated. User needs to run /cal setup first.", True
+        if isinstance(result, str):
+            return result, True
+        return (
+            f"Event created: {result['title']}\n"
+            f"Link: {result.get('link', 'N/A')}"
+        ), False
 
     elif name == "generate_pdf":
         import documents

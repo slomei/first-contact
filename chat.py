@@ -248,6 +248,13 @@ if __name__ == "__main__":
       /remind <desc> <time>  Set a reminder (natural language time)
       /reminders          Show pending reminders
       /remind cancel <#>  Cancel a reminder
+      /cal                 Show today's calendar events
+      /cal today           Same as /cal
+      /cal tomorrow        Tomorrow's events
+      /cal week            Next 7 days
+      /cal <date>          Events for a specific date (natural language)
+      /cal add <desc>      Create a calendar event (with confirmation)
+      /cal setup           Authenticate with Google Calendar (OAuth2)
       /briefing            Run daily briefing (email, tasks, jobs, reminders, watchlist)
       /briefing time HH:MM Set auto-briefing time (Discord)
       /briefing on|off     Enable/disable auto-briefing (Discord)
@@ -274,8 +281,9 @@ if __name__ == "__main__":
 
     Claude also uses tools autonomously (web search, file read/write, memory, code execution).{memory.RESET}"""
 
-    # Silently warm up Gmail token
+    # Silently warm up OAuth tokens
     tools.get_gmail_service()
+    tools.get_calendar_service()
 
     if memory.memories:
         print(f"Loaded {len(memory.memories)} memor{'y' if len(memory.memories) == 1 else 'ies'} from {memory.active_project}/memory.json")
@@ -1104,6 +1112,207 @@ if __name__ == "__main__":
                 print(f"{memory.GREEN}PDF saved:{memory.RESET} {memory.CYAN}{filepath}{memory.RESET}\n")
             except Exception as e:
                 print(f"{memory.RED}PDF generation failed: {e}{memory.RESET}\n")
+            continue
+
+        if command_lower == "/cal" or command_lower.startswith("/cal "):
+            cal_arg = command[4:].strip() if len(command) > 4 else ""
+            cal_arg_lower = cal_arg.lower()
+
+            if not cal_arg or cal_arg_lower == "today":
+                # Show today's events
+                service = tools.get_calendar_service()
+                if not service:
+                    print(f"{memory.DIM}Google Calendar not authenticated. Run /cal setup first.{memory.RESET}\n")
+                    continue
+                print(f"{memory.DIM}Checking calendar...{memory.RESET}")
+                events = tools.calendar_get_events("today")
+                if events is None:
+                    print(f"{memory.DIM}Google Calendar not authenticated. Run /cal setup first.{memory.RESET}\n")
+                    continue
+                print(f"\n{memory.CYAN}📅 Today's Events{memory.RESET}")
+                print(tools.format_events_ansi(events, "today"))
+                print()
+
+            elif cal_arg_lower == "tomorrow":
+                service = tools.get_calendar_service()
+                if not service:
+                    print(f"{memory.DIM}Google Calendar not authenticated. Run /cal setup first.{memory.RESET}\n")
+                    continue
+                print(f"{memory.DIM}Checking calendar...{memory.RESET}")
+                events = tools.calendar_get_events("tomorrow")
+                if events is None:
+                    print(f"{memory.DIM}Google Calendar not authenticated. Run /cal setup first.{memory.RESET}\n")
+                    continue
+                print(f"\n{memory.CYAN}📅 Tomorrow's Events{memory.RESET}")
+                print(tools.format_events_ansi(events, "tomorrow"))
+                print()
+
+            elif cal_arg_lower == "week":
+                service = tools.get_calendar_service()
+                if not service:
+                    print(f"{memory.DIM}Google Calendar not authenticated. Run /cal setup first.{memory.RESET}\n")
+                    continue
+                print(f"{memory.DIM}Checking calendar...{memory.RESET}")
+                from datetime import timedelta as _td
+                tz = tools._get_user_timezone()
+                now = datetime.now(tz)
+                events = tools.calendar_get_events("today", (now + _td(days=7)).strftime("%Y-%m-%d"))
+                if events is None:
+                    print(f"{memory.DIM}Google Calendar not authenticated. Run /cal setup first.{memory.RESET}\n")
+                    continue
+                print(f"\n{memory.CYAN}📅 Next 7 Days{memory.RESET}")
+                if isinstance(events, list) and events:
+                    # Group by date
+                    current_date = None
+                    for ev in events:
+                        if ev["all_day"]:
+                            ev_date = ev["start"]
+                        elif ev.get("start_dt"):
+                            ev_date = ev["start_dt"].strftime("%Y-%m-%d")
+                        else:
+                            ev_date = "unknown"
+                        if ev_date != current_date:
+                            current_date = ev_date
+                            try:
+                                from dateutil import parser as _dp
+                                day_dt = _dp.parse(ev_date)
+                                day_label = day_dt.strftime("%A, %b %d")
+                            except Exception:
+                                day_label = ev_date
+                            print(f"\n  {memory.BOLD}{day_label}{memory.RESET}")
+                        if ev["all_day"]:
+                            print(f"    {memory.CYAN}ALL DAY{memory.RESET}  {ev['title']}")
+                        else:
+                            print(f"    {memory.CYAN}{ev['start']} — {ev['end']}{memory.RESET}  {ev['title']}")
+                else:
+                    print(tools.format_events_ansi(events, "this week"))
+                print()
+
+            elif cal_arg_lower == "setup":
+                if not os.path.exists(memory.GMAIL_CLIENT_SECRET):
+                    print(f"{memory.DIM}Missing {memory.GMAIL_CLIENT_SECRET}")
+                    print("Download OAuth client credentials from Google Cloud Console")
+                    print(f"and save as gmail_client_secret.json in the project root.{memory.RESET}\n")
+                else:
+                    if not tools._check_calendar_scopes():
+                        print(f"{memory.DIM}Authorizing Google Calendar...{memory.RESET}")
+                    if tools.calendar_setup():
+                        print(f"{memory.DIM}Google Calendar authenticated. Token saved to {memory.CALENDAR_CREDENTIALS}{memory.RESET}\n")
+                    else:
+                        print(f"{memory.DIM}Calendar setup failed.{memory.RESET}\n")
+
+            elif cal_arg_lower.startswith("add "):
+                desc = cal_arg[4:].strip()
+                if not desc:
+                    print(f"{memory.DIM}Usage: /cal add <description>")
+                    print(f'  Example: /cal add Meeting with recruiter Tuesday at 2pm for 1 hour{memory.RESET}\n')
+                    continue
+
+                service = tools.get_calendar_service()
+                if not service:
+                    print(f"{memory.DIM}Google Calendar not authenticated. Run /cal setup first.{memory.RESET}\n")
+                    continue
+
+                # Use Haiku to parse the natural language event description
+                import models as _models
+                try:
+                    parse_response = _models.client.messages.create(
+                        model="claude-haiku-4-5",
+                        max_tokens=200,
+                        messages=[{"role": "user", "content":
+                            "Extract event details from this text. Return ONLY valid JSON:\n"
+                            '{"title": "...", "start": "...", "end": "...", "all_day": true/false}\n'
+                            "Rules:\n"
+                            "- start/end should be natural language date/time strings\n"
+                            '- If no end time given but a duration is mentioned, calculate the end time\n'
+                            "- If no time at all, set all_day to true\n"
+                            "- If no end time and not all-day, default to 1 hour after start\n"
+                            f"- Today is {datetime.now().strftime('%A, %B %d, %Y')}\n\n"
+                            f"Text: {desc}"}],
+                    )
+                    _models.track_usage(
+                        parse_response.usage.input_tokens,
+                        parse_response.usage.output_tokens,
+                        "claude-haiku-4-5")
+
+                    parse_text = parse_response.content[0].text.strip()
+                    if parse_text.startswith("```"):
+                        parse_text = re.sub(r"^```\w*\n?", "", parse_text)
+                        parse_text = re.sub(r"\n?```$", "", parse_text)
+                        parse_text = parse_text.strip()
+                    parsed = json.loads(parse_text)
+                except Exception:
+                    print(f"{memory.DIM}Could not parse event details. Try a clearer description like:")
+                    print(f'  /cal add Team call Friday at 3pm for 30 minutes{memory.RESET}\n')
+                    continue
+
+                title = parsed.get("title", desc)
+                start_str = parsed.get("start", "")
+                end_str = parsed.get("end", "")
+                is_all_day = parsed.get("all_day", False)
+
+                # Display parsed details for confirmation
+                tz = tools._get_user_timezone()
+                start_dt = tools._parse_date_to_aware(start_str)
+                if start_dt is None:
+                    print(f"{memory.DIM}Could not parse date: '{start_str}'. Try a clearer description.{memory.RESET}\n")
+                    continue
+
+                if is_all_day:
+                    time_display = f"All day — {start_dt.strftime('%A, %B %d, %Y')}"
+                else:
+                    time_display = start_dt.strftime("%A, %B %d, %Y at %-I:%M %p")
+                    if end_str:
+                        end_dt = tools._parse_date_to_aware(end_str)
+                        if end_dt:
+                            time_display += f" — {end_dt.strftime('%-I:%M %p')}"
+
+                print(f"\n{memory.CYAN}Event details:{memory.RESET}")
+                print(f"  {memory.BOLD}Title:{memory.RESET} {title}")
+                print(f"  {memory.BOLD}When:{memory.RESET}  {time_display}")
+
+                try:
+                    confirm = input(f"\n{memory.DIM}Create this event? [y/N]: {memory.RESET}")
+                except (EOFError, KeyboardInterrupt):
+                    print(f"\n{memory.DIM}Cancelled.{memory.RESET}\n")
+                    continue
+                if confirm.strip().lower() not in ("y", "yes"):
+                    print(f"{memory.DIM}Cancelled.{memory.RESET}\n")
+                    continue
+
+                result = tools.calendar_create_event(title, start_str, end_str)
+                if result is None:
+                    print(f"{memory.DIM}Calendar not authenticated. Run /cal setup first.{memory.RESET}\n")
+                elif isinstance(result, str):
+                    print(f"{memory.RED}{result}{memory.RESET}\n")
+                else:
+                    print(f"{memory.GREEN}Event created: {result['title']}{memory.RESET}")
+                    if result.get("link"):
+                        print(f"{memory.DIM}  {result['link']}{memory.RESET}")
+                    print()
+
+            else:
+                # Try to parse as a date
+                service = tools.get_calendar_service()
+                if not service:
+                    print(f"{memory.DIM}Google Calendar not authenticated. Run /cal setup first.{memory.RESET}\n")
+                    continue
+                print(f"{memory.DIM}Checking calendar...{memory.RESET}")
+                events = tools.calendar_get_events(cal_arg)
+                if events is None:
+                    print(f"{memory.DIM}Google Calendar not authenticated. Run /cal setup first.{memory.RESET}\n")
+                    continue
+                if isinstance(events, str) and events.startswith("Could not parse"):
+                    print(f"{memory.DIM}{events}")
+                    print(f"Usage: /cal [today|tomorrow|week|<date>|add <desc>|setup]{memory.RESET}\n")
+                    continue
+                # Try to get a nice label
+                dt = tools._parse_date_to_aware(cal_arg)
+                date_label = dt.strftime("%A, %b %d") if dt else cal_arg
+                print(f"\n{memory.CYAN}📅 {date_label}{memory.RESET}")
+                print(tools.format_events_ansi(events, date_label))
+                print()
+
             continue
 
         if command_lower == "/briefing" or command_lower.startswith("/briefing "):

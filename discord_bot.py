@@ -11,7 +11,7 @@ import json
 import os
 import re
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import discord
 
@@ -237,6 +237,12 @@ def build_help_text():
         "`!remind <desc> at <time>` — Set a reminder\n"
         "`!reminders` — Show pending reminders\n"
         "`!remind cancel <#>` — Cancel a reminder\n"
+        "`!cal` — Show today's calendar events\n"
+        "`!cal tomorrow` — Tomorrow's events\n"
+        "`!cal week` — Next 7 days\n"
+        "`!cal <date>` — Events for a specific date\n"
+        "`!cal add <desc>` — Create a calendar event\n"
+        "`!cal setup` — Authenticate with Google Calendar\n"
         "`!briefing` — Run daily briefing\n"
         "`!briefing time HH:MM` — Set auto-briefing time\n"
         "`!briefing on|off` — Enable/disable auto-briefing\n"
@@ -980,6 +986,207 @@ async def on_message(message):
             result = await run_digest_discord(state, message.channel)
         for chunk in split_message(result):
             await message.channel.send(chunk)
+        return
+
+    # --- Calendar ---
+    if command_lower == "!cal" or command_lower.startswith("!cal "):
+        cal_arg = content[4:].strip() if len(content) > 4 else ""
+        cal_arg_lower = cal_arg.lower()
+
+        if not cal_arg or cal_arg_lower == "today":
+            service = tools.get_calendar_service()
+            if not service:
+                await message.channel.send("*Google Calendar not authenticated. Run `!cal setup` first.*")
+                return
+            async with message.channel.typing():
+                events = await asyncio.to_thread(tools.calendar_get_events, "today")
+            if events is None:
+                await message.channel.send("*Google Calendar not authenticated. Run `!cal setup` first.*")
+                return
+            text = f"**📅 Today's Events**\n{tools.format_events_discord(events, 'today')}"
+            await message.channel.send(text)
+
+        elif cal_arg_lower == "tomorrow":
+            service = tools.get_calendar_service()
+            if not service:
+                await message.channel.send("*Google Calendar not authenticated. Run `!cal setup` first.*")
+                return
+            async with message.channel.typing():
+                events = await asyncio.to_thread(tools.calendar_get_events, "tomorrow")
+            if events is None:
+                await message.channel.send("*Google Calendar not authenticated. Run `!cal setup` first.*")
+                return
+            text = f"**📅 Tomorrow's Events**\n{tools.format_events_discord(events, 'tomorrow')}"
+            await message.channel.send(text)
+
+        elif cal_arg_lower == "week":
+            service = tools.get_calendar_service()
+            if not service:
+                await message.channel.send("*Google Calendar not authenticated. Run `!cal setup` first.*")
+                return
+            async with message.channel.typing():
+                tz = tools._get_user_timezone()
+                now = datetime.now(tz)
+                end_str = (now + timedelta(days=7)).strftime("%Y-%m-%d")
+                events = await asyncio.to_thread(tools.calendar_get_events, "today", end_str)
+            if events is None:
+                await message.channel.send("*Google Calendar not authenticated. Run `!cal setup` first.*")
+                return
+            if isinstance(events, list) and events:
+                lines = ["**📅 Next 7 Days**"]
+                current_date = None
+                for ev in events:
+                    if ev["all_day"]:
+                        ev_date = ev["start"]
+                    elif ev.get("start_dt"):
+                        ev_date = ev["start_dt"].strftime("%Y-%m-%d")
+                    else:
+                        ev_date = "unknown"
+                    if ev_date != current_date:
+                        current_date = ev_date
+                        try:
+                            from dateutil import parser as _dp
+                            day_dt = _dp.parse(ev_date)
+                            day_label = day_dt.strftime("%A, %b %d")
+                        except Exception:
+                            day_label = ev_date
+                        lines.append(f"\n**{day_label}**")
+                    if ev["all_day"]:
+                        lines.append(f"  • `ALL DAY` **{ev['title']}**")
+                    else:
+                        lines.append(f"  • `{ev['start']} — {ev['end']}` **{ev['title']}**")
+                text = "\n".join(lines)
+            else:
+                text = f"**📅 Next 7 Days**\n{tools.format_events_discord(events, 'this week')}"
+            for chunk in split_message(text):
+                await message.channel.send(chunk)
+
+        elif cal_arg_lower == "setup":
+            if not os.path.exists(memory.GMAIL_CLIENT_SECRET):
+                await message.channel.send(
+                    "*Missing OAuth client secret. Download from Google Cloud Console "
+                    "and save as `gmail_client_secret.json`.*")
+            else:
+                await message.channel.send("*Starting Calendar OAuth flow (check terminal)...*")
+                success = await asyncio.to_thread(tools.calendar_setup)
+                if success:
+                    await message.channel.send("*Google Calendar authenticated successfully.*")
+                else:
+                    await message.channel.send("*Calendar setup failed.*")
+
+        elif cal_arg_lower.startswith("add "):
+            desc = cal_arg[4:].strip()
+            if not desc:
+                await message.channel.send(
+                    "*Usage: `!cal add Meeting with recruiter Tuesday at 2pm for 1 hour`*")
+                return
+
+            service = tools.get_calendar_service()
+            if not service:
+                await message.channel.send("*Google Calendar not authenticated. Run `!cal setup` first.*")
+                return
+
+            async with message.channel.typing():
+                # Parse with Haiku
+                try:
+                    parse_response = await asyncio.to_thread(
+                        models.client.messages.create,
+                        model="claude-haiku-4-5",
+                        max_tokens=200,
+                        messages=[{"role": "user", "content":
+                            "Extract event details from this text. Return ONLY valid JSON:\n"
+                            '{"title": "...", "start": "...", "end": "...", "all_day": true/false}\n'
+                            "Rules:\n"
+                            "- start/end should be natural language date/time strings\n"
+                            '- If no end time given but a duration is mentioned, calculate the end time\n'
+                            "- If no time at all, set all_day to true\n"
+                            "- If no end time and not all-day, default to 1 hour after start\n"
+                            f"- Today is {datetime.now().strftime('%A, %B %d, %Y')}\n\n"
+                            f"Text: {desc}"}],
+                    )
+                    parse_text = parse_response.content[0].text.strip()
+                    if parse_text.startswith("```"):
+                        parse_text = re.sub(r"^```\w*\n?", "", parse_text)
+                        parse_text = re.sub(r"\n?```$", "", parse_text)
+                        parse_text = parse_text.strip()
+                    parsed = json.loads(parse_text)
+                except Exception:
+                    await message.channel.send(
+                        "*Could not parse event details. Try: "
+                        "`!cal add Team call Friday at 3pm for 30 minutes`*")
+                    return
+
+                title = parsed.get("title", desc)
+                start_str = parsed.get("start", "")
+                end_str = parsed.get("end", "")
+
+                # Show parsed details
+                tz = tools._get_user_timezone()
+                start_dt = tools._parse_date_to_aware(start_str)
+                if start_dt is None:
+                    await message.channel.send(f"*Could not parse date: '{start_str}'*")
+                    return
+
+                is_all_day = parsed.get("all_day", False)
+                if is_all_day:
+                    time_display = f"All day — {start_dt.strftime('%A, %B %d, %Y')}"
+                else:
+                    time_display = start_dt.strftime("%A, %B %d, %Y at %-I:%M %p")
+                    if end_str:
+                        end_dt = tools._parse_date_to_aware(end_str)
+                        if end_dt:
+                            time_display += f" — {end_dt.strftime('%-I:%M %p')}"
+
+            await message.channel.send(
+                f"**Create event?**\n"
+                f"  Title: **{title}**\n"
+                f"  When: {time_display}\n\n"
+                f"Reply `yes` to confirm or `no` to cancel.")
+
+            # Wait for confirmation
+            def check_confirm(m):
+                return (m.author.id == ALLOWED_USER_ID
+                        and m.channel.id == message.channel.id
+                        and m.content.strip().lower() in ("yes", "y", "no", "n"))
+            try:
+                reply = await bot.wait_for("message", check=check_confirm, timeout=60)
+                if reply.content.strip().lower() in ("yes", "y"):
+                    result = await asyncio.to_thread(
+                        tools.calendar_create_event, title, start_str, end_str)
+                    if result is None:
+                        await message.channel.send("*Calendar not authenticated.*")
+                    elif isinstance(result, str):
+                        await message.channel.send(f"*Error: {result}*")
+                    else:
+                        link = result.get("link", "")
+                        await message.channel.send(
+                            f"**Event created:** {result['title']}\n{link}")
+                else:
+                    await message.channel.send("*Cancelled.*")
+            except asyncio.TimeoutError:
+                await message.channel.send("*Event creation timed out (60s). Cancelled.*")
+
+        else:
+            # Try to parse as a date
+            service = tools.get_calendar_service()
+            if not service:
+                await message.channel.send("*Google Calendar not authenticated. Run `!cal setup` first.*")
+                return
+            async with message.channel.typing():
+                events = await asyncio.to_thread(tools.calendar_get_events, cal_arg)
+            if events is None:
+                await message.channel.send("*Google Calendar not authenticated. Run `!cal setup` first.*")
+                return
+            if isinstance(events, str) and events.startswith("Could not parse"):
+                await message.channel.send(
+                    f"*{events}*\n"
+                    "*Usage: `!cal [today|tomorrow|week|<date>|add <desc>|setup]`*")
+                return
+            dt = tools._parse_date_to_aware(cal_arg)
+            date_label = dt.strftime("%A, %b %d") if dt else cal_arg
+            text = f"**📅 {date_label}**\n{tools.format_events_discord(events, date_label)}"
+            await message.channel.send(text)
+
         return
 
     # --- Briefing ---
