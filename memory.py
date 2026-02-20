@@ -21,8 +21,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECTS_DIR = os.path.join(BASE_DIR, "projects")
 JOB_SEARCH_PROJECT = "job-search"
 
-# Gmail constants
-GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+# Gmail constants — readonly + compose (drafts only, NO gmail.send)
+GMAIL_SCOPES = [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.compose",
+]
 GMAIL_CLIENT_SECRET = os.path.join(BASE_DIR, "gmail_client_secret.json")
 GMAIL_CREDENTIALS = os.path.join(BASE_DIR, "gmail_credentials.json")
 
