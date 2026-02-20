@@ -1,7 +1,28 @@
-venv/
-workspace/
+# Credentials
+config.json
+gmail_client_secret.json
+gmail_credentials.json
+calendar_credentials.json
+*.json.bak
+
+# Data files
+memory.json
+reminders.json
+projects/
+logs/
+
+# Generated
+*.pdf
+*.pyc
 __pycache__/
-conversations/
+
+# Environment
 .env
 *.env
 .env.*
+!.env.example
+venv/
+
+# Workspace & conversations
+conversations/
+workspace/

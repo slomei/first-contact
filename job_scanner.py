@@ -55,28 +55,49 @@ JOB_PLATFORMS = [
     },
 ]
 
-# Steve's profile for fit assessment
-FIT_ASSESSMENT_PROMPT = """You are evaluating job postings for Steve Lomei.
+def _build_fit_prompt():
+    """Build the fit assessment prompt from user_profile config."""
+    profile = memory.load_config().get("user_profile", {})
+    name = profile.get("name", "the user")
+    title = profile.get("title", "")
+    experience = profile.get("experience_summary", "")
+    tools_list = profile.get("tools", [])
+    credits_list = profile.get("credits", [])
+    location = profile.get("location", "")
+    target_roles = profile.get("target_roles", [])
 
-Steve's profile:
-- 1st Assistant Editor in Feature Animation, 13+ years experience
-- Credits: Netflix, Blue Sky Studios (Nimona, Ferdinand, The Peanuts Movie, Rio 2, Ice Age)
-- Tools: Avid Media Composer, Adobe Premiere/After Effects, Flix, ShotGrid
-- Remote worker based in Yonkers, NY (working on Burbank-based productions since 2021)
-- Looking for: animation editorial, post production coordination, video editing roles
+    # Build profile lines
+    lines = [f"You are evaluating job postings for {name}.\n", f"{name}'s profile:"]
+    if title:
+        lines.append(f"- {title}")
+    if experience:
+        lines.append(f"- {experience}")
+    if credits_list:
+        lines.append(f"- Credits: {', '.join(credits_list)}")
+    if tools_list:
+        lines.append(f"- Tools: {', '.join(tools_list)}")
+    if location:
+        lines.append(f"- Based in {location}")
+    if target_roles:
+        lines.append(f"- Looking for: {', '.join(target_roles)}")
 
-Rate this job posting on a scale of 1-5 for fit:
-5 = Perfect match (animation editorial, assistant editor at a studio)
-4 = Strong match (video editing, post production at entertainment company)
-3 = Decent match (related editorial/post role, might be worth applying)
-2 = Weak match (tangentially related, probably not worth pursuing)
-1 = No match (completely different field or skills)
-
-Return ONLY valid JSON:
-{"score": <1-5>, "reason": "<one sentence explanation>", "title": "<cleaned job title>", "company": "<company name if detectable>", "location": "<location if detectable>"}
-
-Job posting:
-"""
+    lines.append("")
+    lines.append(
+        "Rate this job posting on a scale of 1-5 for fit:\n"
+        "5 = Perfect match (core skills, ideal role)\n"
+        "4 = Strong match (closely related role at relevant company)\n"
+        "3 = Decent match (related role, might be worth applying)\n"
+        "2 = Weak match (tangentially related, probably not worth pursuing)\n"
+        "1 = No match (completely different field or skills)\n"
+        "\n"
+        "Return ONLY valid JSON:\n"
+        '{"score": <1-5>, "reason": "<one sentence explanation>", '
+        '"title": "<cleaned job title>", "company": "<company name if detectable>", '
+        '"location": "<location if detectable>"}\n'
+        "\n"
+        "Job posting:\n"
+    )
+    return "\n".join(lines)
 
 
 # --- Seen jobs tracking ---
@@ -385,6 +406,7 @@ def _assess_fit_batch(jobs, progress_fn=None):
 
     assessed = []
     total_cost = 0.0
+    fit_prompt = _build_fit_prompt()
 
     # Batch jobs into groups of 5 for efficiency
     batch_size = 5
@@ -399,7 +421,7 @@ def _assess_fit_batch(jobs, progress_fn=None):
                 response = models.client.messages.create(
                     model="claude-haiku-4-5",
                     max_tokens=200,
-                    messages=[{"role": "user", "content": FIT_ASSESSMENT_PROMPT + text}],
+                    messages=[{"role": "user", "content": fit_prompt + text}],
                 )
                 result_text = response.content[0].text.strip()
                 cost = models.track_usage(

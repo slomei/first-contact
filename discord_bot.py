@@ -24,8 +24,8 @@ import notifications
 import documents
 import job_scanner
 
-# Only respond to this Discord user ID
-ALLOWED_USER_ID = 000000000000000000
+# Only respond to this Discord user ID (set via DISCORD_USER_ID env var)
+ALLOWED_USER_ID = int(os.environ.get("DISCORD_USER_ID", "0"))
 
 MODEL_DISPLAY_NAMES = {
     "claude-sonnet-4-6": "Sonnet",

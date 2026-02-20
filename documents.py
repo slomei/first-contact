@@ -26,14 +26,17 @@ HEADER_GRAY = HexColor("#666666")
 
 PAGE_WIDTH, PAGE_HEIGHT = letter  # 612 x 792 points
 
-# Contact info (matches resume)
-CONTACT = {
-    "name": "Stephen M. Lomei",
-    "email": "you@example.com",
-    "phone": "000-000-0000",
-    "website": "example.com",
-    "location": "Yonkers, NY",
-}
+def _load_contact():
+    """Load contact info from config (matches resume)."""
+    config = memory.load_config()
+    profile = config.get("user_profile", {})
+    return {
+        "name": profile.get("name", "Your Name"),
+        "email": profile.get("email", ""),
+        "phone": profile.get("phone", ""),
+        "website": profile.get("website", ""),
+        "location": profile.get("location", ""),
+    }
 
 # Cover letter output directory
 COVER_LETTER_DIR = os.path.join(
@@ -108,18 +111,18 @@ def _build_cover_story(recipient_name, company_name, job_title, paragraphs,
 
     Returns (story, styles) so the caller can measure or build.
     """
+    contact = _load_contact()
     styles = _base_styles(body_font_size, body_space_after)
     story = []
 
     # Header: name
-    story.append(Paragraph(CONTACT["name"], styles["name"]))
+    story.append(Paragraph(contact["name"], styles["name"]))
     story.append(Spacer(1, 2))
 
     # Header: contact info line
-    contact_line = (
-        f'{CONTACT["location"]}  &bull;  {CONTACT["phone"]}  &bull;  '
-        f'{CONTACT["email"]}  &bull;  {CONTACT["website"]}'
-    )
+    parts = [p for p in [contact["location"], contact["phone"],
+                         contact["email"], contact["website"]] if p]
+    contact_line = "  &bull;  ".join(parts)
     story.append(Paragraph(contact_line, styles["contact"]))
     story.append(Spacer(1, 8))
 
@@ -152,7 +155,7 @@ def _build_cover_story(recipient_name, company_name, job_title, paragraphs,
     story.append(Spacer(1, 10))
     story.append(Paragraph("Sincerely,", styles["signature"]))
     story.append(Spacer(1, 4))
-    story.append(Paragraph(CONTACT["name"], styles["signature"]))
+    story.append(Paragraph(contact["name"], styles["signature"]))
 
     return story, styles
 
@@ -358,12 +361,16 @@ def _split_paragraphs(text):
         lines[-1].strip(), re.IGNORECASE
     ):
         lines.pop()
-    # Remove trailing name line (matches "Stephen", "Steve", or "Stephen M. Lomei")
-    while lines and re.match(
-        r'^(stephen|steve)',
-        lines[-1].strip(), re.IGNORECASE
-    ):
-        lines.pop()
+    # Remove trailing name line (matches the user's name from config)
+    contact = _load_contact()
+    name_parts = contact["name"].split()
+    if name_parts:
+        name_pattern = "|".join(re.escape(p) for p in name_parts)
+        while lines and re.match(
+            rf'^({name_pattern})',
+            lines[-1].strip(), re.IGNORECASE
+        ):
+            lines.pop()
     # Remove trailing blank lines
     while lines and not lines[-1].strip():
         lines.pop()

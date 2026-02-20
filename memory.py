@@ -39,36 +39,62 @@ CALENDAR_SCOPES = [
 ]
 CALENDAR_CREDENTIALS = os.path.join(BASE_DIR, "calendar_credentials.json")
 
-# Default system prompt
-SYSTEM_PROMPT = (
-    "You are Steve's personal assistant. You know his background, his projects, "
-    "and his priorities through stored memories.\n\n"
+# Default system prompt template — {name} is substituted at build time
+_SYSTEM_PROMPT_TEMPLATE = (
+    "You are {name}'s personal assistant. You know {name_pos} background, "
+    "{name_pos} projects, and {name_pos} priorities through stored memories.\n\n"
     "Be honest. If an idea is good, say so and explain why. If it's bad, say so "
-    "and explain why. Don't hedge to be polite and don't praise to make him feel "
-    "good. Steve respects directness and can handle being wrong \u2014 what he can't "
-    "handle is wasted time from someone telling him what he wants to hear.\n\n"
-    "Don't perform enthusiasm. Don't over-explain things he already understands. "
+    "and explain why. Don't hedge to be polite and don't praise to make {name_obj} feel "
+    "good. {name} respects directness and can handle being wrong \u2014 what {name_subj} can't "
+    "handle is wasted time from someone telling {name_obj} what {name_subj} wants to hear.\n\n"
+    "Don't perform enthusiasm. Don't over-explain things {name_subj} already understands. "
     "Don't ask unnecessary clarifying questions when the intent is obvious. Match "
-    "the energy of the conversation \u2014 if he's brief, be brief. If he wants depth, "
+    "the energy of the conversation \u2014 if {name_subj}'s brief, be brief. If {name_subj} wants depth, "
     "go deep.\n\n"
     "When you don't know something, say so. When you're uncertain, say that too. "
     "Don't guess and present it as fact.\n\n"
     "You have tools available \u2014 web search, file operations, memory, email, code "
     "execution, job search. Use them when they'd help. Don't ask permission to use "
     "tools unless the action is irreversible or costly.\n\n"
-    "Steve is a video editor with 13 years in animation, currently job searching "
-    "and building an AI agent system. He's working on a sci-fi screenplay called "
-    "First Light. He's smart, technically capable, and learning fast. Treat him "
-    "accordingly."
+    "{bio_line}"
 )
 
-# Challenge mode addendum (appended when challenge_mode is True)
-CHALLENGE_ADDENDUM = (
+# Challenge mode addendum template
+_CHALLENGE_ADDENDUM_TEMPLATE = (
     "\n\nCHALLENGE MODE IS ON. Actively look for flaws, gaps, and weak assumptions "
-    "in Steve's reasoning. Play devil's advocate. Push back on ideas that seem "
+    "in {name}'s reasoning. Play devil's advocate. Push back on ideas that seem "
     "under-examined. Don't be contrarian for its own sake \u2014 but if there's a hole, "
     "find it and call it out."
 )
+
+
+def _build_base_prompt():
+    """Build the system prompt with the user's name from config."""
+    profile = get_user_profile()
+    name = profile.get("first_name") or profile.get("name", "the user")
+
+    # Build a bio line from available profile info
+    bio_parts = []
+    if profile.get("experience_summary"):
+        bio_parts.append(profile["experience_summary"])
+    elif profile.get("title"):
+        bio_parts.append(f"{name} is a {profile['title']}.")
+    bio_line = " ".join(bio_parts) if bio_parts else ""
+
+    return _SYSTEM_PROMPT_TEMPLATE.format(
+        name=name,
+        name_pos=name + "'s" if name != "the user" else "their",
+        name_subj=name.lower() if name != "the user" else "they",
+        name_obj=name.lower() if name != "the user" else "them",
+        bio_line=bio_line,
+    )
+
+
+def _build_challenge_addendum():
+    """Build the challenge mode addendum with the user's name."""
+    profile = get_user_profile()
+    name = profile.get("first_name") or profile.get("name", "the user")
+    return _CHALLENGE_ADDENDUM_TEMPLATE.format(name=name)
 
 
 def _is_wsl():
@@ -188,6 +214,19 @@ def load_config():
             "monday_time": "06:00",
             "last_auto_scan": None,
         },
+        "user_profile": {
+            "name": "Your Name",
+            "first_name": "You",
+            "email": "you@example.com",
+            "phone": "",
+            "website": "",
+            "location": "",
+            "title": "Your Title",
+            "experience_summary": "",
+            "tools": [],
+            "credits": [],
+            "target_roles": [],
+        },
     }
     if os.path.exists(path):
         try:
@@ -212,6 +251,11 @@ def save_config(config):
     path = get_config_file()
     with open(path, "w") as f:
         json.dump(config, f, indent=2)
+
+
+def get_user_profile():
+    """Return the user_profile dict from config."""
+    return load_config().get("user_profile", {})
 
 
 def get_jobs_file():
@@ -250,9 +294,9 @@ def save_memories(mems):
 
 def build_system_prompt(mems, creative_context=""):
     """Build the system prompt, including stored memories, challenge mode, and creative context."""
-    base = SYSTEM_PROMPT
+    base = _build_base_prompt()
     if challenge_mode:
-        base += CHALLENGE_ADDENDUM
+        base += _build_challenge_addendum()
     if mems:
         memory_block = "\n".join(f"- {m}" for m in mems)
         base += f"\n\nThings you've been asked to remember:\n{memory_block}"

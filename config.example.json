@@ -1,0 +1,53 @@
+{
+  "briefing": {
+    "enabled": true,
+    "time": "08:00",
+    "timezone": "America/New_York",
+    "last_sent": null
+  },
+  "email_notifications": {
+    "enabled": true,
+    "check_interval_minutes": 5,
+    "batch_interval_minutes": 30,
+    "last_checked": null,
+    "priority_domains": [],
+    "priority_keywords": [
+      "interview",
+      "offer",
+      "application",
+      "schedule",
+      "follow up",
+      "hiring",
+      "position",
+      "opportunity"
+    ],
+    "mute_domains": [
+      "noreply@google.com",
+      "marketing@",
+      "newsletter@"
+    ]
+  },
+  "job_scan": {
+    "enabled": true,
+    "queries": [
+      "your job title keywords here"
+    ],
+    "auto_time": "07:00",
+    "skip_weekends": true,
+    "monday_time": "06:00",
+    "last_auto_scan": null
+  },
+  "user_profile": {
+    "name": "Your Name",
+    "first_name": "You",
+    "email": "you@example.com",
+    "phone": "",
+    "website": "",
+    "location": "",
+    "title": "Your Title",
+    "experience_summary": "",
+    "tools": [],
+    "credits": [],
+    "target_roles": []
+  }
+}
