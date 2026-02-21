@@ -158,7 +158,7 @@ TOOLS = [
         "description": (
             "Search for job listings using DuckDuckGo. Use this when the user asks "
             "about job openings, hiring, career opportunities, or wants to find work. "
-            "Results are saved so the user can review and save them with /jobs save."
+            "Results are saved so the user can review and save them with /work save."
         ),
         "input_schema": {
             "type": "object",
@@ -1690,7 +1690,7 @@ def execute_tool(name, tool_input, confirm_fn=None):
                     idx = int(job_id) - 1
                     jobs = memory.load_jobs()
                     if idx < 0 or idx >= len(jobs):
-                        return f"Invalid job number {job_id}. Use job_search first or /jobs list.", True
+                        return f"Invalid job number {job_id}. Use job_search first or /work list.", True
                     job = jobs[idx]
                 except (ValueError, TypeError):
                     return f"Invalid job_id: {job_id}", True

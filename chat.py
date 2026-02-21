@@ -237,13 +237,13 @@ if __name__ == "__main__":
       /watch list        Show all watched topics
       /watch remove <topic>  Remove a topic from the watchlist
       /digest            Search web for watched topics and save a digest
-      /jobs search <q>   Search for job listings
-      /jobs save         Save last search results to job-search project
-      /jobs list         Show all saved job listings
-      /jobs remove <#>   Remove a saved listing
-      /jobs apply <#>    Open listing + generate cover letter to jobs/<slug>/
-      /jobs track <#> <status>  Set status (applied, interviewing, rejected, offer)
-      /jobs status       Show tracked jobs grouped by status
+      /work search <q>   Search for job listings
+      /work save         Save last search results to job-search project
+      /work list         Show all saved job listings
+      /work remove <#>   Remove a saved listing
+      /work apply <#>    Open listing + generate cover letter to jobs/<slug>/
+      /work track <#> <status>  Set status (applied, interviewing, rejected, offer)
+      /work status       Show tracked jobs grouped by status
       /resume              Show loaded resume status
       /resume <path>       Load a resume file (txt, md, pdf, docx)
       /email setup         Authenticate with Gmail (OAuth2)
@@ -901,7 +901,7 @@ if __name__ == "__main__":
                     if idx < 0 or idx >= len(jobs):
                         raise ValueError
                 except ValueError:
-                    print(f"{memory.DIM}Invalid number. Use /jobs list to see listings.{memory.RESET}\n")
+                    print(f"{memory.DIM}Invalid number. Use /work list to see listings.{memory.RESET}\n")
                     continue
 
                 job = jobs[idx]
@@ -917,7 +917,7 @@ if __name__ == "__main__":
                             cover_letter = f.read()
 
                 if not cover_letter:
-                    print(f"{memory.DIM}No cover letter found. Use /jobs apply <#> to generate one first.{memory.RESET}\n")
+                    print(f"{memory.DIM}No cover letter found. Use /work apply <#> to generate one first.{memory.RESET}\n")
                     continue
 
                 # Load resume
@@ -982,7 +982,7 @@ if __name__ == "__main__":
                 print(f"{memory.DIM}Usage: /cover <#>  or  /cover new <company> <title>{memory.RESET}\n")
                 continue
 
-            # Gather memories (same pattern as /jobs apply)
+            # Gather memories (same pattern as /work apply)
             all_memories = list(memory.memories)
             root_mem = os.path.join(memory.BASE_DIR, "memory.json")
             if os.path.exists(root_mem):
@@ -1063,7 +1063,7 @@ if __name__ == "__main__":
                     if idx < 0 or idx >= len(jobs):
                         raise ValueError
                 except ValueError:
-                    print(f"{memory.DIM}Invalid number. Use /jobs list to see listings.{memory.RESET}\n")
+                    print(f"{memory.DIM}Invalid number. Use /work list to see listings.{memory.RESET}\n")
                     continue
 
                 job = jobs[idx]
@@ -1897,19 +1897,19 @@ if __name__ == "__main__":
                 print(f"{memory.DIM}Error loading resume: {e}{memory.RESET}\n")
             continue
 
-        if command_lower == "/jobs" or command_lower.startswith("/jobs "):
+        if command_lower == "/work" or command_lower.startswith("/work "):
             arg = command[5:].strip() if len(command) > 5 else ""
             arg_lower = arg.lower()
 
             if not arg:
-                print(f"{memory.DIM}Usage: /jobs search <query> | /jobs save | /jobs list | /jobs remove <#>")
-                print(f"       /jobs apply <#> | /jobs track <#> <status> | /jobs status{memory.RESET}\n")
+                print(f"{memory.DIM}Usage: /work search <query> | /work save | /work list | /work remove <#>")
+                print(f"       /work apply <#> | /work track <#> <status> | /work status{memory.RESET}\n")
                 continue
 
             if arg_lower.startswith("search "):
                 query = arg[7:].strip()
                 if not query:
-                    print(f"{memory.DIM}Usage: /jobs search <query>{memory.RESET}\n")
+                    print(f"{memory.DIM}Usage: /work search <query>{memory.RESET}\n")
                     continue
                 print(f"{memory.DIM}Searching jobs: {query}...{memory.RESET}")
                 try:
@@ -1926,11 +1926,11 @@ if __name__ == "__main__":
                     print(f"\n  {memory.CYAN}{i}. {r['title']}{memory.RESET}")
                     print(f"     {memory.DIM}{r['url']}{memory.RESET}")
                     print(f"     {r['body'][:200]}")
-                print(f"\n{memory.DIM}Found {len(results)} result(s). Use /jobs save to save these.{memory.RESET}\n")
+                print(f"\n{memory.DIM}Found {len(results)} result(s). Use /work save to save these.{memory.RESET}\n")
 
             elif arg_lower == "save":
                 if not tools.last_job_results:
-                    print(f"{memory.DIM}No search results to save. Run /jobs search <query> first.{memory.RESET}\n")
+                    print(f"{memory.DIM}No search results to save. Run /work search <query> first.{memory.RESET}\n")
                     continue
                 jobs = memory.load_jobs()
                 existing_urls = {j["url"] for j in jobs}
@@ -1958,7 +1958,7 @@ if __name__ == "__main__":
             elif arg_lower == "list":
                 jobs = memory.load_jobs()
                 if not jobs:
-                    print(f"{memory.DIM}No saved jobs. Use /jobs search <query> then /jobs save.{memory.RESET}\n")
+                    print(f"{memory.DIM}No saved jobs. Use /work search <query> then /work save.{memory.RESET}\n")
                     continue
                 print(f"{memory.DIM}Saved job listings ({len(jobs)}):{memory.RESET}")
                 for i, j in enumerate(jobs, 1):
@@ -1989,7 +1989,7 @@ if __name__ == "__main__":
                     memory.save_jobs(jobs)
                     print(f"{memory.DIM}Removed: {removed['title']}{memory.RESET}\n")
                 except ValueError:
-                    print(f"{memory.DIM}Invalid number. Use /jobs list to see listings.{memory.RESET}\n")
+                    print(f"{memory.DIM}Invalid number. Use /work list to see listings.{memory.RESET}\n")
 
             elif arg_lower.startswith("apply "):
                 num_str = arg[6:].strip()
@@ -1999,7 +1999,7 @@ if __name__ == "__main__":
                     if idx < 0 or idx >= len(jobs):
                         raise ValueError
                 except ValueError:
-                    print(f"{memory.DIM}Invalid number. Use /jobs list to see listings.{memory.RESET}\n")
+                    print(f"{memory.DIM}Invalid number. Use /work list to see listings.{memory.RESET}\n")
                     continue
                 job = jobs[idx]
 
@@ -2066,7 +2066,7 @@ if __name__ == "__main__":
             elif arg_lower.startswith("track "):
                 parts = arg[6:].strip().split(None, 1)
                 if len(parts) != 2:
-                    print(f"{memory.DIM}Usage: /jobs track <#> <status>{memory.RESET}")
+                    print(f"{memory.DIM}Usage: /work track <#> <status>{memory.RESET}")
                     print(f"{memory.DIM}  Statuses: applied, interviewing, rejected, offer{memory.RESET}\n")
                     continue
                 num_str, status = parts
@@ -2076,7 +2076,7 @@ if __name__ == "__main__":
                     if idx < 0 or idx >= len(jobs):
                         raise ValueError
                 except ValueError:
-                    print(f"{memory.DIM}Invalid number. Use /jobs list to see listings.{memory.RESET}\n")
+                    print(f"{memory.DIM}Invalid number. Use /work list to see listings.{memory.RESET}\n")
                     continue
                 jobs[idx]["status"] = status.lower()
                 memory.save_jobs(jobs)
@@ -2086,7 +2086,7 @@ if __name__ == "__main__":
                 jobs = memory.load_jobs()
                 tracked = [j for j in jobs if j.get("status")]
                 if not tracked:
-                    print(f"{memory.DIM}No tracked jobs. Use /jobs track <#> <status> to set a status.{memory.RESET}\n")
+                    print(f"{memory.DIM}No tracked jobs. Use /work track <#> <status> to set a status.{memory.RESET}\n")
                     continue
                 groups = {}
                 for j in tracked:
@@ -2103,7 +2103,7 @@ if __name__ == "__main__":
                 print()
 
             else:
-                print(f"{memory.DIM}Unknown /jobs subcommand: {arg}")
+                print(f"{memory.DIM}Unknown /work subcommand: {arg}")
                 print(f"  Use: search, save, list, remove, apply, track, status{memory.RESET}\n")
             continue
 

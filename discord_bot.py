@@ -246,13 +246,13 @@ def build_help_text():
         "`!watch list` — Show watched topics\n"
         "`!watch remove <topic>` — Remove a watched topic\n"
         "`!digest` — Generate a digest from watched topics\n"
-        "`!jobs search <query>` — Search job listings\n"
-        "`!jobs save` — Save last search results\n"
-        "`!jobs list` — Show saved listings\n"
-        "`!jobs remove <#>` — Remove a saved listing\n"
-        "`!jobs apply <#>` — Generate cover letter\n"
-        "`!jobs track <#> <status>` — Set job status\n"
-        "`!jobs status` — Show tracked jobs by status\n"
+        "`!work search <query>` — Search job listings\n"
+        "`!work save` — Save last search results\n"
+        "`!work list` — Show saved listings\n"
+        "`!work remove <#>` — Remove a saved listing\n"
+        "`!work apply <#>` — Generate cover letter\n"
+        "`!work track <#> <status>` — Set job status\n"
+        "`!work status` — Show tracked jobs by status\n"
         "`!tasks` — Show open tasks (sorted by urgency)\n"
         "`!tasks done` — Show completed tasks\n"
         "`!tasks all` — Show all tasks\n"
@@ -993,7 +993,7 @@ async def on_message(message):
                 if idx < 0 or idx >= len(jobs):
                     raise ValueError
             except ValueError:
-                await send_reply(dm, "*Invalid number. Use `!jobs list` to see listings.*")
+                await send_reply(dm, "*Invalid number. Use `!work list` to see listings.*")
                 return
 
             job = jobs[idx]
@@ -1956,27 +1956,27 @@ async def on_message(message):
         return
 
     # --- Jobs ---
-    if command_lower == "!jobs" or command_lower.startswith("!jobs "):
+    if command_lower == "!work" or command_lower.startswith("!work "):
         arg = content[5:].strip() if len(content) > 5 else ""
         arg_lower = arg.lower()
 
         if not arg:
             await send_reply(dm,
                 "**Usage:**\n"
-                "`!jobs search <query>` — Search job listings\n"
-                "`!jobs save` — Save last search results\n"
-                "`!jobs list` — Show saved listings\n"
-                "`!jobs remove <#>` — Remove a saved listing\n"
-                "`!jobs apply <#>` — Generate cover letter\n"
-                "`!jobs track <#> <status>` — Set job status\n"
-                "`!jobs status` — Show tracked jobs by status"
+                "`!work search <query>` — Search job listings\n"
+                "`!work save` — Save last search results\n"
+                "`!work list` — Show saved listings\n"
+                "`!work remove <#>` — Remove a saved listing\n"
+                "`!work apply <#>` — Generate cover letter\n"
+                "`!work track <#> <status>` — Set job status\n"
+                "`!work status` — Show tracked jobs by status"
             )
             return
 
         if arg_lower.startswith("search "):
             query = arg[7:].strip()
             if not query:
-                await send_reply(dm, "*Usage: `!jobs search <query>`*")
+                await send_reply(dm, "*Usage: `!work search <query>`*")
                 return
             async with dm.typing():
                 await send_reply(dm, f"*Searching jobs: {query}...*")
@@ -1993,13 +1993,13 @@ async def on_message(message):
                 for i, r in enumerate(results, 1):
                     lines.append(f"**{i}. {r['title']}**\n{r['url']}\n{r['body'][:200]}")
                 reply = "\n\n".join(lines)
-                reply += f"\n\n*Found {len(results)} result(s). Use `!jobs save` to save these.*"
+                reply += f"\n\n*Found {len(results)} result(s). Use `!work save` to save these.*"
             for chunk in split_message(reply):
                 await send_reply(dm, chunk)
 
         elif arg_lower == "save":
             if not state.last_job_results:
-                await send_reply(dm, "*No search results to save. Run `!jobs search <query>` first.*")
+                await send_reply(dm, "*No search results to save. Run `!work search <query>` first.*")
                 return
             jobs = memory.load_jobs()
             existing_urls = {j["url"] for j in jobs}
@@ -2026,7 +2026,7 @@ async def on_message(message):
         elif arg_lower == "list":
             jobs = memory.load_jobs()
             if not jobs:
-                await send_reply(dm, "*No saved jobs. Use `!jobs search <query>` then `!jobs save`.*")
+                await send_reply(dm, "*No saved jobs. Use `!work search <query>` then `!work save`.*")
                 return
             lines = [f"**Saved job listings ({len(jobs)}):**"]
             for i, j in enumerate(jobs, 1):
@@ -2063,7 +2063,7 @@ async def on_message(message):
                 memory.save_jobs(jobs)
                 await send_reply(dm, f"*Removed: {removed['title']}*")
             except ValueError:
-                await send_reply(dm, "*Invalid number. Use `!jobs list` to see listings.*")
+                await send_reply(dm, "*Invalid number. Use `!work list` to see listings.*")
 
         elif arg_lower.startswith("apply "):
             num_str = arg[6:].strip()
@@ -2073,7 +2073,7 @@ async def on_message(message):
                 if idx < 0 or idx >= len(jobs):
                     raise ValueError
             except ValueError:
-                await send_reply(dm, "*Invalid number. Use `!jobs list` to see listings.*")
+                await send_reply(dm, "*Invalid number. Use `!work list` to see listings.*")
                 return
             job = jobs[idx]
 
@@ -2139,7 +2139,7 @@ async def on_message(message):
             parts = arg[6:].strip().split(None, 1)
             if len(parts) != 2:
                 await send_reply(dm,
-                    "*Usage: `!jobs track <#> <status>`*\n"
+                    "*Usage: `!work track <#> <status>`*\n"
                     "*Statuses: applied, interviewing, rejected, offer*"
                 )
                 return
@@ -2150,7 +2150,7 @@ async def on_message(message):
                 if idx < 0 or idx >= len(jobs):
                     raise ValueError
             except ValueError:
-                await send_reply(dm, "*Invalid number. Use `!jobs list` to see listings.*")
+                await send_reply(dm, "*Invalid number. Use `!work list` to see listings.*")
                 return
             jobs[idx]["status"] = status.lower()
             memory.save_jobs(jobs)
@@ -2160,7 +2160,7 @@ async def on_message(message):
             jobs = memory.load_jobs()
             tracked = [j for j in jobs if j.get("status")]
             if not tracked:
-                await send_reply(dm, "*No tracked jobs. Use `!jobs track <#> <status>` to set a status.*")
+                await send_reply(dm, "*No tracked jobs. Use `!work track <#> <status>` to set a status.*")
                 return
             groups = {}
             for j in tracked:

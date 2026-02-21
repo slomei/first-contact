@@ -143,7 +143,7 @@ First Contact responds to natural conversation and also supports direct commands
 | **Web** | `/web`, `/fetch` |
 | **Email** | `/email check`, `/email read`, `/email search`, `/draft reply`, `/draft new`, `/draft job` |
 | **Calendar** | `/cal`, `/cal today`, `/cal week`, `/cal add`, `/cal setup` |
-| **Jobs** | `/jobs search`, `/jobs save`, `/jobs list`, `/jobs apply`, `/jobs track`, `/jobs status` |
+| **Jobs** | `/work search`, `/work save`, `/work list`, `/work apply`, `/work track`, `/work status` |
 | **Scanning** | `/scan`, `/scan results`, `/scan queries`, `/scan on\|off` |
 | **Tasks** | `/task add`, `/tasks`, `/task done`, `/task edit`, `/task note` |
 | **Reminders** | `/remind`, `/reminders`, `/remind cancel` |
