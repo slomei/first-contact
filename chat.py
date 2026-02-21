@@ -368,7 +368,6 @@ if __name__ == "__main__":
 
         if command_lower == "/clear":
             os.system('cls' if os.name == 'nt' else 'clear')
-            print(f"{memory.DIM}(Screen cleared.){memory.RESET}\n")
             continue
 
         if command_lower == "/setup":
