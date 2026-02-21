@@ -453,18 +453,18 @@ if __name__ == "__main__":
             width = max(max_cmd + 4 + max(len(c[1]) for c in cat["commands"]), len(cat.get("tip", "")) + 4, len(category) + 3)
             width = min(width, 72)
             print(f"\n{memory.CYAN}┌{'─' * (width + 2)}┐{memory.RESET}")
-            print(f"{memory.CYAN}│{memory.RESET} {memory.BOLD}{category.upper()}{memory.RESET}{' ' * (width - len(category))}{memory.CYAN}│{memory.RESET}")
+            print(f"{memory.CYAN}│{memory.RESET} {memory.BOLD}{category.upper()}{memory.RESET}{' ' * (width - len(category))} {memory.CYAN}│{memory.RESET}")
             print(f"{memory.CYAN}├{'─' * (width + 2)}┤{memory.RESET}")
             for cmd, desc in cat["commands"]:
                 line = f"  {cmd:<{max_cmd}}  {memory.DIM}{desc}{memory.RESET}"
                 # Calculate padding without ANSI codes
                 visible = f"  {cmd:<{max_cmd}}  {desc}"
-                pad = width - len(visible)
+                pad = width + 1 - len(visible)
                 print(f"{memory.CYAN}│{memory.RESET}{line}{' ' * max(pad, 0)} {memory.CYAN}│{memory.RESET}")
             if cat.get("tip"):
                 print(f"{memory.CYAN}├{'─' * (width + 2)}┤{memory.RESET}")
                 tip_line = f"  {cat['tip']}"
-                tip_pad = width - len(tip_line)
+                tip_pad = width + 1 - len(tip_line)
                 print(f"{memory.CYAN}│{memory.RESET}{memory.DIM}{tip_line}{memory.RESET}{' ' * max(tip_pad, 0)} {memory.CYAN}│{memory.RESET}")
             print(f"{memory.CYAN}└{'─' * (width + 2)}┘{memory.RESET}\n")
         else:
@@ -477,11 +477,11 @@ if __name__ == "__main__":
             print(f"{memory.CYAN}├{'─' * (width + 2)}┤{memory.RESET}")
             for name, cat in HELP_CATEGORIES.items():
                 line = f"  /help {name:<{max_name}}  {cat['desc']}"
-                pad = width - len(line)
+                pad = width + 1 - len(line)
                 print(f"{memory.CYAN}│{memory.RESET}{memory.DIM}  /help {memory.RESET}{name:<{max_name}}{memory.DIM}  {cat['desc']}{memory.RESET}{' ' * max(pad, 0)} {memory.CYAN}│{memory.RESET}")
             print(f"{memory.CYAN}├{'─' * (width + 2)}┤{memory.RESET}")
             footer = "  Type /help <category> for details"
-            fpad = width - len(footer)
+            fpad = width + 1 - len(footer)
             print(f"{memory.CYAN}│{memory.RESET}{memory.DIM}{footer}{memory.RESET}{' ' * max(fpad, 0)} {memory.CYAN}│{memory.RESET}")
             print(f"{memory.CYAN}└{'─' * (width + 2)}┘{memory.RESET}\n")
 
@@ -796,15 +796,17 @@ if __name__ == "__main__":
                 if not results:
                     print(f"{memory.DIM}No memories found.{memory.RESET}\n")
                     continue
-                width = max(len(r[0]) for r in results) + 12
+                width = max(max(len(r[0]) for r in results) + 12, len('Search: ' + search_query))
                 width = min(width, 80)
                 print(f"\n{memory.CYAN}┌{'─' * (width + 2)}┐{memory.RESET}")
                 print(f"{memory.CYAN}│{memory.RESET} {'Search: ' + search_query:<{width}} {memory.CYAN}│{memory.RESET}")
                 print(f"{memory.CYAN}├{'─' * (width + 2)}┤{memory.RESET}")
                 for text, score in results:
                     score_str = f"({score:.2f})"
+                    visible = f"  {text}  {score_str}"
+                    pad = width - len(visible)
                     line = f"  {text}  {memory.DIM}{score_str}{memory.RESET}"
-                    print(f"{memory.CYAN}│{memory.RESET} {line}")
+                    print(f"{memory.CYAN}│{memory.RESET} {line}{' ' * max(pad, 0)} {memory.CYAN}│{memory.RESET}")
                 print(f"{memory.CYAN}└{'─' * (width + 2)}┘{memory.RESET}\n")
                 continue
 
@@ -2662,8 +2664,6 @@ if __name__ == "__main__":
             _st_global = memory.load_global_memories()
             _st_proj = memory.memories
 
-            inner = 49
-            print(f"{C}\u250c\u2500 AGENT STATUS \u2500{'=' * (inner - 16)}\u2510{R}")
             _lines = [
                 f"Project: {memory.active_project}",
                 f"Model: {_st_model}",
@@ -2676,6 +2676,8 @@ if __name__ == "__main__":
                 f"Pending reminders: {len(_st_reminders)}",
                 f"Memories: {len(_st_global)} global, {len(_st_proj)} project",
             ]
+            inner = max(max(len(_line) for _line in _lines) + 2, 49)
+            print(f"{C}\u250c\u2500 AGENT STATUS \u2500{'=' * (inner - 16)}\u2510{R}")
             for _line in _lines:
                 pad = inner - len(_line) - 2
                 print(f"{C}\u2502{R} {_line}{' ' * pad} {C}\u2502{R}")
