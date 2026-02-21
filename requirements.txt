@@ -1,5 +1,6 @@
 anthropic>=0.80.0
 discord.py>=2.6.0
+python-telegram-bot>=20.0
 gradio>=6.0.0
 duckduckgo-search>=9.0.0
 pdfplumber>=0.11.0
