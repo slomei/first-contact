@@ -111,6 +111,36 @@ def print_conversations(files):
             print(f"  {i}. {name}")
 
 
+_COVER_LETTER_REFUSAL_PHRASES = [
+    "i don't have enough information",
+    "i do not have enough information",
+    "no resume was loaded",
+    "no background info",
+    "i cannot write",
+    "i can't write",
+    "i'm unable to",
+    "i am unable to",
+    "not enough context",
+    "i need more information",
+    "without a resume",
+    "without more details",
+    "without more information",
+    "i wasn't provided",
+    "i was not provided",
+    "no resume or background",
+    "no resume provided",
+    "unable to generate",
+    "cannot generate",
+    "can't generate",
+]
+
+
+def _is_cover_letter_refusal(text):
+    """Check if generated text is a refusal rather than an actual cover letter."""
+    lower = text.lower()
+    return any(phrase in lower for phrase in _COVER_LETTER_REFUSAL_PHRASES)
+
+
 def chat_turn():
     """Run a chat turn with tool use support. Streams response, handles tool calls in a loop."""
     total_input = 0
@@ -1047,6 +1077,12 @@ if __name__ == "__main__":
                     print(f"{memory.RED}Cover letter generation failed: {e}{memory.RESET}\n")
                     continue
 
+                if _is_cover_letter_refusal(letter_text):
+                    print(f"\n{memory.YELLOW}Opus could not generate a proper cover letter:{memory.RESET}\n")
+                    print(letter_text)
+                    print(f"\n{memory.DIM}  [${cost:.4f}] session: ${models.session_cost:.4f}{memory.RESET}\n")
+                    continue
+
                 # Preview
                 preview_lines = letter_text.strip().splitlines()[:5]
                 print(f"\n{memory.CYAN}Preview:{memory.RESET}")
@@ -1062,6 +1098,11 @@ if __name__ == "__main__":
 
                 print(f"{memory.GREEN}Cover letter saved:{memory.RESET} {memory.CYAN}{pdf_path}{memory.RESET}")
                 print(f"{memory.DIM}  [${cost:.4f}] session: ${models.session_cost:.4f}{memory.RESET}\n")
+
+                try:
+                    memory.open_file(pdf_path)
+                except Exception:
+                    pass
 
             else:
                 # /cover <#> — from saved job
@@ -1094,6 +1135,12 @@ if __name__ == "__main__":
                         job, all_memories, resume_text=resume_text)
                 except Exception as e:
                     print(f"{memory.RED}Cover letter generation failed: {e}{memory.RESET}\n")
+                    continue
+
+                if _is_cover_letter_refusal(letter_text):
+                    print(f"\n{memory.YELLOW}Opus could not generate a proper cover letter:{memory.RESET}\n")
+                    print(letter_text)
+                    print(f"\n{memory.DIM}  [${cost:.4f}] session: ${models.session_cost:.4f}{memory.RESET}\n")
                     continue
 
                 # Save markdown version to job folder
@@ -1137,6 +1184,11 @@ if __name__ == "__main__":
                 print(f"  {memory.CYAN}{pdf_path}{memory.RESET}")
                 print(f"  {memory.DIM}Markdown: jobs/{job['folder']}/cover-letter.md{memory.RESET}")
                 print(f"{memory.DIM}  [${cost:.4f}] session: ${models.session_cost:.4f}{memory.RESET}\n")
+
+                try:
+                    memory.open_file(pdf_path)
+                except Exception:
+                    pass
 
             continue
 
@@ -2085,6 +2137,12 @@ if __name__ == "__main__":
                         resume_text = f.read()
                 try:
                     letter, cost = models.generate_cover_letter(job, all_memories, resume_text=resume_text)
+
+                    if _is_cover_letter_refusal(letter):
+                        print(f"\n{memory.YELLOW}Opus could not generate a proper cover letter:{memory.RESET}\n")
+                        print(letter)
+                        print(f"\n{memory.DIM}  [${cost:.4f}] session: ${models.session_cost:.4f}{memory.RESET}\n")
+                        continue
 
                     folder = memory.get_job_folder(job)
                     cl_path = os.path.join(folder, "cover-letter.md")

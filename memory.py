@@ -123,6 +123,28 @@ def open_url(url):
         webbrowser.open(url)
 
 
+def open_file(filepath):
+    """Open a file in the default application, with WSL support."""
+    if IS_WSL:
+        try:
+            win_path = subprocess.check_output(
+                ["wslpath", "-w", filepath], text=True
+            ).strip()
+            subprocess.Popen(
+                ["cmd.exe", "/c", "start", "", win_path],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
+    else:
+        import platform
+        if platform.system() == "Darwin":
+            subprocess.Popen(["open", filepath])
+        else:
+            subprocess.Popen(["xdg-open", filepath])
+
+
 # --- Mutable globals ---
 active_project = "general"
 challenge_mode = False
