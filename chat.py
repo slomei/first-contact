@@ -299,8 +299,10 @@ if __name__ == "__main__":
       /location <name>   Show location details (first-light only)
       /delegates         Show specialist agents and their models
       /billing           Show billing link for API credits
+      /new               Save current conversation and start fresh
       /load              Load a previous conversation into context
       /conversations     List previous conversations
+      /delete            Delete a saved conversation
       /tokens            Show conversation size and compression status
       /reset             Wipe all user data and return to clean state
       /opus              Switch to Claude Opus
@@ -2152,6 +2154,53 @@ if __name__ == "__main__":
                 summary, cost = result
                 print(f"{memory.DIM}\u27e1 Loaded conversation summary (${cost:.4f}){memory.RESET}")
                 print(f"{memory.DIM}{summary}{memory.RESET}\n")
+            continue
+
+        if command_lower == "/new":
+            if models.conversation_history:
+                result = models.save_conversation(models.conversation_history)
+                if result:
+                    title, filepath = result
+                    print(f"{memory.DIM}Conversation saved: {title}{memory.RESET}")
+                models.conversation_history.clear()
+            print("New conversation started.\n")
+            continue
+
+        if command_lower == "/delete":
+            files = memory.list_conversations()
+            if not files:
+                print(f"{memory.DIM}No saved conversations.{memory.RESET}\n")
+                continue
+            print(f"{memory.DIM}Saved conversations ({memory.active_project}):")
+            print_conversations(files)
+            print(memory.RESET)
+            try:
+                choice = input(f"{memory.DIM}Delete conversation #: {memory.RESET}")
+            except (EOFError, KeyboardInterrupt):
+                print(f"\n{memory.DIM}Cancelled.{memory.RESET}\n")
+                continue
+            try:
+                idx = int(choice.strip()) - 1
+                if idx < 0 or idx >= len(files):
+                    raise ValueError
+            except ValueError:
+                print(f"{memory.DIM}Invalid choice.{memory.RESET}\n")
+                continue
+            filename = files[idx]
+            name = filename.removesuffix(".txt")
+            parts = name.split("_", 1)
+            title = parts[1].replace("-", " ").title() if len(parts) == 2 else name
+            try:
+                confirm = input(f"{memory.CYAN}Delete {title}? [y/N] {memory.RESET}").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print(f"\n{memory.DIM}Cancelled.{memory.RESET}\n")
+                continue
+            if confirm == "y":
+                filepath = os.path.join(memory.get_conversations_dir(), filename)
+                os.remove(filepath)
+                print(f"{memory.DIM}Deleted.{memory.RESET}\n")
+            else:
+                print(f"{memory.DIM}Cancelled.{memory.RESET}\n")
             continue
 
         if command_lower == "/tokens":
