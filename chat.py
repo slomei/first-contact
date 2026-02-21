@@ -41,6 +41,7 @@ class _ResponseCancelled(Exception):
 
 def _clean_exit():
     """Save conversation silently and exit."""
+    print_session_summary()
     models.save_conversation(models.conversation_history)
     print("Goodbye!")
 
