@@ -169,6 +169,18 @@ def chat_turn():
     if memory.active_project == "first-light":
         creative_ctx = creative.get_creative_context()
 
+    # Extract last user message for semantic retrieval
+    last_user_query = None
+    for msg in reversed(models.conversation_history):
+        if msg.get("role") == "user":
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                last_user_query = content
+            elif isinstance(content, list):
+                texts = [b.get("text", "") for b in content if b.get("type") == "text"]
+                last_user_query = " ".join(texts)
+            break
+
     for turn in range(10):
         if turn == 0:
             print(f"\n{memory.CYAN}Claude:{memory.RESET} ", end="", flush=True)
@@ -176,7 +188,7 @@ def chat_turn():
         with models.get_client().messages.stream(
             model=models.active_model,
             max_tokens=4096,
-            system=memory.build_system_prompt(memory.memories, creative_context=creative_ctx),
+            system=memory.build_system_prompt(memory.memories, creative_context=creative_ctx, query=last_user_query),
             messages=models.conversation_history,
             tools=tools.TOOLS,
         ) as stream:
@@ -263,6 +275,9 @@ if __name__ == "__main__":
             )
             print(f"{memory.DIM}Background daemon started (PID {_daemon_proc.pid}){memory.RESET}")
 
+    # Memory status
+    print(f"{memory.DIM}{memory.get_semantic_status()}{memory.RESET}")
+
     # Initialize project system
     memory.switch_project("general")
 
@@ -307,6 +322,7 @@ if __name__ == "__main__":
                 ("/remember -p <fact>", "Save a fact to project memory"),
                 ("/forget <fact>", "Remove a fact from memory"),
                 ("/memories", "List all stored memories"),
+                ("/memories search <q>", "Semantic search across memories"),
                 ("/note <text>", "Save a timestamped note"),
                 ("/notes", "List recent notes (last 7 days)"),
                 ("/notes search <q>", "Search notes by keyword"),
@@ -764,7 +780,35 @@ if __name__ == "__main__":
                     print(f"{memory.DIM}No matching memory found. Use /memories to see stored facts.{memory.RESET}\n")
             continue
 
-        if command_lower == "/memories":
+        if command_lower == "/memories" or command_lower.startswith("/memories "):
+            memories_arg = command[9:].strip() if len(command) > 9 else ""
+
+            if memories_arg.lower().startswith("search "):
+                search_query = memories_arg[7:].strip()
+                if not search_query:
+                    print(f"{memory.DIM}Usage: /memories search <query>{memory.RESET}\n")
+                    continue
+                if not memory.SEMANTIC_AVAILABLE:
+                    print(f"{memory.DIM}Semantic search not available.")
+                    print(f"Install sentence-transformers to enable: pip install sentence-transformers{memory.RESET}\n")
+                    continue
+                results = memory.retrieve_relevant_memories_scored(search_query, top_k=5)
+                if not results:
+                    print(f"{memory.DIM}No memories found.{memory.RESET}\n")
+                    continue
+                width = max(len(r[0]) for r in results) + 12
+                width = min(width, 80)
+                print(f"\n{memory.CYAN}┌{'─' * (width + 2)}┐{memory.RESET}")
+                print(f"{memory.CYAN}│{memory.RESET} {'Search: ' + search_query:<{width}} {memory.CYAN}│{memory.RESET}")
+                print(f"{memory.CYAN}├{'─' * (width + 2)}┤{memory.RESET}")
+                for text, score in results:
+                    score_str = f"({score:.2f})"
+                    line = f"  {text}  {memory.DIM}{score_str}{memory.RESET}"
+                    print(f"{memory.CYAN}│{memory.RESET} {line}")
+                print(f"{memory.CYAN}└{'─' * (width + 2)}┘{memory.RESET}\n")
+                continue
+
+            # Default: list all memories
             global_mems = memory.load_global_memories()
             proj_mems = memory.memories
             has_any = bool(global_mems or proj_mems)
@@ -1055,7 +1099,7 @@ if __name__ == "__main__":
                     continue
 
             # Gather memories for context
-            all_memories, _, _ = memory.load_all_memories()
+            all_memories = memory.retrieve_relevant_memories(draft_arg or "email drafting", top_k=15)
 
             if draft_arg_lower == "reply":
                 if not tools._last_read_email:
@@ -1244,7 +1288,7 @@ if __name__ == "__main__":
                 continue
 
             # Gather memories
-            all_memories, _, _ = memory.load_all_memories()
+            all_memories = memory.retrieve_relevant_memories(cover_arg or "cover letter", top_k=15)
 
             # Load resume
             resume_text = ""
@@ -2335,7 +2379,7 @@ if __name__ == "__main__":
                 except Exception:
                     print(f"{memory.DIM}  (Could not open browser \u2014 copy the URL above){memory.RESET}")
 
-                all_memories, _, _ = memory.load_all_memories()
+                all_memories = memory.retrieve_relevant_memories(job.get("title", "cover letter"), top_k=15)
                 resume_path = memory.get_resume_path()
                 resume_text = ""
                 if os.path.exists(resume_path):

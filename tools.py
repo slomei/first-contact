@@ -1813,7 +1813,9 @@ def execute_tool(name, tool_input, confirm_fn=None):
 
         if pdf_type == "cover_letter":
             # Gather memories
-            all_memories, _, _ = memory.load_all_memories()
+            all_memories = memory.retrieve_relevant_memories(
+                tool_input.get("title", "cover letter"), top_k=15
+            )
 
             # Load resume
             resume_text = ""

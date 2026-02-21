@@ -11,6 +11,21 @@ import re
 import shutil
 import subprocess
 import webbrowser
+from datetime import datetime
+
+# --- Optional semantic search ---
+SEMANTIC_AVAILABLE = False
+_semantic_device = None
+_embedding_model = None
+
+try:
+    from sentence_transformers import SentenceTransformer
+    import torch
+    _semantic_device = "cuda" if torch.cuda.is_available() else "cpu"
+    _embedding_model = SentenceTransformer("all-MiniLM-L6-v2", device=_semantic_device)
+    SEMANTIC_AVAILABLE = True
+except ImportError:
+    pass
 
 # ANSI color codes for terminal output
 GREEN = "\033[32m"
@@ -307,44 +322,138 @@ def get_resume_path():
     return os.path.join(PROJECTS_DIR, JOB_SEARCH_PROJECT, "resume.md")
 
 
+# --- Semantic search internals ---
+
+_global_memory_cache = {}   # text -> {"embedding": list|None, "created": str|None}
+_project_memory_cache = {}
+
+
+def _embed(text):
+    """Generate 384-dim embedding vector."""
+    return _embedding_model.encode(text, convert_to_numpy=True).tolist()
+
+
+def _cosine_similarity(a, b):
+    """Cosine similarity between two float lists."""
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(x * x for x in b) ** 0.5
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def _load_memory_file(path):
+    """Load memory file, handling old and new formats.
+
+    Old format: ["fact1", "fact2"]
+    New format: {"memories": [{"text": "...", "embedding": [...], "created": "..."}]}
+
+    Returns (texts: list[str], cache: dict).
+    """
+    if not os.path.exists(path):
+        return [], {}
+    try:
+        with open(path, "r") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return [], {}
+
+    if isinstance(data, list):
+        # Old format — migrate: return texts with empty cache entries
+        cache = {}
+        for text in data:
+            cache[text] = {"embedding": None, "created": None}
+        return data, cache
+
+    # New format
+    texts = []
+    cache = {}
+    for entry in data.get("memories", []):
+        text = entry.get("text", "")
+        texts.append(text)
+        cache[text] = {
+            "embedding": entry.get("embedding"),
+            "created": entry.get("created"),
+        }
+    return texts, cache
+
+
+def _save_memory_file(path, texts, cache):
+    """Save in new dict format, generating embeddings for new entries if available."""
+    entries = []
+    for text in texts:
+        meta = cache.get(text, {})
+        embedding = meta.get("embedding")
+        created = meta.get("created")
+
+        # Generate embedding for new entries if semantic is available
+        if embedding is None and SEMANTIC_AVAILABLE:
+            embedding = _embed(text)
+            # Update cache in place
+            if text in cache:
+                cache[text]["embedding"] = embedding
+
+        if created is None:
+            created = datetime.now().strftime("%Y-%m-%d %H:%M")
+            if text in cache:
+                cache[text]["created"] = created
+
+        entries.append({
+            "text": text,
+            "embedding": embedding,
+            "created": created,
+        })
+
+    os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
+    with open(path, "w") as f:
+        json.dump({"memories": entries}, f, indent=2)
+
+
 # --- Memory functions ---
 
 def load_memories():
     """Load memories from the active project's memory file only."""
+    global _project_memory_cache
     path = get_memory_file()
-    if os.path.exists(path):
-        try:
-            with open(path, "r") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError):
-            pass
-    return []
+    texts, cache = _load_memory_file(path)
+    _project_memory_cache = cache
+    return texts
 
 
 def save_memories(mems):
     """Save memories to the active project's memory file."""
+    global _project_memory_cache
+    # Drop removed entries from cache
+    _project_memory_cache = {k: v for k, v in _project_memory_cache.items() if k in mems}
+    # Add new entries
+    for m in mems:
+        if m not in _project_memory_cache:
+            _project_memory_cache[m] = {"embedding": None, "created": None}
     path = get_memory_file()
-    with open(path, "w") as f:
-        json.dump(mems, f, indent=2)
+    _save_memory_file(path, mems, _project_memory_cache)
 
 
 def load_global_memories():
     """Load memories from root memory.json (global layer)."""
+    global _global_memory_cache
     path = os.path.join(BASE_DIR, "memory.json")
-    if os.path.exists(path):
-        try:
-            with open(path, "r") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError):
-            pass
-    return []
+    texts, cache = _load_memory_file(path)
+    _global_memory_cache = cache
+    return texts
 
 
 def save_global_memories(mems):
     """Save memories to root memory.json (global layer)."""
+    global _global_memory_cache
+    # Drop removed entries from cache
+    _global_memory_cache = {k: v for k, v in _global_memory_cache.items() if k in mems}
+    # Add new entries
+    for m in mems:
+        if m not in _global_memory_cache:
+            _global_memory_cache[m] = {"embedding": None, "created": None}
     path = os.path.join(BASE_DIR, "memory.json")
-    with open(path, "w") as f:
-        json.dump(mems, f, indent=2)
+    _save_memory_file(path, mems, _global_memory_cache)
 
 
 def load_all_memories():
@@ -356,6 +465,80 @@ def load_all_memories():
     project_mems = load_memories()
     combined = list(dict.fromkeys(global_mems + project_mems))
     return combined, global_mems, project_mems
+
+
+def retrieve_relevant_memories(query, top_k=10):
+    """Return the most relevant memories for a query.
+
+    When semantic search is unavailable or memory count <= top_k, returns all.
+    """
+    combined, _, _ = load_all_memories()
+    if not SEMANTIC_AVAILABLE or len(combined) <= top_k:
+        return combined
+
+    query_embedding = _embed(query)
+    merged_cache = {**_global_memory_cache, **_project_memory_cache}
+
+    scored = []
+    for text in combined:
+        meta = merged_cache.get(text, {})
+        emb = meta.get("embedding")
+        if emb is None:
+            continue
+        score = _cosine_similarity(query_embedding, emb)
+        scored.append((text, score))
+
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return [text for text, _ in scored[:top_k]]
+
+
+def retrieve_relevant_memories_scored(query, top_k=5):
+    """Return the most relevant memories with similarity scores.
+
+    Returns list of (text, similarity_score) tuples.
+    """
+    combined, _, _ = load_all_memories()
+    if not SEMANTIC_AVAILABLE:
+        return [(text, 0.0) for text in combined[:top_k]]
+
+    if len(combined) <= top_k:
+        # Still score them for display
+        query_embedding = _embed(query)
+        merged_cache = {**_global_memory_cache, **_project_memory_cache}
+        results = []
+        for text in combined:
+            meta = merged_cache.get(text, {})
+            emb = meta.get("embedding")
+            if emb is not None:
+                score = _cosine_similarity(query_embedding, emb)
+            else:
+                score = 0.0
+            results.append((text, score))
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results
+
+    query_embedding = _embed(query)
+    merged_cache = {**_global_memory_cache, **_project_memory_cache}
+
+    scored = []
+    for text in combined:
+        meta = merged_cache.get(text, {})
+        emb = meta.get("embedding")
+        if emb is None:
+            continue
+        score = _cosine_similarity(query_embedding, emb)
+        scored.append((text, score))
+
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return scored[:top_k]
+
+
+def get_semantic_status():
+    """Return a status string describing the memory search mode."""
+    if SEMANTIC_AVAILABLE:
+        device = "GPU" if _semantic_device == "cuda" else "CPU"
+        return f"Memory: semantic search ({device})"
+    return "Memory: basic (install sentence-transformers for smart retrieval)"
 
 
 def get_cross_project_summary():
@@ -467,22 +650,36 @@ def get_detailed_project_summaries():
     return "\n".join(lines)
 
 
-def build_system_prompt(mems, creative_context=""):
+def build_system_prompt(mems, creative_context="", query=None):
     """Build the system prompt with global memories, project memories, resume ref, and cross-project summary."""
     base = _build_base_prompt()
     if challenge_mode:
         base += _build_challenge_addendum()
 
-    # Global memories (core facts)
-    global_mems = load_global_memories()
-    if global_mems:
-        block = "\n".join(f"- {m}" for m in global_mems)
-        base += f"\n\nCore facts (always available):\n{block}"
+    if query and SEMANTIC_AVAILABLE:
+        # Semantic retrieval: get the most relevant memories
+        relevant = retrieve_relevant_memories(query, top_k=15)
+        # Split back into global/project for labeled display
+        global_set = set(load_global_memories())
+        relevant_global = [m for m in relevant if m in global_set]
+        relevant_project = [m for m in relevant if m not in global_set]
 
-    # Project-specific memories
-    if mems:
-        project_block = "\n".join(f"- {m}" for m in mems)
-        base += f"\n\nProject memories ({active_project}):\n{project_block}"
+        if relevant_global:
+            block = "\n".join(f"- {m}" for m in relevant_global)
+            base += f"\n\nCore facts (most relevant):\n{block}"
+        if relevant_project:
+            project_block = "\n".join(f"- {m}" for m in relevant_project)
+            base += f"\n\nProject memories ({active_project}, most relevant):\n{project_block}"
+    else:
+        # Fallback: load all memories (original behavior)
+        global_mems = load_global_memories()
+        if global_mems:
+            block = "\n".join(f"- {m}" for m in global_mems)
+            base += f"\n\nCore facts (always available):\n{block}"
+
+        if mems:
+            project_block = "\n".join(f"- {m}" for m in mems)
+            base += f"\n\nProject memories ({active_project}):\n{project_block}"
 
     # Resume reference
     resume_path = get_resume_path()

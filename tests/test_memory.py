@@ -134,3 +134,99 @@ def test_get_cross_project_summary(isolated_env):
     assert "side-project" in summary
     assert "1 open task" in summary
     assert "1 conversation" in summary
+
+
+# --- Semantic memory tests ---
+
+def test_memory_format_migration(isolated_env):
+    """Old list-of-strings format migrates to new dict format on save."""
+    memory.get_project_dir()
+    path = memory.get_memory_file()
+    # Write old format directly
+    with open(path, "w") as f:
+        json.dump(["old fact one", "old fact two"], f)
+    # Load (reads old format)
+    loaded = memory.load_memories()
+    assert loaded == ["old fact one", "old fact two"]
+    # Save (writes new format)
+    memory.save_memories(loaded)
+    # Verify new format on disk
+    with open(path, "r") as f:
+        data = json.load(f)
+    assert isinstance(data, dict)
+    assert "memories" in data
+    assert len(data["memories"]) == 2
+    assert data["memories"][0]["text"] == "old fact one"
+
+
+def test_new_format_roundtrip(isolated_env):
+    """Save/load in new format preserves text."""
+    memory.get_project_dir()
+    test_mems = ["alpha", "beta", "gamma"]
+    memory.save_memories(test_mems)
+    loaded = memory.load_memories()
+    assert loaded == test_mems
+
+
+def test_retrieve_relevant_memories_fallback(isolated_env):
+    """Without semantic, retrieve_relevant_memories returns all memories."""
+    memory.get_project_dir()
+    memory.save_global_memories(["global one", "global two"])
+    memory.save_memories(["project one"])
+    result = memory.retrieve_relevant_memories("anything", top_k=10)
+    # Should return all since SEMANTIC_AVAILABLE is False in test env
+    assert "global one" in result
+    assert "global two" in result
+    assert "project one" in result
+
+
+def test_retrieve_returns_all_when_under_topk(isolated_env):
+    """When count <= top_k, returns all memories."""
+    memory.get_project_dir()
+    memory.save_memories(["only one"])
+    memory.save_global_memories([])
+    result = memory.retrieve_relevant_memories("query", top_k=10)
+    assert result == ["only one"]
+
+
+def test_save_preserves_metadata(isolated_env):
+    """Adding a memory preserves existing created timestamps."""
+    memory.get_project_dir()
+    memory.save_memories(["first fact"])
+    # Load to populate cache
+    memory.load_memories()
+    # Check cache has a created timestamp
+    assert "first fact" in memory._project_memory_cache
+    created = memory._project_memory_cache["first fact"].get("created")
+    assert created is not None
+    # Save with an additional memory
+    memory.save_memories(["first fact", "second fact"])
+    memory.load_memories()
+    # First fact should still have same created timestamp
+    assert memory._project_memory_cache["first fact"]["created"] == created
+
+
+def test_forget_removes_from_cache(isolated_env):
+    """Removing a memory cleans up internal state."""
+    memory.get_project_dir()
+    memory.save_memories(["keep this", "forget this"])
+    memory.load_memories()
+    assert "forget this" in memory._project_memory_cache
+    # Remove one
+    memory.save_memories(["keep this"])
+    assert "forget this" not in memory._project_memory_cache
+    assert "keep this" in memory._project_memory_cache
+
+
+def test_get_semantic_status():
+    """Returns a string containing 'Memory:'."""
+    status = memory.get_semantic_status()
+    assert "Memory:" in status
+
+
+def test_build_system_prompt_with_query(isolated_env):
+    """Query param accepted without error."""
+    memory.save_global_memories(["user likes Python"])
+    prompt = memory.build_system_prompt(["project fact"], query="tell me about Python")
+    assert isinstance(prompt, str)
+    assert len(prompt) > 0

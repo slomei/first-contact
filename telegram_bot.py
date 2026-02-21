@@ -154,6 +154,18 @@ async def get_response(state, channel):
     """
     sync_state(state)
 
+    # Extract last user message for semantic retrieval
+    last_user_query = None
+    for msg in reversed(state.conversation_history):
+        if msg.get("role") == "user":
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                last_user_query = content
+            elif isinstance(content, list):
+                texts = [b.get("text", "") for b in content if b.get("type") == "text"]
+                last_user_query = " ".join(texts)
+            break
+
     total_input = 0
     total_output = 0
     total_cost = 0.0
@@ -163,7 +175,7 @@ async def get_response(state, channel):
             models.get_client().messages.create,
             model=state.active_model,
             max_tokens=4096,
-            system=memory.build_system_prompt(memory.memories),
+            system=memory.build_system_prompt(memory.memories, query=last_user_query),
             messages=state.conversation_history,
             tools=tools.TOOLS,
         )
@@ -913,7 +925,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sync_state(state)
 
         # Gather memories
-        all_memories, _, _ = memory.load_all_memories()
+        all_memories = memory.retrieve_relevant_memories(cover_arg or "cover letter", top_k=15)
 
         # Load resume
         resume_text = ""
@@ -2012,7 +2024,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"{job['title']}\n{job['url']}\n\nGenerating cover letter (Opus)...", bot)
             # Gather memories
             sync_state(state)
-            all_memories, _, _ = memory.load_all_memories()
+            all_memories = memory.retrieve_relevant_memories(job.get("title", "cover letter"), top_k=15)
 
             try:
                 letter, cost = await asyncio.to_thread(

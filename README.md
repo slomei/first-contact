@@ -27,7 +27,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 - **Proactive job scanning** — Scheduled multi-platform scans with AI fit assessment against your profile, delivered via Discord/Telegram
 - **Task & reminder system** — Natural language dates, priority levels, due date tracking, background reminder delivery
 - **Daily briefing** — Aggregates email, calendar, tasks, jobs, reminders, and watchlist topics into a single morning report
-- **Persistent memory** — Two-layer memory system: global facts persist across all projects, project-specific memories stay scoped
+- **Persistent memory** — Two-layer memory system: global facts persist across all projects, project-specific memories stay scoped. Optionally install `sentence-transformers` for semantic search — retrieves the most relevant memories per query instead of loading all. Works on CPU; uses GPU if available
 - **File operations** — Read, write, and manage files in sandboxed project workspaces
 - **Code execution** — Run Python in a sandboxed workspace with timeout protection
 - **PDF generation** — Professional cover letters with formatted headers, or general documents from any text
