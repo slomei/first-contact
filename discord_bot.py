@@ -23,6 +23,7 @@ import briefing
 import notifications
 import documents
 import job_scanner
+import onboarding
 
 # Only respond to this Discord user ID (set via DISCORD_USER_ID env var)
 ALLOWED_USER_ID = int(os.environ.get("DISCORD_USER_ID", "0"))
@@ -49,6 +50,7 @@ class UserState:
         self.input_tokens = 0
         self.output_tokens = 0
         self.cost = 0.0
+        self.onboarding_wizard = None
 
 
 # Per-user state, keyed by user ID
@@ -287,6 +289,7 @@ def build_help_text():
         "`!cover <#>` — Generate cover letter PDF for a saved job\n"
         "`!cover new <company> <title>` — Cover letter PDF (ad-hoc)\n"
         "`!pdf <title>` — Save last response as a PDF\n"
+        "`!setup` — Run onboarding wizard\n"
         "`!new` — Reset conversation history\n\n"
         "Claude also uses tools autonomously (web search, file read/write, memory, code execution)."
     )
@@ -690,6 +693,18 @@ async def on_ready():
     bot.loop.create_task(job_scan_loop())
     print(f"Discord bot connected as {bot.user}")
 
+    # First-run onboarding — DM the allowed user if no Claude.md exists
+    if ALLOWED_USER_ID and onboarding.needs_onboarding():
+        try:
+            user = await bot.fetch_user(ALLOWED_USER_ID)
+            dm = await user.create_dm()
+            state = get_state(ALLOWED_USER_ID)
+            state.onboarding_wizard = onboarding.OnboardingWizard()
+            prompt, _ = state.onboarding_wizard.advance()
+            await send_reply(dm, prompt)
+        except Exception as e:
+            print(f"[Onboarding] Could not DM user: {e}")
+
 
 @bot.event
 async def on_message(message):
@@ -725,8 +740,22 @@ async def on_message(message):
     dm = await message.author.create_dm()
     state = get_state(message.author.id)
 
+    # --- Onboarding wizard interception ---
+    if state.onboarding_wizard is not None:
+        prompt, done = state.onboarding_wizard.advance(content, is_terminal=False)
+        await send_reply(dm, prompt)
+        if done:
+            state.onboarding_wizard = None
+        return
+
     # --- Commands ---
     command_lower = content.lower()
+
+    if command_lower == "!setup":
+        state.onboarding_wizard = onboarding.OnboardingWizard()
+        prompt, _ = state.onboarding_wizard.advance()
+        await send_reply(dm, prompt)
+        return
 
     if command_lower == "!help":
         await send_reply(dm, build_help_text())

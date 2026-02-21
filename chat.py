@@ -26,6 +26,7 @@ import sync
 import creative
 import documents
 import job_scanner
+import onboarding
 
 
 # --- Terminal-specific helpers ---
@@ -193,6 +194,19 @@ if __name__ == "__main__":
     # Initialize project system
     memory.switch_project("general")
 
+    # First-run onboarding
+    if onboarding.needs_onboarding():
+        try:
+            wizard = onboarding.OnboardingWizard()
+            prompt, done = wizard.advance()
+            print(prompt)
+            while not done:
+                answer = input(f"{memory.GREEN}> {memory.RESET}")
+                prompt, done = wizard.advance(answer, is_terminal=True)
+                print(prompt)
+        except (EOFError, KeyboardInterrupt):
+            print(f"\n{memory.DIM}Setup interrupted. Run /setup to try again.{memory.RESET}\n")
+
     # Show previous conversations if any exist
     existing = memory.list_conversations()
     if existing:
@@ -202,6 +216,7 @@ if __name__ == "__main__":
 
     HELP_TEXT = f"""{memory.DIM}Available commands:
       /help              Show this help message
+      /setup             Run onboarding wizard
       /read <path>       Load a file into the conversation
       /web <query>       Search the web and discuss results
       /fetch <url>       Fetch a web page and load into conversation
@@ -343,6 +358,19 @@ if __name__ == "__main__":
 
         if command_lower == "/help":
             print(HELP_TEXT)
+            continue
+
+        if command_lower == "/setup":
+            try:
+                wizard = onboarding.OnboardingWizard()
+                prompt, done = wizard.advance()
+                print(prompt)
+                while not done:
+                    answer = input(f"{memory.GREEN}> {memory.RESET}")
+                    prompt, done = wizard.advance(answer, is_terminal=True)
+                    print(prompt)
+            except (EOFError, KeyboardInterrupt):
+                print(f"\n{memory.DIM}Setup interrupted.{memory.RESET}\n")
             continue
 
         if command_lower in models.MODELS:

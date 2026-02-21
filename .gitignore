@@ -21,6 +21,7 @@ __pycache__/
 *.env
 .env.*
 !.env.example
+setup_env.sh
 venv/
 
 # Workspace & conversations

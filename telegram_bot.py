@@ -26,6 +26,7 @@ import briefing
 import notifications
 import documents
 import job_scanner
+import onboarding
 
 # Only respond to this Telegram user ID (set via TELEGRAM_USER_ID env var)
 # Set to 0 to log all user IDs (useful for initial setup)
@@ -51,6 +52,7 @@ class UserState:
         self.output_tokens = 0
         self.cost = 0.0
         self.pending_event = None  # For calendar confirmation
+        self.onboarding_wizard = None
 
 
 # Per-user state, keyed by user ID
@@ -304,6 +306,7 @@ def build_help_text():
         "/cover <#> — Generate cover letter PDF for a saved job\n"
         "/cover new <company> <title> — Cover letter PDF (ad-hoc)\n"
         "/pdf <title> — Save last response as a PDF\n"
+        "/setup — Run onboarding wizard\n"
         "/new — Reset conversation history\n\n"
         "Claude also uses tools autonomously (web search, file read/write, memory, code execution)."
     )
@@ -702,6 +705,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = get_state(user_id)
     channel = TelegramChannel(chat_id, bot)
 
+    # --- First-run onboarding check ---
+    if state.onboarding_wizard is None and onboarding.needs_onboarding():
+        state.onboarding_wizard = onboarding.OnboardingWizard()
+        prompt, _ = state.onboarding_wizard.advance()
+        await send_reply(chat_id, prompt, bot)
+        return
+
+    # --- Onboarding wizard interception ---
+    if state.onboarding_wizard is not None:
+        prompt, done = state.onboarding_wizard.advance(text, is_terminal=False)
+        await send_reply(chat_id, prompt, bot)
+        if done:
+            state.onboarding_wizard = None
+        return
+
     # --- Check for pending calendar confirmation ---
     if state.pending_event and text.lower() in ("yes", "y", "no", "n"):
         if text.lower() in ("yes", "y"):
@@ -722,6 +740,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- Commands (/ prefix) ---
     content_lower = text.lower()
+
+    if content_lower == "/setup":
+        state.onboarding_wizard = onboarding.OnboardingWizard()
+        prompt, _ = state.onboarding_wizard.advance()
+        await send_reply(chat_id, prompt, bot)
+        return
 
     if content_lower in ("/help", "/start"):
         await send_reply(chat_id, build_help_text(), bot)
