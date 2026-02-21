@@ -12,8 +12,16 @@ from datetime import datetime
 
 import memory
 
-# Anthropic client
-client = anthropic.Anthropic()
+# Anthropic client — lazy-initialized to avoid requiring API key at import time
+_client = None
+
+
+def get_client():
+    """Return the Anthropic client, creating it on first use."""
+    global _client
+    if _client is None:
+        _client = anthropic.Anthropic()
+    return _client
 
 # Available models and their shorthand commands
 MODELS = {
@@ -230,7 +238,7 @@ def compress_conversation():
         return None
 
     combined = "\n\n".join(summary_parts)
-    summary_response = client.messages.create(
+    summary_response = get_client().messages.create(
         model="claude-haiku-4-5",
         max_tokens=300,
         messages=[{"role": "user", "content":
@@ -302,7 +310,7 @@ def generate_title(history):
         combined = combined[:5000] + "..."
 
     try:
-        response = client.messages.create(
+        response = get_client().messages.create(
             model="claude-haiku-4-5",
             max_tokens=30,
             messages=[{"role": "user", "content":
@@ -374,7 +382,7 @@ def load_conversation(filepath):
     if len(raw) > 30_000:
         raw = raw[:30_000] + "\n...[truncated]"
 
-    summary_response = client.messages.create(
+    summary_response = get_client().messages.create(
         model="claude-haiku-4-5",
         max_tokens=500,
         messages=[{"role": "user", "content":
@@ -420,7 +428,7 @@ def route_message(user_message):
         "substantial code generation, or rigorous analysis."
     )
 
-    response = client.messages.create(
+    response = get_client().messages.create(
         model=DIRECTOR_MODEL,
         max_tokens=200,
         system=routing_prompt,
@@ -453,7 +461,7 @@ def delegate_to_specialist(specialist_name, task):
     spec = SPECIALISTS[specialist_name]
     model = spec["model"]
 
-    response = client.messages.create(
+    response = get_client().messages.create(
         model=model,
         max_tokens=4096,
         system=spec["system_prompt"],
@@ -497,7 +505,7 @@ def generate_cover_letter(job, memories_list, resume_text="", job_description=""
 
     cover_letter_model = "claude-opus-4-6"
 
-    response = client.messages.create(
+    response = get_client().messages.create(
         model=cover_letter_model,
         max_tokens=1000,
         messages=[{"role": "user", "content": prompt}],
@@ -569,7 +577,7 @@ def generate_reply_draft(original_email, user_intent, memories_list):
         "no 'Dear' header unless appropriate. Keep it concise and professional."
     )
 
-    response = client.messages.create(
+    response = get_client().messages.create(
         model=DRAFT_MODEL,
         max_tokens=1000,
         system=_get_draft_system_prompt(),
@@ -611,7 +619,7 @@ def generate_new_draft(recipient, subject, user_intent, memories_list):
         "Write the email body. Keep it concise and professional."
     )
 
-    response = client.messages.create(
+    response = get_client().messages.create(
         model=DRAFT_MODEL,
         max_tokens=1000,
         system=_get_draft_system_prompt(),
@@ -658,7 +666,7 @@ def generate_job_draft(job, cover_letter, resume_text, memories_list):
         "Format your response as:\nSUBJECT: <subject line>\n\n<email body>"
     )
 
-    response = client.messages.create(
+    response = get_client().messages.create(
         model=DRAFT_MODEL,
         max_tokens=1000,
         system=_get_draft_system_prompt(),

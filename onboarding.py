@@ -668,7 +668,7 @@ class OnboardingWizard:
         """
         try:
             summary = self._build_summary()
-            response = models.client.messages.create(
+            response = models.get_client().messages.create(
                 model="claude-haiku-4-5",
                 max_tokens=512,
                 system=(

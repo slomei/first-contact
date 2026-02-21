@@ -66,7 +66,7 @@ def user_message(message, history, state):
 def bot_response(history, state):
     """Stream Claude's response, handling tool-use loops."""
     for turn in range(10):
-        with models.client.messages.stream(
+        with models.get_client().messages.stream(
             model=state.active_model,
             max_tokens=4096,
             system=memory.build_system_prompt(memory.memories),

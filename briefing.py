@@ -217,7 +217,7 @@ def _gather_watchlist():
         # Summarize with Haiku
         import models
         try:
-            response = models.client.messages.create(
+            response = models.get_client().messages.create(
                 model="claude-haiku-4-5",
                 max_tokens=500,
                 messages=[{"role": "user", "content":

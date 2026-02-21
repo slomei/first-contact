@@ -530,7 +530,7 @@ def parse_job_posting(text, title, url):
     """Extract structured job data from page text. Returns a dict."""
     import models
     try:
-        response = models.client.messages.create(
+        response = models.get_client().messages.create(
             model="claude-haiku-4-5",
             max_tokens=500,
             messages=[{"role": "user", "content":
@@ -1654,7 +1654,7 @@ def run_digest(progress_fn=None):
 
     cost_str = "$0.0000"
     try:
-        response = models.client.messages.create(
+        response = models.get_client().messages.create(
             model="claude-haiku-4-5",
             max_tokens=1500,
             messages=[{"role": "user", "content":

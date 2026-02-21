@@ -267,7 +267,7 @@ def _shorten_with_opus(text):
     """Ask Opus to tighten a cover letter to fit one page."""
     import models
     try:
-        response = models.client.messages.create(
+        response = models.get_client().messages.create(
             model="claude-opus-4-6",
             max_tokens=800,
             messages=[{"role": "user", "content":

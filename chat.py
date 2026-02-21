@@ -126,7 +126,7 @@ def chat_turn():
         if turn == 0:
             print(f"\n{memory.CYAN}Claude:{memory.RESET} ", end="", flush=True)
 
-        with models.client.messages.stream(
+        with models.get_client().messages.stream(
             model=models.active_model,
             max_tokens=4096,
             system=memory.build_system_prompt(memory.memories, creative_context=creative_ctx),
@@ -1252,7 +1252,7 @@ if __name__ == "__main__":
                 # Use Haiku to parse the natural language event description
                 import models as _models
                 try:
-                    parse_response = _models.client.messages.create(
+                    parse_response = _models.get_client().messages.create(
                         model="claude-haiku-4-5",
                         max_tokens=200,
                         messages=[{"role": "user", "content":

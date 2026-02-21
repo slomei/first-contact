@@ -160,7 +160,7 @@ async def get_response(state, channel):
 
     for turn in range(10):
         response = await asyncio.to_thread(
-            models.client.messages.create,
+            models.get_client().messages.create,
             model=state.active_model,
             max_tokens=4096,
             system=memory.build_system_prompt(memory.memories),
@@ -437,7 +437,7 @@ async def run_digest(state, channel):
     await channel.send("Summarizing findings...")
     try:
         response = await asyncio.to_thread(
-            models.client.messages.create,
+            models.get_client().messages.create,
             model="claude-haiku-4-5",
             max_tokens=1500,
             messages=[{"role": "user", "content":
@@ -478,7 +478,7 @@ async def load_conversation_telegram(state, filepath, channel):
     await channel.send("Summarizing previous conversation...")
     try:
         summary_response = await asyncio.to_thread(
-            models.client.messages.create,
+            models.get_client().messages.create,
             model="claude-haiku-4-5",
             max_tokens=500,
             messages=[{"role": "user", "content":
@@ -1237,7 +1237,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Parse with Haiku
             try:
                 parse_response = await asyncio.to_thread(
-                    models.client.messages.create,
+                    models.get_client().messages.create,
                     model="claude-haiku-4-5",
                     max_tokens=200,
                     messages=[{"role": "user", "content":

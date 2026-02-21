@@ -83,7 +83,7 @@ def _extract_characters_via_haiku(bible_text):
         "World Bible Text:\n\n" + bible_text
     )
 
-    response = models.client.messages.create(
+    response = models.get_client().messages.create(
         model="claude-haiku-4-5",
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
@@ -126,7 +126,7 @@ def _extract_locations_via_haiku(bible_text):
         "World Bible Text:\n\n" + bible_text
     )
 
-    response = models.client.messages.create(
+    response = models.get_client().messages.create(
         model="claude-haiku-4-5",
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],

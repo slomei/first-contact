@@ -14,13 +14,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 @pytest.fixture(autouse=True)
 def _mock_anthropic(monkeypatch):
-    """Prevent models.py from requiring an API key at import time."""
+    """Mock the lazy-initialized Anthropic client so tests never hit the API."""
     mock_client = MagicMock()
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-real")
-    # Patch after import so the module-level client doesn't crash
     try:
         import models
-        monkeypatch.setattr(models, "client", mock_client)
+        monkeypatch.setattr(models, "get_client", lambda: mock_client)
     except Exception:
         pass
 

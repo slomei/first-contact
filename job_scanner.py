@@ -418,7 +418,7 @@ def _assess_fit_batch(jobs, progress_fn=None):
             text = f"Title: {job['title']}\nURL: {job['url']}\n\n{job['body'][:1500]}"
 
             try:
-                response = models.client.messages.create(
+                response = models.get_client().messages.create(
                     model="claude-haiku-4-5",
                     max_tokens=200,
                     messages=[{"role": "user", "content": fit_prompt + text}],
