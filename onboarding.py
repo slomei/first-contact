@@ -76,6 +76,11 @@ STEPS = [
         ),
         "multi_select",
     ),
+    ("calibration_intro", None, "auto-advance"),
+    ("calibration_1", "Tell me about something you're working on or excited about right now.", "calibration"),
+    ("calibration_2", None, "calibration"),
+    ("calibration_3", None, "calibration"),
+    ("calibration_analyze", None, "auto-advance"),
     ("review", None, "auto-advance"),
     ("confirm", None, "confirm"),
 ]
@@ -251,6 +256,14 @@ class OnboardingWizard:
             key, prompt, notes = STEPS[self.step]
             if notes == "multi" and self.sub_step > 0:
                 return self._multi_sub_prompt(key)
+            if notes == "calibration":
+                if prompt:
+                    return f"Agent: {prompt}"
+                exchanges = self.data.get("calibration_exchanges", [])
+                for ex in reversed(exchanges):
+                    if ex["role"] == "assistant":
+                        return f"Agent: {ex['content']}"
+                return ""
             if prompt:
                 return prompt
         return ""
@@ -329,6 +342,76 @@ class OnboardingWizard:
         self.data[key] = selections
         self.step += 1
         return self._next_prompt()
+
+    def _handle_calibration(self, key, user_input):
+        """Handle a calibration conversation step — no validation, accept anything."""
+        text = user_input.strip()
+        self.data.setdefault("calibration_exchanges", []).append({
+            "role": "user",
+            "content": text if text else "(no response)",
+        })
+        self.step += 1
+        return self._next_prompt()
+
+    def _generate_followup(self):
+        """Call Sonnet to generate a natural follow-up question for calibration."""
+        try:
+            exchanges = self.data.get("calibration_exchanges", [])
+            conversation = "\n".join(
+                f"{ex['role'].title()}: {ex['content']}" for ex in exchanges
+            )
+            response = models.get_client().messages.create(
+                model="claude-sonnet-4-5-20250514",
+                max_tokens=256,
+                system=(
+                    "You're getting to know a new user during onboarding. Here's the "
+                    "conversation so far. Ask one natural follow-up question. Be "
+                    "conversational, not clinical. Don't ask about their technical "
+                    "preferences — that's already covered. You're trying to understand "
+                    "how they think, what they care about, their sense of humor, their "
+                    "energy. Just the question, nothing else."
+                ),
+                messages=[{"role": "user", "content": conversation}],
+            )
+            return response.content[0].text.strip()
+        except Exception:
+            return None
+
+    def _run_calibration_analysis(self):
+        """Send calibration conversation to Opus for personality analysis."""
+        try:
+            exchanges = self.data.get("calibration_exchanges", [])
+            if not exchanges:
+                return
+            conversation = "\n".join(
+                f"{ex['role'].title()}: {ex['content']}" for ex in exchanges
+            )
+            response = models.get_client().messages.create(
+                model="claude-opus-4-5-20250414",
+                max_tokens=512,
+                system=(
+                    "You just had a short conversation with a new user. Based on how "
+                    "they write and what they said, generate a personality calibration "
+                    "profile. Cover:\n"
+                    "- Communication style observations (not what they selected in a "
+                    "menu — what you actually observed)\n"
+                    "- Vocabulary level and tone\n"
+                    "- What they seem to care about\n"
+                    "- Humor style (if any)\n"
+                    "- Energy level / patience level\n"
+                    "- How direct or indirect they are\n"
+                    "- Any other personality traits that would help an AI assistant "
+                    "work well with them\n\n"
+                    "Write this as a natural paragraph, not a bulleted list. This will "
+                    "be injected into their personal context file to help the assistant "
+                    "calibrate its responses. Be specific and cite examples from the "
+                    "conversation. 2-4 sentences max."
+                ),
+                messages=[{"role": "user", "content": f"Conversation:\n{conversation}"}],
+            )
+            self.data["calibration_profile"] = response.content[0].text.strip()
+        except Exception:
+            pass
 
     def _handle_multi_step(self, key, user_input, is_terminal):
         """Handle Discord/Telegram multi-part integration steps."""
@@ -638,6 +721,9 @@ class OnboardingWizard:
         if notes == "multi_select":
             return self._handle_multi_select(key, user_input)
 
+        if notes == "calibration":
+            return self._handle_calibration(key, user_input)
+
         return self._handle_text(key, user_input)
 
     def _next_prompt(self):
@@ -652,7 +738,41 @@ class OnboardingWizard:
         if key == "review":
             return self._run_review(False)
 
+        if key == "calibration_intro":
+            self.data["calibration_exchanges"] = []
+            self.step += 1
+            next_key, next_prompt, _ = STEPS[self.step]
+            intro = (
+                "Agent: I'd like to have a quick conversation to get a feel for "
+                "how you communicate. Just be yourself — there are no right answers."
+            )
+            self.data["calibration_exchanges"].append({
+                "role": "assistant",
+                "content": next_prompt,
+            })
+            return (f"{intro}\n\nAgent: {next_prompt}", False)
+
+        if key == "calibration_analyze":
+            self._run_calibration_analysis()
+            self.step += 1
+            return self._next_prompt()
+
+        if notes == "calibration" and prompt is None:
+            followup = self._generate_followup()
+            if followup:
+                self.data.setdefault("calibration_exchanges", []).append({
+                    "role": "assistant",
+                    "content": followup,
+                })
+                return (f"Agent: {followup}", False)
+            # API failed — skip remaining calibration steps
+            while self.step < len(STEPS) and STEPS[self.step][0].startswith("calibration"):
+                self.step += 1
+            return self._next_prompt()
+
         if prompt:
+            if notes == "calibration":
+                return (f"Agent: {prompt}", False)
             return (prompt, False)
 
         return ("", False)
@@ -863,6 +983,16 @@ class OnboardingWizard:
         sections.append(comm)
         sections.append(f"- Technical level: {tech}")
         sections.append("\n---\n")
+
+        # PERSONALITY CALIBRATION
+        if d.get("calibration_profile"):
+            sections.append("## PERSONALITY CALIBRATION\n")
+            sections.append(d["calibration_profile"])
+            sections.append(
+                "\n*Generated from onboarding conversation — updates as the "
+                "agent learns more about you.*"
+            )
+            sections.append("\n---\n")
 
         # PROFESSIONAL BACKGROUND
         sections.append(f"## PROFESSIONAL BACKGROUND\n")
