@@ -239,7 +239,7 @@ if __name__ == "__main__":
       /watch remove <topic>  Remove a topic from the watchlist
       /digest            Search web for watched topics and save a digest
       /work search <q>   Search for job listings
-      /work save         Save last search results to job-search project
+      /work save [#,#|all]  Save search results (by number, comma-separated, or all)
       /work list         Show all saved job listings
       /work remove <#>   Remove a saved listing
       /work apply <#>    Open listing + generate cover letter to jobs/<slug>/
@@ -1910,7 +1910,7 @@ if __name__ == "__main__":
             arg_lower = arg.lower()
 
             if not arg:
-                print(f"{memory.DIM}Usage: /work search <query> | /work save | /work list | /work remove <#>")
+                print(f"{memory.DIM}Usage: /work search <query> | /work save [#,#|all] | /work list | /work remove <#>")
                 print(f"       /work apply <#> | /work track <#> <status> | /work status{memory.RESET}\n")
                 continue
 
@@ -1934,16 +1934,60 @@ if __name__ == "__main__":
                     print(f"\n  {memory.CYAN}{i}. {r['title']}{memory.RESET}")
                     print(f"     {memory.DIM}{r['url']}{memory.RESET}")
                     print(f"     {r['body'][:200]}")
-                print(f"\n{memory.DIM}Found {len(results)} result(s). Use /work save to save these.{memory.RESET}\n")
+                print(f"\n{memory.DIM}Found {len(results)} result(s). Use /work save <#>, /work save 1,3,6, or /work save all{memory.RESET}\n")
 
-            elif arg_lower == "save":
+            elif arg_lower == "save" or arg_lower.startswith("save "):
                 if not tools.last_job_results:
                     print(f"{memory.DIM}No search results to save. Run /work search <query> first.{memory.RESET}\n")
                     continue
+                save_arg = arg[4:].strip()  # everything after "save"
+
+                if save_arg.lower() == "all":
+                    # /work save all — save every result
+                    results_to_save = list(tools.last_job_results)
+                elif save_arg:
+                    # /work save 1 or /work save 1, 3, 6
+                    try:
+                        indices = [int(x.strip()) for x in save_arg.split(",")]
+                    except ValueError:
+                        print(f"{memory.DIM}Invalid number(s). Use: /work save 1 or /work save 1, 3, 6{memory.RESET}\n")
+                        continue
+                    invalid = [n for n in indices if n < 1 or n > len(tools.last_job_results)]
+                    if invalid:
+                        print(f"{memory.DIM}Invalid result number(s): {invalid}. Results are 1-{len(tools.last_job_results)}.{memory.RESET}\n")
+                        continue
+                    results_to_save = [tools.last_job_results[i - 1] for i in indices]
+                else:
+                    # /work save (no args) — interactive pick
+                    print(f"{memory.DIM}Last search results:{memory.RESET}")
+                    for i, r in enumerate(tools.last_job_results, 1):
+                        print(f"  {memory.CYAN}{i}. {r['title']}{memory.RESET}")
+                    print(f"\n{memory.DIM}Enter number(s) to save (e.g. 1 or 1,3,6), or 'all':{memory.RESET}")
+                    try:
+                        pick = input(f"{memory.DIM}> {memory.RESET}").strip()
+                    except (EOFError, KeyboardInterrupt):
+                        print()
+                        continue
+                    if not pick:
+                        continue
+                    if pick.lower() == "all":
+                        results_to_save = list(tools.last_job_results)
+                    else:
+                        try:
+                            indices = [int(x.strip()) for x in pick.split(",")]
+                        except ValueError:
+                            print(f"{memory.DIM}Invalid input.{memory.RESET}\n")
+                            continue
+                        invalid = [n for n in indices if n < 1 or n > len(tools.last_job_results)]
+                        if invalid:
+                            print(f"{memory.DIM}Invalid result number(s): {invalid}. Results are 1-{len(tools.last_job_results)}.{memory.RESET}\n")
+                            continue
+                        results_to_save = [tools.last_job_results[i - 1] for i in indices]
+
                 jobs = memory.load_jobs()
                 existing_urls = {j["url"] for j in jobs}
                 added = 0
-                for r in tools.last_job_results:
+                for r in results_to_save:
                     if r["url"] not in existing_urls:
                         job_entry = {
                             "title": r["title"],

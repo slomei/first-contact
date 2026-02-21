@@ -287,8 +287,11 @@ def run_scan(queries=None, progress_fn=None, scan_type="manual"):
                 progress_fn(f"Searching {platform['name']}: {query}...")
 
             try:
+                import contextlib, io
                 from ddgs import DDGS
-                raw_results = DDGS().text(full_query, max_results=max_results)
+                # Suppress primp "Impersonate ... does not exist" warnings
+                with contextlib.redirect_stderr(io.StringIO()):
+                    raw_results = DDGS().text(full_query, max_results=max_results)
             except Exception as e:
                 if progress_fn:
                     progress_fn(f"Search failed ({platform['name']}): {e}")

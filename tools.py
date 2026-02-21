@@ -421,7 +421,10 @@ JOB_BOARD_DOMAINS = [
 
 def web_search(query, max_results=5):
     """Search the web using DuckDuckGo and return formatted results."""
-    results = DDGS().text(query, max_results=max_results)
+    # Suppress primp "Impersonate ... does not exist" warnings
+    import contextlib, io
+    with contextlib.redirect_stderr(io.StringIO()):
+        results = DDGS().text(query, max_results=max_results)
     if not results:
         return None
     lines = []
@@ -433,7 +436,10 @@ def web_search(query, max_results=5):
 def search_jobs(query, max_results=10):
     """Search for job listings using DuckDuckGo."""
     search_query = f"{query} jobs hiring"
-    results = DDGS().text(search_query, max_results=max_results)
+    # Suppress primp "Impersonate ... does not exist" warnings
+    import contextlib, io
+    with contextlib.redirect_stderr(io.StringIO()):
+        results = DDGS().text(search_query, max_results=max_results)
     if not results:
         return []
     return [{"title": r["title"], "url": r["href"], "body": r["body"]} for r in results]
