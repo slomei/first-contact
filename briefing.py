@@ -53,12 +53,12 @@ def _gather_email():
                     if multi:
                         entry["account"] = label
                     all_emails.append(entry)
-            # Get total unread count per account
+            # Get exact unread count per account via label metadata
             try:
-                count_result = svc.users().messages().list(
-                    userId="me", q="is:unread", labelIds=["INBOX"], maxResults=1
+                label_info = svc.users().labels().get(
+                    userId="me", id="INBOX"
                 ).execute()
-                total_unread += count_result.get("resultSizeEstimate", 0)
+                total_unread += label_info.get("messagesUnread", 0)
             except Exception:
                 total_unread += len(result) if isinstance(result, list) else 0
         return {
