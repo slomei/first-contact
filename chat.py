@@ -254,7 +254,8 @@ def chat_turn():
                 tool_results = []
                 for block in final.content:
                     if block.type == "tool_use":
-                        print_tool_status(block.name, block.input)
+                        if block.name != "list_memories":
+                            print_tool_status(block.name, block.input)
                         result, is_error = tools.execute_tool(block.name, block.input, confirm_fn=terminal_confirm)
                         tool_result = {
                             "type": "tool_result",
