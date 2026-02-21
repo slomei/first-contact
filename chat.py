@@ -30,6 +30,7 @@ import creative
 import documents
 import job_scanner
 import onboarding
+import help_data
 
 
 # --- Terminal-specific helpers ---
@@ -394,189 +395,22 @@ if __name__ == "__main__":
         print_conversations(existing)
         print()
 
-    HELP_CATEGORIES = {
-        "chat": {
-            "desc": "Conversation and model controls",
-            "commands": [
-                ("/opus, /sonnet, /haiku", "Switch Claude model"),
-                ("/challenge on|off", "Toggle devil's advocate mode"),
-                ("/new", "Save conversation and start fresh"),
-                ("/load", "Load a previous conversation"),
-                ("/conversations", "List saved conversations"),
-                ("/delete", "Delete a saved conversation"),
-                ("/clear", "Clear the terminal screen"),
-            ],
-            "tip": "Claude picks the best model automatically. Use these to override.",
-        },
-        "memory": {
-            "desc": "Persistent facts and notes",
-            "commands": [
-                ("/remember <fact>", "Save a fact to global memory"),
-                ("/remember -p <fact>", "Save a fact to project memory"),
-                ("/forget <fact>", "Remove a fact from memory"),
-                ("/memories", "List all stored memories"),
-                ("/memories search <q>", "Semantic search across memories"),
-                ("/note <text>", "Save a timestamped note"),
-                ("/notes", "List recent notes (last 7 days)"),
-                ("/notes search <q>", "Search notes by keyword"),
-            ],
-            "tip": "Global memories persist across all projects. Use -p for project-only facts.",
-        },
-        "email": {
-            "desc": "Gmail integration and drafting",
-            "commands": [
-                ("/email check", "Show recent unread emails"),
-                ("/email read <#>", "Read full email by number"),
-                ("/email search <q>", "Search emails by keyword"),
-                ("/draft reply", "Draft a reply to the last-read email"),
-                ("/draft new <to> [subj]", "Compose a new email draft"),
-                ("/draft work <#>", "Draft a job application email"),
-                ("/drafts", "List drafts created this session"),
-                ("/email setup", "Authenticate with Gmail (OAuth2)"),
-            ],
-            "tip": "Drafts are created in Gmail — the agent never sends email directly.",
-        },
-        "calendar": {
-            "desc": "Google Calendar events",
-            "commands": [
-                ("/cal", "Show today's events"),
-                ("/cal tomorrow", "Tomorrow's events"),
-                ("/cal week", "Next 7 days"),
-                ("/cal <date>", "Events for a specific date"),
-                ("/cal add <desc>", "Create event (with confirmation)"),
-                ("/cal setup", "Authenticate with Google Calendar"),
-            ],
-            "tip": "Use natural language for dates: 'next friday', 'march 5th'.",
-        },
-        "jobs": {
-            "desc": "Job search, tracking, and applications",
-            "commands": [
-                ("/work search <q>", "Search for job listings"),
-                ("/work save [#,#|all]", "Save results by number or all"),
-                ("/work list", "Show saved listings"),
-                ("/work remove <#>", "Remove a saved listing"),
-                ("/work apply <#>", "Open listing + generate cover letter"),
-                ("/work track <#> <status>", "Set status (applied, interviewing, etc.)"),
-                ("/work status", "Show jobs grouped by status"),
-                ("/resume", "Show loaded resume status"),
-                ("/resume <path>", "Load a resume file"),
-                ("/cover <#>", "Generate cover letter for saved job"),
-                ("/cover new <co> <title>", "Cover letter for unlisted job"),
-            ],
-            "tip": "Load your resume first (/resume path/to/resume.pdf) for better cover letters.",
-        },
-        "scanning": {
-            "desc": "Automated job scanning",
-            "commands": [
-                ("/scan", "Run a job scan now"),
-                ("/scan results", "Show last scan results"),
-                ("/scan status", "Show scan config and rate limits"),
-                ("/scan query add <q>", "Add a search query"),
-                ("/scan query remove <q>", "Remove a search query"),
-                ("/scan queries", "List configured queries"),
-                ("/scan on|off", "Enable/disable auto-scanning"),
-            ],
-            "tip": "Configure queries once, then let the daemon scan automatically.",
-        },
-        "tasks": {
-            "desc": "Tasks and reminders",
-            "commands": [
-                ("/task add <desc>", "Add a task (--high/--low, natural dates)"),
-                ("/tasks", "Show open tasks sorted by urgency"),
-                ("/task done <#>", "Mark a task as done"),
-                ("/task remove <#>", "Remove a task"),
-                ("/task edit <#> <desc>", "Edit task description"),
-                ("/task note <#> <note>", "Add a note to a task"),
-                ("/tasks done", "Show completed tasks"),
-                ("/remind <desc> <time>", "Set a reminder"),
-                ("/reminders", "Show pending reminders"),
-                ("/remind cancel <#>", "Cancel a reminder"),
-            ],
-            "tip": "Natural dates work: 'tomorrow 3pm', 'next monday', 'in 2 hours'.",
-        },
-        "web": {
-            "desc": "Web search and file tools",
-            "commands": [
-                ("/web <query>", "Search the web"),
-                ("/fetch <url>", "Fetch a web page"),
-                ("/read <path>", "Load a file into conversation"),
-                ("/write <file>", "Save last response to workspace"),
-                ("/run", "Run code from Claude's last response"),
-                ("/pdf <title>", "Save last response as formatted PDF"),
-            ],
-            "tip": "Claude also searches the web autonomously when it would help.",
-        },
-        "system": {
-            "desc": "Status, briefing, notifications, projects",
-            "commands": [
-                ("/status", "Agent status overview"),
-                ("/briefing", "Run daily briefing"),
-                ("/briefing time HH:MM", "Set auto-briefing time"),
-                ("/briefing on|off", "Enable/disable auto-briefing"),
-                ("/notify on|off", "Enable/disable email notifications"),
-                ("/notify domain add|remove <d>", "Priority domain filter"),
-                ("/notify keyword add|remove <w>", "Priority keyword filter"),
-                ("/project", "Create a new project"),
-                ("/project <name>", "Switch to a project"),
-                ("/project list", "List all projects"),
-                ("/tokens", "Context size and compression status"),
-                ("/delegates", "Show specialist agents"),
-                ("/setup", "Run onboarding wizard"),
-                ("/reset", "Wipe all data and start fresh"),
-            ],
-            "tip": "Use /status for a quick overview of everything active.",
-        },
+    _help_colors = {
+        "CYAN": memory.CYAN, "BOLD": memory.BOLD,
+        "DIM": memory.DIM, "RESET": memory.RESET,
+        "RED": memory.RED,
     }
 
     def print_help(category=None):
         """Print help — overview if no category, detailed if category given."""
         if category:
-            cat = HELP_CATEGORIES.get(category)
-            if not cat:
-                close = [k for k in HELP_CATEGORIES if k.startswith(category)]
-                if close:
-                    cat = HELP_CATEGORIES[close[0]]
-                    category = close[0]
-                else:
-                    print(f"{memory.RED}Unknown category: {category}{memory.RESET}")
-                    print(f"{memory.DIM}Available: {', '.join(HELP_CATEGORIES.keys())}{memory.RESET}")
-                    return
-            # Detailed view for one category
-            max_cmd = max(len(c[0]) for c in cat["commands"])
-            width = max(max_cmd + 4 + max(len(c[1]) for c in cat["commands"]), len(cat.get("tip", "")) + 4, len(category) + 3)
-            width = min(width, 72)
-            print(f"\n{memory.CYAN}┌{'─' * (width + 2)}┐{memory.RESET}")
-            print(f"{memory.CYAN}│{memory.RESET} {memory.BOLD}{category.upper()}{memory.RESET}{' ' * (width - len(category))} {memory.CYAN}│{memory.RESET}")
-            print(f"{memory.CYAN}├{'─' * (width + 2)}┤{memory.RESET}")
-            for cmd, desc in cat["commands"]:
-                line = f"  {cmd:<{max_cmd}}  {memory.DIM}{desc}{memory.RESET}"
-                # Calculate padding without ANSI codes
-                visible = f"  {cmd:<{max_cmd}}  {desc}"
-                pad = width + 1 - len(visible)
-                print(f"{memory.CYAN}│{memory.RESET}{line}{' ' * max(pad, 0)} {memory.CYAN}│{memory.RESET}")
-            if cat.get("tip"):
-                print(f"{memory.CYAN}├{'─' * (width + 2)}┤{memory.RESET}")
-                tip_line = f"  {cat['tip']}"
-                tip_pad = width + 1 - len(tip_line)
-                print(f"{memory.CYAN}│{memory.RESET}{memory.DIM}{tip_line}{memory.RESET}{' ' * max(tip_pad, 0)} {memory.CYAN}│{memory.RESET}")
-            print(f"{memory.CYAN}└{'─' * (width + 2)}┘{memory.RESET}\n")
+            text = help_data.format_terminal_category(category, _help_colors)
+            if text is None:
+                print(help_data.format_terminal_error(category, _help_colors))
+            else:
+                print(text)
         else:
-            # Overview: categories only
-            max_name = max(len(k) for k in HELP_CATEGORIES)
-            width = max(max_name + 4 + max(len(v["desc"]) for v in HELP_CATEGORIES.values()), 40)
-            width = min(width, 60)
-            print(f"\n{memory.CYAN}┌{'─' * (width + 2)}┐{memory.RESET}")
-            print(f"{memory.CYAN}│{memory.RESET} {memory.BOLD}HELP{memory.RESET}{' ' * (width - 4)} {memory.CYAN}│{memory.RESET}")
-            print(f"{memory.CYAN}├{'─' * (width + 2)}┤{memory.RESET}")
-            for name, cat in HELP_CATEGORIES.items():
-                line = f"  /help {name:<{max_name}}  {cat['desc']}"
-                pad = width + 1 - len(line)
-                print(f"{memory.CYAN}│{memory.RESET}{memory.DIM}  /help {memory.RESET}{name:<{max_name}}{memory.DIM}  {cat['desc']}{memory.RESET}{' ' * max(pad, 0)} {memory.CYAN}│{memory.RESET}")
-            print(f"{memory.CYAN}├{'─' * (width + 2)}┤{memory.RESET}")
-            footer = "  Type /help <category> for details"
-            fpad = width + 1 - len(footer)
-            print(f"{memory.CYAN}│{memory.RESET}{memory.DIM}{footer}{memory.RESET}{' ' * max(fpad, 0)} {memory.CYAN}│{memory.RESET}")
-            print(f"{memory.CYAN}└{'─' * (width + 2)}┘{memory.RESET}\n")
+            print(help_data.format_terminal_overview(_help_colors))
 
     # Silently warm up OAuth tokens
     tools.get_gmail_service()

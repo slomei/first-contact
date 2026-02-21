@@ -27,6 +27,9 @@ import notifications
 import documents
 import job_scanner
 import onboarding
+import help_data
+import creative
+import sync
 
 # Only respond to this Telegram user ID (set via TELEGRAM_USER_ID env var)
 # Set to 0 to log all user IDs (useful for initial setup)
@@ -259,75 +262,14 @@ async def get_response(state, channel):
 # Text builders
 # ---------------------------------------------------------------------------
 
-def build_help_text():
-    """Build the help message."""
-    return (
-        "Available commands:\n"
-        "/help — Show this help message\n"
-        "/opus /sonnet /haiku — Switch model\n"
-        "/challenge on|off — Toggle devil's advocate mode\n"
-        "/memories — List stored memories\n"
-        "/remember <fact> — Save a fact to memory\n"
-        "/forget <fact> — Remove a fact from memory\n"
-        "/project — List projects\n"
-        "/project <name> — Switch project (creates if needed)\n"
-        "/watch <topic> — Add a topic to the watchlist\n"
-        "/watch list — Show watched topics\n"
-        "/watch remove <topic> — Remove a watched topic\n"
-        "/digest — Generate a digest from watched topics\n"
-        "/work search <query> — Search job listings\n"
-        "/work save — Save last search results\n"
-        "/work list — Show saved listings\n"
-        "/work remove <#> — Remove a saved listing\n"
-        "/work apply <#> — Generate cover letter\n"
-        "/work track <#> <status> — Set job status\n"
-        "/work status — Show tracked jobs by status\n"
-        "/tasks — Show open tasks (sorted by urgency)\n"
-        "/tasks done — Show completed tasks\n"
-        "/tasks all — Show all tasks\n"
-        "/task add <desc> — Add a task (--high/--low, date parsing)\n"
-        "/task done <#> — Mark a task as done\n"
-        "/task remove <#> — Remove a task\n"
-        "/task edit <#> <desc> — Edit task description\n"
-        "/task note <#> <note> — Add a note to a task\n"
-        "/remind <desc> at <time> — Set a reminder\n"
-        "/reminders — Show pending reminders\n"
-        "/remind cancel <#> — Cancel a reminder\n"
-        "/cal — Show today's calendar events\n"
-        "/cal tomorrow — Tomorrow's events\n"
-        "/cal week — Next 7 days\n"
-        "/cal <date> — Events for a specific date\n"
-        "/cal add <desc> — Create a calendar event\n"
-        "/cal setup — Authenticate with Google Calendar\n"
-        "/briefing — Run daily briefing\n"
-        "/briefing time HH:MM — Set auto-briefing time\n"
-        "/briefing on|off — Enable/disable auto-briefing\n"
-        "/notify — Show email notification status\n"
-        "/notify on|off — Enable/disable email notifications\n"
-        "/notify domain add|remove <domain> — Manage priority domains\n"
-        "/notify keyword add|remove <word> — Manage priority keywords\n"
-        "/notify mute add|remove <pattern> — Manage mute patterns\n"
-        "/notify log — Show recent notification log\n"
-        "/scan — Run a job scan across configured platforms\n"
-        "/scan results — Show last scan results\n"
-        "/scan status — Show scan config and rate limits\n"
-        "/scan queries — List search queries\n"
-        "/scan query add|remove <q> — Manage search queries\n"
-        "/scan on|off — Enable/disable auto-scanning\n"
-        "/delegates — Show specialist agents\n"
-        "/billing — Show billing link\n"
-        "/conversations — List saved conversations\n"
-        "/load <#> — Load a previous conversation\n"
-        "/tokens — Show conversation size\n"
-        "/web <query> — Search web + get Claude's take\n"
-        "/fetch <url> — Fetch a web page and discuss it\n"
-        "/cover <#> — Generate cover letter PDF for a saved job\n"
-        "/cover new <company> <title> — Cover letter PDF (ad-hoc)\n"
-        "/pdf <title> — Save last response as a PDF\n"
-        "/setup — Run onboarding wizard\n"
-        "/new — Reset conversation history\n\n"
-        "Claude also uses tools autonomously (web search, file read/write, memory, code execution)."
-    )
+def build_help_text(category=None):
+    """Build the help message — overview or category detail."""
+    if category:
+        text = help_data.format_telegram_category(category)
+        if text is None:
+            return help_data.format_telegram_error(category)
+        return text
+    return help_data.format_telegram_overview()
 
 
 def build_memories_text(state):
@@ -794,8 +736,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_reply(chat_id, prompt, bot)
         return
 
-    if content_lower in ("/help", "/start"):
-        await send_reply(chat_id, build_help_text(), bot)
+    if content_lower in ("/help", "/start") or content_lower.startswith("/help "):
+        help_arg = text[5:].strip().lower() if len(text) > 5 and content_lower.startswith("/help ") else ""
+        await send_reply(chat_id, build_help_text(help_arg or None), bot)
         return
 
     if content_lower == "/new":
@@ -1941,14 +1884,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply += f"\n\nFound {len(results)} result(s). Use /work save to save these."
             await send_reply(chat_id, reply, bot)
 
-        elif arg_lower == "save":
+        elif arg_lower == "save" or arg_lower.startswith("save "):
             if not state.last_job_results:
                 await send_reply(chat_id, "No search results to save. Run /work search <query> first.", bot)
                 return
+            save_arg = arg[4:].strip()  # everything after "save"
+
+            if save_arg.lower() == "all" or not save_arg:
+                results_to_save = list(state.last_job_results)
+            else:
+                try:
+                    indices = [int(x.strip()) for x in save_arg.split(",")]
+                except ValueError:
+                    await send_reply(chat_id, "Invalid number(s). Use: /work save 1 or /work save 1,3,6 or /work save all", bot)
+                    return
+                invalid = [n for n in indices if n < 1 or n > len(state.last_job_results)]
+                if invalid:
+                    await send_reply(chat_id, f"Invalid result number(s): {invalid}. Results are 1-{len(state.last_job_results)}.", bot)
+                    return
+                results_to_save = [state.last_job_results[i - 1] for i in indices]
+
             jobs = memory.load_jobs()
             existing_urls = {j["url"] for j in jobs}
             added = 0
-            for r in state.last_job_results:
+            for r in results_to_save:
                 if r["url"] not in existing_urls:
                     job_entry = {
                         "title": r["title"],
@@ -2108,6 +2067,644 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await send_reply(chat_id,
                 f"Unknown subcommand: {arg}\n"
                 "Use: search, save, list, remove, apply, track, status", bot)
+        return
+
+    # --- Email ---
+    if content_lower == "/email" or content_lower.startswith("/email "):
+        email_arg = text[6:].strip() if len(text) > 6 else ""
+        email_arg_lower = email_arg.lower()
+
+        if not email_arg:
+            await send_reply(chat_id, "Usage: /email setup | check | read <#> | search <query>", bot)
+            return
+
+        if email_arg_lower == "setup":
+            await send_reply(chat_id, "Run from terminal — OAuth needs a browser.", bot)
+            return
+
+        if email_arg_lower == "check":
+            service = tools.get_gmail_service()
+            if not service:
+                await send_reply(chat_id, "Gmail not authenticated. Run /email setup from terminal.", bot)
+                return
+            await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            result = await asyncio.to_thread(tools.gmail_check)
+            if isinstance(result, str):
+                await send_reply(chat_id, result, bot)
+                return
+            if result is None:
+                await send_reply(chat_id, "Gmail not authenticated.", bot)
+                return
+            tools._last_email_results.clear()
+            tools._last_email_results.extend(result)
+            if not result:
+                await send_reply(chat_id, "No unread emails.", bot)
+                return
+            lines = []
+            for i, e in enumerate(result, 1):
+                lines.append(f"{i}. {e['subject']}\nFrom: {e['sender']}\nDate: {e['date']}\n{e['snippet'][:150]}")
+            reply = "\n\n".join(lines)
+            reply += f"\n\nFound {len(result)} unread email(s). Use /email read <#> to read one."
+            await send_reply(chat_id, reply, bot)
+            return
+
+        if email_arg_lower.startswith("read ") or email_arg_lower == "read":
+            num_str = email_arg[5:].strip() if len(email_arg) > 4 else "1"
+            try:
+                idx = int(num_str) - 1
+                if idx < 0 or idx >= len(tools._last_email_results):
+                    raise ValueError
+            except ValueError:
+                await send_reply(chat_id, "Invalid number. Use /email check first.", bot)
+                return
+            msg = tools._last_email_results[idx]
+            await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            body = await asyncio.to_thread(tools.gmail_read, msg["id"])
+            if body is None:
+                await send_reply(chat_id, "Gmail not authenticated.", bot)
+                return
+            tools._email_content_loaded = True
+            reply = f"From: {msg['sender']}\nSubject: {msg['subject']}\nDate: {msg['date']}\n\n{body}"
+            state.conversation_history.append({"role": "user", "content":
+                f"[Email loaded]\nFrom: {msg['sender']}\nSubject: {msg['subject']}\nDate: {msg['date']}\n\n{body}"})
+            await send_reply(chat_id, reply, bot)
+            return
+
+        if email_arg_lower.startswith("search "):
+            query = email_arg[7:].strip()
+            if not query:
+                await send_reply(chat_id, "Usage: /email search <query>", bot)
+                return
+            service = tools.get_gmail_service()
+            if not service:
+                await send_reply(chat_id, "Gmail not authenticated.", bot)
+                return
+            await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            result = await asyncio.to_thread(tools.gmail_search, query)
+            if isinstance(result, str):
+                await send_reply(chat_id, result, bot)
+                return
+            if result is None:
+                await send_reply(chat_id, "Gmail not authenticated.", bot)
+                return
+            tools._last_email_results.clear()
+            tools._last_email_results.extend(result)
+            if not result:
+                await send_reply(chat_id, f"No emails matching: {query}", bot)
+                return
+            lines = []
+            for i, e in enumerate(result, 1):
+                lines.append(f"{i}. {e['subject']}\nFrom: {e['sender']}\nDate: {e['date']}\n{e['snippet'][:150]}")
+            reply = "\n\n".join(lines)
+            reply += f"\n\nFound {len(result)} email(s). Use /email read <#> to read one."
+            await send_reply(chat_id, reply, bot)
+            return
+
+        await send_reply(chat_id, f"Unknown subcommand: {email_arg}. Use: setup, check, read, search", bot)
+        return
+
+    # --- Drafts ---
+    if content_lower == "/drafts":
+        log = tools.load_draft_log()
+        if not log:
+            await send_reply(chat_id, "No drafts created yet.", bot)
+        else:
+            lines = [f"Draft audit log ({len(log)} entries):"]
+            for entry in log:
+                lines.append(f"  {entry}")
+            lines.append(f"\nSession: {tools._session_draft_count}/{tools.DRAFT_RATE_LIMIT} drafts")
+            await send_reply(chat_id, "\n".join(lines), bot)
+        return
+
+    # --- Draft creation ---
+    if content_lower == "/draft" or content_lower.startswith("/draft "):
+        draft_arg = text[6:].strip() if len(text) > 6 else ""
+        draft_arg_lower = draft_arg.lower()
+
+        if not draft_arg:
+            await send_reply(chat_id,
+                "Usage: /draft reply | /draft new <to> [subject] | /draft work <#>", bot)
+            return
+
+        service = tools.get_gmail_service()
+        if not service:
+            await send_reply(chat_id, "Gmail not authenticated. Run /email setup to connect.", bot)
+            return
+
+        if not tools.check_draft_rate_limit():
+            await send_reply(chat_id, f"Draft rate limit reached ({tools.DRAFT_RATE_LIMIT} per session).", bot)
+            return
+
+        sync_state(state)
+        all_memories = memory.retrieve_relevant_memories(draft_arg or "email drafting", top_k=15)
+
+        if draft_arg_lower == "reply":
+            if not tools._last_read_email:
+                await send_reply(chat_id, "No email loaded. Use /email read <#> first.", bot)
+                return
+
+            orig = tools._last_read_email
+            await send_reply(chat_id,
+                f"Replying to: {orig['subject']}\nFrom: {orig['sender']}", bot)
+
+            await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            try:
+                reply_body, cost = await asyncio.to_thread(
+                    models.generate_reply_draft, orig, "", all_memories)
+            except Exception as e:
+                await send_reply(chat_id, f"Draft generation failed: {e}", bot)
+                return
+
+            reply_subject = orig["subject"]
+            if not reply_subject.lower().startswith("re:"):
+                reply_subject = f"Re: {reply_subject}"
+
+            reply_to_info = {
+                "thread_id": orig.get("thread_id"),
+                "message_id_header": orig.get("message_id_header"),
+                "sender": orig["sender"],
+                "date": orig["date"],
+                "original_body": orig["body"],
+            }
+
+            email_match = re.search(r'<([^>]+)>', orig["sender"])
+            to_addr = email_match.group(1) if email_match else orig["sender"]
+
+            draft_id, _ = await asyncio.to_thread(
+                tools.gmail_create_draft, to_addr, reply_subject, reply_body,
+                reply_to=reply_to_info)
+
+            if draft_id:
+                tools._log_draft(to_addr, reply_subject, draft_id, "/draft reply")
+                await send_reply(chat_id,
+                    f"Draft saved — reply to {orig['subject']}\n"
+                    f"[{tools._session_draft_count}/{tools.DRAFT_RATE_LIMIT} drafts] [${cost:.4f}]", bot)
+            else:
+                await send_reply(chat_id, f"Failed to create draft. [${cost:.4f}]", bot)
+
+        elif draft_arg_lower.startswith("new "):
+            new_args = draft_arg[4:].strip()
+            if not new_args:
+                await send_reply(chat_id, "Usage: /draft new <recipient> [subject]", bot)
+                return
+
+            parts = new_args.split(None, 1)
+            to_addr = parts[0]
+            subject = parts[1] if len(parts) > 1 else ""
+
+            await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            await send_reply(chat_id, f"Composing email to {to_addr} (Opus)...", bot)
+            try:
+                body, generated_subject, cost = await asyncio.to_thread(
+                    models.generate_new_draft, to_addr, subject, "", all_memories)
+            except Exception as e:
+                await send_reply(chat_id, f"Draft generation failed: {e}", bot)
+                return
+
+            draft_id, _ = await asyncio.to_thread(
+                tools.gmail_create_draft, to_addr, generated_subject, body)
+
+            if draft_id:
+                tools._log_draft(to_addr, generated_subject, draft_id, "/draft new")
+                await send_reply(chat_id,
+                    f"Draft saved — to {to_addr}: {generated_subject}\n"
+                    f"[{tools._session_draft_count}/{tools.DRAFT_RATE_LIMIT} drafts] [${cost:.4f}]", bot)
+            else:
+                await send_reply(chat_id, f"Failed to create draft. [${cost:.4f}]", bot)
+
+        elif draft_arg_lower.startswith("work "):
+            num_str = draft_arg[5:].strip()
+            try:
+                idx = int(num_str) - 1
+                jobs = memory.load_jobs()
+                if idx < 0 or idx >= len(jobs):
+                    raise ValueError
+            except ValueError:
+                await send_reply(chat_id, "Invalid number. Use /work list to see listings.", bot)
+                return
+
+            job = jobs[idx]
+
+            # Load cover letter
+            cover_letter = ""
+            if job.get("folder"):
+                cl_path = os.path.join(memory.PROJECTS_DIR, memory.JOB_SEARCH_PROJECT,
+                                       "workspace", "jobs", job["folder"], "cover-letter.md")
+                if os.path.exists(cl_path):
+                    with open(cl_path, "r") as f:
+                        cover_letter = f.read()
+
+            if not cover_letter:
+                await send_reply(chat_id, "No cover letter found. Use /work apply <#> to generate one first.", bot)
+                return
+
+            # Load resume
+            resume_text = ""
+            resume_path = memory.get_resume_path()
+            if os.path.exists(resume_path):
+                with open(resume_path, "r") as f:
+                    resume_text = f.read()
+
+            await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            await send_reply(chat_id, f"Drafting application email for: {job['title']} (Opus)...", bot)
+            try:
+                body, subject, cost = await asyncio.to_thread(
+                    models.generate_job_draft, job, cover_letter, resume_text, all_memories)
+            except Exception as e:
+                await send_reply(chat_id, f"Draft generation failed: {e}", bot)
+                return
+
+            to_addr = "hiring@example.com"
+            draft_id, _ = await asyncio.to_thread(
+                tools.gmail_create_draft, to_addr, subject, body)
+
+            if draft_id:
+                tools._log_draft(to_addr, subject, draft_id, "/draft work")
+                await send_reply(chat_id,
+                    f"Draft saved — {job['title']}\n"
+                    f"Subject: {subject}\n"
+                    f"Edit recipient in Gmail before sending.\n"
+                    f"[{tools._session_draft_count}/{tools.DRAFT_RATE_LIMIT} drafts] [${cost:.4f}]", bot)
+            else:
+                await send_reply(chat_id, f"Failed to create draft. [${cost:.4f}]", bot)
+
+        else:
+            await send_reply(chat_id, f"Unknown subcommand: {draft_arg}. Use: reply, new, work", bot)
+
+        return
+
+    # --- Notes ---
+    if content_lower.startswith("/note ") and not content_lower.startswith("/notes"):
+        note_text = text[6:].strip()
+        if note_text:
+            sync_state(state)
+            await asyncio.to_thread(tools.save_note, note_text)
+            date_str = datetime.now().strftime("%Y-%m-%d")
+            await send_reply(chat_id, f"Note saved to {state.active_project}/notes/{date_str}.md", bot)
+        else:
+            await send_reply(chat_id, "Usage: /note <text>", bot)
+        return
+
+    if content_lower == "/notes" or content_lower.startswith("/notes "):
+        notes_arg = text[6:].strip().lower() if len(text) > 6 else ""
+        sync_state(state)
+        if notes_arg.startswith("search "):
+            query = text[13:].strip()
+            if not query:
+                await send_reply(chat_id, "Usage: /notes search <query>", bot)
+                return
+            results = await asyncio.to_thread(tools.search_notes, query)
+            if results:
+                lines = [f"Notes matching '{query}':"]
+                for date, line in results[:20]:
+                    lines.append(f"[{date}] {line}")
+                await send_reply(chat_id, "\n".join(lines), bot)
+            else:
+                await send_reply(chat_id, f"No notes matching '{query}'.", bot)
+        else:
+            recent = await asyncio.to_thread(tools.list_recent_notes)
+            if recent:
+                lines = [f"Recent notes ({state.active_project}):"]
+                for date, filepath, preview in recent:
+                    preview_str = f" \u2014 {preview}" if preview else ""
+                    lines.append(f"{date}{preview_str}")
+                await send_reply(chat_id, "\n".join(lines), bot)
+            else:
+                await send_reply(chat_id, "No notes yet. Use /note <text> to save one.", bot)
+        return
+
+    # --- Memories search ---
+    if content_lower.startswith("/memories search "):
+        query = text[18:].strip()
+        if not query:
+            await send_reply(chat_id, "Usage: /memories search <query>", bot)
+            return
+        sync_state(state)
+        if not memory.SEMANTIC_AVAILABLE:
+            await send_reply(chat_id, "Semantic search not available. Install sentence-transformers.", bot)
+            return
+        results = memory.retrieve_relevant_memories_scored(query, top_k=5)
+        if not results:
+            await send_reply(chat_id, "No memories found.", bot)
+            return
+        lines = [f"Memories matching '{query}':"]
+        for mem_text, score in results:
+            lines.append(f"({score:.2f}) {mem_text}")
+        await send_reply(chat_id, "\n".join(lines), bot)
+        return
+
+    # --- Status ---
+    if content_lower == "/status":
+        sync_state(state)
+        lines = ["Agent Status", ""]
+
+        name = MODEL_DISPLAY_NAMES.get(state.active_model, state.active_model)
+        lines.append(f"Model: {name}")
+        lines.append(f"Project: {state.active_project}")
+        lines.append(f"Challenge mode: {'ON' if state.challenge_mode else 'OFF'}")
+
+        total = 0
+        for msg_item in state.conversation_history:
+            c = msg_item["content"]
+            if isinstance(c, str):
+                total += len(c) // 4
+            elif isinstance(c, list):
+                total += len(json.dumps(c)) // 4
+        pct = min(100, int(total / models.TOKEN_THRESHOLD * 100))
+        lines.append(f"Context: {pct}% used | {models.session_compressions} compression{'s' if models.session_compressions != 1 else ''}")
+        lines.append(f"Session cost: ${state.cost:.4f}")
+
+        # Daemon
+        daemon_pid_path = os.path.join(memory.BASE_DIR, "daemon.pid")
+        daemon_running = False
+        if os.path.exists(daemon_pid_path):
+            try:
+                with open(daemon_pid_path, "r") as f_pid:
+                    dpid = int(f_pid.read().strip())
+                os.kill(dpid, 0)
+                daemon_running = True
+            except (OSError, ValueError):
+                pass
+        lines.append(f"Daemon: {'running' if daemon_running else 'stopped'}")
+
+        # Last briefing
+        _st_config = memory.load_config()
+        _last_briefing = _st_config.get("briefing", {}).get("last_sent")
+        lines.append(f"Last briefing: {_last_briefing if _last_briefing else 'never'}")
+
+        # Last scan
+        try:
+            import job_scanner as _js
+            _last_scan_data = _js.load_scan_results()
+            _last_scan_str = "never"
+            _scan_matches = ""
+            if _last_scan_data:
+                _scan_time = _last_scan_data.get("scan_time", "")
+                try:
+                    _scan_dt = datetime.fromisoformat(_scan_time)
+                    _last_scan_str = _scan_dt.strftime("%b %d %I:%M %p").replace(" 0", " ")
+                    _high = len(_last_scan_data.get("high", []))
+                    if _high:
+                        _scan_matches = f" ({_high} strong match{'es' if _high != 1 else ''})"
+                except (ValueError, TypeError):
+                    pass
+            lines.append(f"Last scan: {_last_scan_str}{_scan_matches}")
+        except Exception:
+            pass
+
+        # Tasks
+        try:
+            open_t = tasks.get_open_tasks()
+            _next_due = ""
+            for _t in open_t:
+                if _t.get("due_date"):
+                    try:
+                        _due_dt = datetime.fromisoformat(_t["due_date"])
+                        _next_due = f" (next due: {_due_dt.strftime('%b %d')})"
+                    except (ValueError, TypeError):
+                        pass
+                    break
+            lines.append(f"Pending tasks: {len(open_t)}{_next_due}")
+        except Exception:
+            pass
+
+        # Pending reminders
+        try:
+            _st_reminders = tasks.get_pending_reminders()
+            lines.append(f"Pending reminders: {len(_st_reminders)}")
+        except Exception:
+            pass
+
+        # Memories
+        mems = memory.load_memories()
+        global_mems = memory.load_global_memories()
+        lines.append(f"Memories: {len(global_mems)} global, {len(mems)} project")
+
+        await send_reply(chat_id, "\n".join(lines), bot)
+        return
+
+    # --- Delete conversation ---
+    if content_lower == "/delete" or content_lower.startswith("/delete "):
+        delete_arg = text[7:].strip() if len(text) > 7 else ""
+        sync_state(state)
+        files = memory.list_conversations()
+
+        if not delete_arg:
+            if not files:
+                await send_reply(chat_id, f"No saved conversations ({state.active_project}).", bot)
+                return
+            lines = [f"Saved conversations ({state.active_project}):"]
+            for i, filename in enumerate(files, 1):
+                fn = filename.removesuffix(".txt")
+                parts = fn.split("_", 1)
+                if len(parts) == 2:
+                    date_part, title_slug = parts
+                    title = title_slug.replace("-", " ").title()
+                    lines.append(f"{i}. {date_part}  {title}")
+                else:
+                    lines.append(f"{i}. {fn}")
+            lines.append("\nUse /delete <#> to delete one.")
+            await send_reply(chat_id, "\n".join(lines), bot)
+            return
+
+        try:
+            idx = int(delete_arg) - 1
+            if idx < 0 or idx >= len(files):
+                raise ValueError
+        except ValueError:
+            await send_reply(chat_id, "Invalid number. Use /delete to see the list.", bot)
+            return
+        filepath = os.path.join(memory.get_conversations_dir(), files[idx])
+        os.remove(filepath)
+        await send_reply(chat_id, f"Deleted conversation: {files[idx]}", bot)
+        return
+
+    # --- Resume ---
+    if content_lower == "/resume" or content_lower.startswith("/resume "):
+        resume_arg = text[7:].strip() if len(text) > 7 else ""
+        sync_state(state)
+        resume_path = memory.get_resume_path()
+
+        if not resume_arg:
+            if os.path.exists(resume_path):
+                with open(resume_path, "r") as f_res:
+                    res_text = f_res.read()
+                lines = res_text.count("\n") + 1
+                await send_reply(chat_id, f"Resume loaded ({lines} lines).", bot)
+            else:
+                await send_reply(chat_id, "No resume loaded. Load one from terminal.", bot)
+            return
+
+        await send_reply(chat_id, "Load resumes from terminal — file access requires local filesystem.", bot)
+        return
+
+    # --- Read file ---
+    if content_lower.startswith("/read "):
+        filepath = text[6:].strip()
+        if not filepath:
+            await send_reply(chat_id, "Usage: /read <path>", bot)
+            return
+        try:
+            with open(filepath, "r") as f_read:
+                contents = f_read.read()
+            line_count = contents.count("\n") + (1 if contents and not contents.endswith("\n") else 0)
+            filename = os.path.basename(filepath)
+            file_message = f"[File: {filepath}]\n```\n{contents}\n```"
+            state.conversation_history.append({"role": "user", "content": file_message})
+            await send_reply(chat_id, f"Loaded {filename} ({line_count} lines)", bot)
+        except FileNotFoundError:
+            await send_reply(chat_id, f"File not found: {filepath}", bot)
+        except IsADirectoryError:
+            await send_reply(chat_id, f"Path is a directory: {filepath}", bot)
+        except UnicodeDecodeError:
+            await send_reply(chat_id, f"Cannot read binary file: {filepath}", bot)
+        return
+
+    # --- Write file ---
+    if content_lower.startswith("/write "):
+        filename = text[7:].strip()
+        if not filename:
+            await send_reply(chat_id, "Usage: /write <filename>", bot)
+            return
+        if ".." in filename or filename.startswith("/"):
+            await send_reply(chat_id, "Filename must be relative and stay inside workspace.", bot)
+            return
+        sync_state(state)
+        last_text = None
+        for msg_item in reversed(state.conversation_history):
+            if msg_item.get("role") == "assistant" and isinstance(msg_item.get("content"), str):
+                last_text = msg_item["content"]
+                break
+        if not last_text:
+            await send_reply(chat_id, "No Claude response to save yet.", bot)
+            return
+        workspace = memory.get_workspace_dir()
+        fpath = os.path.join(workspace, filename)
+        os.makedirs(os.path.dirname(fpath) or workspace, exist_ok=True)
+        content_to_write = tools.extract_code_block(last_text)
+        with open(fpath, "w") as f_w:
+            f_w.write(content_to_write)
+            if not content_to_write.endswith("\n"):
+                f_w.write("\n")
+        line_count = content_to_write.count("\n") + 1
+        await send_reply(chat_id, f"Wrote {line_count} lines to {state.active_project}/workspace/{filename}", bot)
+        return
+
+    # --- Run code ---
+    if content_lower == "/run":
+        last_text = None
+        for msg_item in reversed(state.conversation_history):
+            if msg_item.get("role") == "assistant" and isinstance(msg_item.get("content"), str):
+                last_text = msg_item["content"]
+                break
+        if not last_text:
+            await send_reply(chat_id, "No Claude response with code to run.", bot)
+            return
+        code = tools.extract_code_block(last_text)
+        if not code.strip():
+            await send_reply(chat_id, "No code block found in last response.", bot)
+            return
+        await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+        output = await asyncio.to_thread(tools.run_code_in_workspace, code)
+        reply = f"Output:\n{output}"
+        await send_reply(chat_id, reply, bot)
+        return
+
+    # --- Update/sync ---
+    if content_lower == "/update":
+        await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+        try:
+            result = await asyncio.to_thread(sync.sync_all)
+            await send_reply(chat_id, f"Sync complete: {result}", bot)
+        except Exception as e:
+            await send_reply(chat_id, f"Sync failed: {e}", bot)
+        return
+
+    # --- Characters ---
+    if content_lower == "/characters":
+        sync_state(state)
+        try:
+            chars = creative.load_characters()
+            if not chars:
+                await send_reply(chat_id, "No characters found.", bot)
+            else:
+                lines = ["Characters:"]
+                for c in chars:
+                    lines.append(f"  {c.get('name', 'Unknown')}")
+                await send_reply(chat_id, "\n".join(lines), bot)
+        except Exception as e:
+            await send_reply(chat_id, f"Error loading characters: {e}", bot)
+        return
+
+    if content_lower.startswith("/character "):
+        char_name = text[11:].strip()
+        if not char_name:
+            await send_reply(chat_id, "Usage: /character <name>", bot)
+            return
+        sync_state(state)
+        try:
+            char = creative.find_character(char_name)
+            if not char:
+                await send_reply(chat_id, f"Character not found: {char_name}", bot)
+            else:
+                lines = [f"{char.get('name', char_name)}"]
+                for key in ("role", "description", "traits", "background"):
+                    if char.get(key):
+                        val = char[key]
+                        if isinstance(val, list):
+                            val = ", ".join(val)
+                        lines.append(f"{key.title()}: {val}")
+                await send_reply(chat_id, "\n".join(lines), bot)
+        except Exception as e:
+            await send_reply(chat_id, f"Error: {e}", bot)
+        return
+
+    # --- Locations ---
+    if content_lower == "/locations":
+        sync_state(state)
+        try:
+            locs = creative.load_locations()
+            if not locs:
+                await send_reply(chat_id, "No locations found.", bot)
+            else:
+                lines = ["Locations:"]
+                for loc in locs:
+                    lines.append(f"  {loc.get('name', 'Unknown')}")
+                await send_reply(chat_id, "\n".join(lines), bot)
+        except Exception as e:
+            await send_reply(chat_id, f"Error loading locations: {e}", bot)
+        return
+
+    if content_lower.startswith("/location "):
+        loc_name = text[10:].strip()
+        if not loc_name:
+            await send_reply(chat_id, "Usage: /location <name>", bot)
+            return
+        sync_state(state)
+        try:
+            loc = creative.find_location(loc_name)
+            if not loc:
+                await send_reply(chat_id, f"Location not found: {loc_name}", bot)
+            else:
+                lines = [f"{loc.get('name', loc_name)}"]
+                for key in ("type", "description", "features", "atmosphere"):
+                    if loc.get(key):
+                        val = loc[key]
+                        if isinstance(val, list):
+                            val = ", ".join(val)
+                        lines.append(f"{key.title()}: {val}")
+                await send_reply(chat_id, "\n".join(lines), bot)
+        except Exception as e:
+            await send_reply(chat_id, f"Error: {e}", bot)
+        return
+
+    # --- Reset ---
+    if content_lower == "/reset":
+        await send_reply(chat_id, "This will wipe ALL data. Type /reset confirm to proceed.", bot)
+        return
+
+    if content_lower == "/reset confirm":
+        await send_reply(chat_id, "Reset must be run from terminal for safety.", bot)
         return
 
     # --- Regular message (not a command) ---
