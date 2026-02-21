@@ -5,7 +5,7 @@
 !.env.example
 config.json
 gmail_client_secret.json
-gmail_credentials.json
+gmail_credentials*.json
 calendar_credentials.json
 *.json.bak
 *.pem
