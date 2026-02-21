@@ -319,14 +319,21 @@ def build_help_text():
 
 
 def build_memories_text(state):
-    """Build formatted memories list."""
+    """Build formatted memories list with global and project sections."""
     sync_state(state)
-    mems = memory.load_memories()
-    if not mems:
-        return f"No memories stored ({state.active_project})."
-    lines = [f"Stored memories ({state.active_project}):"]
-    for i, m in enumerate(mems, 1):
-        lines.append(f"{i}. {m}")
+    global_mems = memory.load_global_memories()
+    proj_mems = memory.load_memories()
+    if not global_mems and not proj_mems:
+        return "No memories stored."
+    lines = []
+    if global_mems:
+        lines.append("Global memories:")
+        for i, m in enumerate(global_mems, 1):
+            lines.append(f"{i}. {m}")
+    if proj_mems:
+        lines.append(f"Project memories ({state.active_project}):")
+        for i, m in enumerate(proj_mems, 1):
+            lines.append(f"{i}. {m}")
     return "\n".join(lines)
 
 
@@ -906,21 +913,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sync_state(state)
 
         # Gather memories
-        all_memories = list(memory.memories)
-        root_mem = os.path.join(memory.BASE_DIR, "memory.json")
-        if os.path.exists(root_mem):
-            with open(root_mem, "r") as f:
-                all_memories.extend(json.load(f))
-        if state.active_project != "general":
-            general_mem = os.path.join(memory.PROJECTS_DIR, "general", "memory.json")
-            if os.path.exists(general_mem):
-                with open(general_mem, "r") as f:
-                    all_memories.extend(json.load(f))
-        js_mem = os.path.join(memory.PROJECTS_DIR, memory.JOB_SEARCH_PROJECT, "memory.json")
-        if js_mem != memory.get_memory_file() and os.path.exists(js_mem):
-            with open(js_mem, "r") as f:
-                all_memories.extend(json.load(f))
-        all_memories = list(dict.fromkeys(all_memories))
+        all_memories, _, _ = memory.load_all_memories()
 
         # Load resume
         resume_text = ""
@@ -1081,14 +1074,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- Remember / Forget ---
     if content_lower.startswith("/remember "):
-        fact = text[10:].strip()
-        if not fact:
-            await send_reply(chat_id, "Usage: /remember <fact>", bot)
+        rest = text[10:].strip()
+        if not rest:
+            await send_reply(chat_id, "Usage: /remember <fact> or /remember -p <fact>", bot)
             return
         sync_state(state)
-        memory.memories.append(fact)
-        memory.save_memories(memory.memories)
-        await send_reply(chat_id, f"Remembered: {fact}", bot)
+        if rest.startswith("-p "):
+            fact = rest[3:].strip()
+            if fact:
+                memory.memories.append(fact)
+                memory.save_memories(memory.memories)
+                await send_reply(chat_id, f"Remembered (project): {fact}", bot)
+            else:
+                await send_reply(chat_id, "Usage: /remember -p <fact>", bot)
+        else:
+            global_mems = memory.load_global_memories()
+            global_mems.append(rest)
+            memory.save_global_memories(global_mems)
+            await send_reply(chat_id, f"Remembered (global): {rest}", bot)
         return
 
     if content_lower.startswith("/forget "):
@@ -1097,9 +1100,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if fact in memory.memories:
             memory.memories.remove(fact)
             memory.save_memories(memory.memories)
-            await send_reply(chat_id, f"Forgot: {fact}", bot)
+            await send_reply(chat_id, f"Forgot (project): {fact}", bot)
         else:
-            await send_reply(chat_id, "No matching memory found. Use /memories to see stored facts.", bot)
+            global_mems = memory.load_global_memories()
+            if fact in global_mems:
+                global_mems.remove(fact)
+                memory.save_global_memories(global_mems)
+                await send_reply(chat_id, f"Forgot (global): {fact}", bot)
+            else:
+                await send_reply(chat_id, "No matching memory found. Use /memories to see stored facts.", bot)
         return
 
     # --- Watchlist ---
@@ -2001,19 +2010,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
             await send_reply(chat_id,
                 f"{job['title']}\n{job['url']}\n\nGenerating cover letter (Opus)...", bot)
-            # Gather memories from current project + general + job-search
+            # Gather memories
             sync_state(state)
-            all_memories = list(memory.memories)
-            if state.active_project != "general":
-                general_mem = os.path.join(memory.PROJECTS_DIR, "general", "memory.json")
-                if os.path.exists(general_mem):
-                    with open(general_mem, "r") as f:
-                        all_memories.extend(json.load(f))
-            js_mem = os.path.join(memory.PROJECTS_DIR, memory.JOB_SEARCH_PROJECT, "memory.json")
-            if js_mem != memory.get_memory_file() and os.path.exists(js_mem):
-                with open(js_mem, "r") as f:
-                    all_memories.extend(json.load(f))
-            all_memories = list(dict.fromkeys(all_memories))
+            all_memories, _, _ = memory.load_all_memories()
 
             try:
                 letter, cost = await asyncio.to_thread(

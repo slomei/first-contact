@@ -558,30 +558,57 @@ if __name__ == "__main__":
             continue
 
         if command_lower.startswith("/remember "):
-            fact = command[10:].strip()
-            if fact:
-                memory.memories.append(fact)
-                memory.save_memories(memory.memories)
-                print(f"{memory.DIM}Remembered: {fact}{memory.RESET}\n")
+            rest = command[10:].strip()
+            if rest.startswith("-p "):
+                # Project-specific memory
+                fact = rest[3:].strip()
+                if fact:
+                    memory.memories.append(fact)
+                    memory.save_memories(memory.memories)
+                    print(f"{memory.DIM}Remembered (project): {fact}{memory.RESET}\n")
+                else:
+                    print(f"{memory.DIM}Usage: /remember -p <fact>{memory.RESET}\n")
+            elif rest:
+                # Global memory (default)
+                global_mems = memory.load_global_memories()
+                global_mems.append(rest)
+                memory.save_global_memories(global_mems)
+                print(f"{memory.DIM}Remembered (global): {rest}{memory.RESET}\n")
             else:
-                print(f"{memory.DIM}Usage: /remember <fact>{memory.RESET}\n")
+                print(f"{memory.DIM}Usage: /remember <fact>  or  /remember -p <fact>{memory.RESET}\n")
             continue
 
         if command_lower.startswith("/forget "):
             fact = command[8:].strip()
+            # Search project first, then global
             if fact in memory.memories:
                 memory.memories.remove(fact)
                 memory.save_memories(memory.memories)
-                print(f"{memory.DIM}Forgot: {fact}{memory.RESET}\n")
+                print(f"{memory.DIM}Forgot (project): {fact}{memory.RESET}\n")
             else:
-                print(f"{memory.DIM}No matching memory found. Use /memories to see stored facts.{memory.RESET}\n")
+                global_mems = memory.load_global_memories()
+                if fact in global_mems:
+                    global_mems.remove(fact)
+                    memory.save_global_memories(global_mems)
+                    print(f"{memory.DIM}Forgot (global): {fact}{memory.RESET}\n")
+                else:
+                    print(f"{memory.DIM}No matching memory found. Use /memories to see stored facts.{memory.RESET}\n")
             continue
 
         if command_lower == "/memories":
-            if memory.memories:
-                print(f"{memory.DIM}Stored memories ({memory.active_project}):")
-                for i, m in enumerate(memory.memories, 1):
-                    print(f"  {i}. {m}")
+            global_mems = memory.load_global_memories()
+            proj_mems = memory.memories
+            has_any = bool(global_mems or proj_mems)
+            if has_any:
+                print(f"{memory.DIM}")
+                if global_mems:
+                    print(f"Global memories:")
+                    for i, m in enumerate(global_mems, 1):
+                        print(f"  {i}. {m}")
+                if proj_mems:
+                    print(f"Project memories ({memory.active_project}):")
+                    for i, m in enumerate(proj_mems, 1):
+                        print(f"  {i}. {m}")
                 print(memory.RESET)
             else:
                 print(f"{memory.DIM}No memories stored. Use /remember <fact> to add one.{memory.RESET}\n")
@@ -822,17 +849,7 @@ if __name__ == "__main__":
                     continue
 
             # Gather memories for context
-            all_memories = list(memory.memories)
-            root_mem = os.path.join(memory.BASE_DIR, "memory.json")
-            if os.path.exists(root_mem):
-                with open(root_mem, "r") as f:
-                    all_memories.extend(json.load(f))
-            if memory.active_project != "general":
-                general_mem = os.path.join(memory.PROJECTS_DIR, "general", "memory.json")
-                if os.path.exists(general_mem):
-                    with open(general_mem, "r") as f:
-                        all_memories.extend(json.load(f))
-            all_memories = list(dict.fromkeys(all_memories))
+            all_memories, _, _ = memory.load_all_memories()
 
             if draft_arg_lower == "reply":
                 if not tools._last_read_email:
@@ -1020,22 +1037,8 @@ if __name__ == "__main__":
                 print(f"{memory.DIM}Usage: /cover <#>  or  /cover new <company> <title>{memory.RESET}\n")
                 continue
 
-            # Gather memories (same pattern as /work apply)
-            all_memories = list(memory.memories)
-            root_mem = os.path.join(memory.BASE_DIR, "memory.json")
-            if os.path.exists(root_mem):
-                with open(root_mem, "r") as f:
-                    all_memories.extend(json.load(f))
-            if memory.active_project != "general":
-                general_mem = os.path.join(memory.PROJECTS_DIR, "general", "memory.json")
-                if os.path.exists(general_mem):
-                    with open(general_mem, "r") as f:
-                        all_memories.extend(json.load(f))
-            js_mem = os.path.join(memory.PROJECTS_DIR, memory.JOB_SEARCH_PROJECT, "memory.json")
-            if js_mem != memory.get_memory_file() and os.path.exists(js_mem):
-                with open(js_mem, "r") as f:
-                    all_memories.extend(json.load(f))
-            all_memories = list(dict.fromkeys(all_memories))
+            # Gather memories
+            all_memories, _, _ = memory.load_all_memories()
 
             # Load resume
             resume_text = ""
@@ -2115,21 +2118,7 @@ if __name__ == "__main__":
 
                 print(f"{memory.DIM}Using Opus for cover letter generation{memory.RESET}")
                 print(f"{memory.DIM}Generating cover letter for: {job['title']}...{memory.RESET}")
-                all_memories = list(memory.memories)
-                root_mem = os.path.join(memory.BASE_DIR, "memory.json")
-                if os.path.exists(root_mem):
-                    with open(root_mem, "r") as f:
-                        all_memories.extend(json.load(f))
-                if memory.active_project != "general":
-                    general_mem = os.path.join(memory.PROJECTS_DIR, "general", "memory.json")
-                    if os.path.exists(general_mem):
-                        with open(general_mem, "r") as f:
-                            all_memories.extend(json.load(f))
-                js_mem = os.path.join(memory.PROJECTS_DIR, memory.JOB_SEARCH_PROJECT, "memory.json")
-                if js_mem != memory.get_memory_file() and os.path.exists(js_mem):
-                    with open(js_mem, "r") as f:
-                        all_memories.extend(json.load(f))
-                all_memories = list(dict.fromkeys(all_memories))
+                all_memories, _, _ = memory.load_all_memories()
                 resume_path = memory.get_resume_path()
                 resume_text = ""
                 if os.path.exists(resume_path):

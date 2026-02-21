@@ -301,14 +301,14 @@ def get_resume_path():
 # --- Memory functions ---
 
 def load_memories():
-    """Load memories from the active project's memory file, falling back to root."""
-    for path in [get_memory_file(), os.path.join(BASE_DIR, "memory.json")]:
-        if os.path.exists(path):
-            try:
-                with open(path, "r") as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, OSError):
-                pass
+    """Load memories from the active project's memory file only."""
+    path = get_memory_file()
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
     return []
 
 
@@ -319,14 +319,181 @@ def save_memories(mems):
         json.dump(mems, f, indent=2)
 
 
+def load_global_memories():
+    """Load memories from root memory.json (global layer)."""
+    path = os.path.join(BASE_DIR, "memory.json")
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return []
+
+
+def save_global_memories(mems):
+    """Save memories to root memory.json (global layer)."""
+    path = os.path.join(BASE_DIR, "memory.json")
+    with open(path, "w") as f:
+        json.dump(mems, f, indent=2)
+
+
+def load_all_memories():
+    """Load and deduplicate global + project memories.
+
+    Returns (combined, global_list, project_list).
+    """
+    global_mems = load_global_memories()
+    project_mems = load_memories()
+    combined = list(dict.fromkeys(global_mems + project_mems))
+    return combined, global_mems, project_mems
+
+
+def get_cross_project_summary():
+    """Scan all project dirs (skipping active) and return a summary string."""
+    if not os.path.exists(PROJECTS_DIR):
+        return ""
+    lines = []
+    for project_name in sorted(os.listdir(PROJECTS_DIR)):
+        if project_name == active_project:
+            continue
+        project_dir = os.path.join(PROJECTS_DIR, project_name)
+        if not os.path.isdir(project_dir):
+            continue
+
+        parts = [f"- {project_name}:"]
+
+        # Open task count
+        tasks_path = os.path.join(project_dir, "tasks.json")
+        if os.path.exists(tasks_path):
+            try:
+                with open(tasks_path, "r") as f:
+                    task_data = json.load(f)
+                open_count = sum(1 for t in task_data.get("tasks", []) if t.get("status") == "open")
+                if open_count:
+                    parts.append(f"{open_count} open task{'s' if open_count != 1 else ''}")
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        # Conversation count
+        conv_dir = os.path.join(project_dir, "conversations")
+        if os.path.isdir(conv_dir):
+            conv_count = len([f for f in os.listdir(conv_dir) if f.endswith(".txt")])
+            if conv_count:
+                parts.append(f"{conv_count} conversation{'s' if conv_count != 1 else ''}")
+
+        # Saved jobs count (job-search only)
+        if project_name == JOB_SEARCH_PROJECT:
+            jobs_path = os.path.join(project_dir, "jobs.json")
+            if os.path.exists(jobs_path):
+                try:
+                    with open(jobs_path, "r") as f:
+                        jobs_count = len(json.load(f))
+                    if jobs_count:
+                        parts.append(f"{jobs_count} saved job{'s' if jobs_count != 1 else ''}")
+                except (json.JSONDecodeError, OSError):
+                    pass
+
+        if len(parts) > 1:
+            lines.append(" ".join(parts))
+    return "\n".join(lines)
+
+
+def get_detailed_project_summaries():
+    """Return richer summaries for the general project view."""
+    if not os.path.exists(PROJECTS_DIR):
+        return ""
+    lines = []
+    for project_name in sorted(os.listdir(PROJECTS_DIR)):
+        if project_name == active_project:
+            continue
+        project_dir = os.path.join(PROJECTS_DIR, project_name)
+        if not os.path.isdir(project_dir):
+            continue
+
+        parts = [f"**{project_name}**"]
+
+        # Last 3 conversation titles
+        conv_dir = os.path.join(project_dir, "conversations")
+        if os.path.isdir(conv_dir):
+            conv_files = sorted(
+                [f for f in os.listdir(conv_dir) if f.endswith(".txt")],
+                reverse=True,
+            )[:3]
+            if conv_files:
+                titles = [os.path.splitext(f)[0].replace("-", " ").title() for f in conv_files]
+                parts.append("Recent: " + ", ".join(titles))
+
+        # Open task count with next due date
+        tasks_path = os.path.join(project_dir, "tasks.json")
+        if os.path.exists(tasks_path):
+            try:
+                with open(tasks_path, "r") as f:
+                    task_data = json.load(f)
+                open_tasks = [t for t in task_data.get("tasks", []) if t.get("status") == "open"]
+                if open_tasks:
+                    due_dates = []
+                    for t in open_tasks:
+                        if t.get("due_date"):
+                            due_dates.append(t["due_date"])
+                    due_str = f" (next due: {min(due_dates)})" if due_dates else ""
+                    parts.append(f"{len(open_tasks)} open task{'s' if len(open_tasks) != 1 else ''}{due_str}")
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        # Saved jobs count (job-search only)
+        if project_name == JOB_SEARCH_PROJECT:
+            jobs_path = os.path.join(project_dir, "jobs.json")
+            if os.path.exists(jobs_path):
+                try:
+                    with open(jobs_path, "r") as f:
+                        jobs_count = len(json.load(f))
+                    if jobs_count:
+                        parts.append(f"{jobs_count} saved job{'s' if jobs_count != 1 else ''}")
+                except (json.JSONDecodeError, OSError):
+                    pass
+
+        if len(parts) > 1:
+            lines.append("  ".join(parts))
+    return "\n".join(lines)
+
+
 def build_system_prompt(mems, creative_context=""):
-    """Build the system prompt, including stored memories, challenge mode, and creative context."""
+    """Build the system prompt with global memories, project memories, resume ref, and cross-project summary."""
     base = _build_base_prompt()
     if challenge_mode:
         base += _build_challenge_addendum()
+
+    # Global memories (core facts)
+    global_mems = load_global_memories()
+    if global_mems:
+        block = "\n".join(f"- {m}" for m in global_mems)
+        base += f"\n\nCore facts (always available):\n{block}"
+
+    # Project-specific memories
     if mems:
-        memory_block = "\n".join(f"- {m}" for m in mems)
-        base += f"\n\nThings you've been asked to remember:\n{memory_block}"
+        project_block = "\n".join(f"- {m}" for m in mems)
+        base += f"\n\nProject memories ({active_project}):\n{project_block}"
+
+    # Resume reference
+    resume_path = get_resume_path()
+    if os.path.exists(resume_path):
+        base += (
+            "\n\nResume is available at: "
+            f"{resume_path} — use read_file to access it when needed for "
+            "cover letters, applications, or professional context."
+        )
+
+    # Cross-project summary
+    if active_project == "general":
+        detailed = get_detailed_project_summaries()
+        if detailed:
+            base += f"\n\nOther projects:\n{detailed}"
+    else:
+        summary = get_cross_project_summary()
+        if summary:
+            base += f"\n\nOther projects:\n{summary}"
+
     if creative_context:
         base += (
             "\n\nYou are working on the First Light sci-fi project. Here is the world bible "

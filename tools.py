@@ -93,7 +93,9 @@ TOOLS = [
         "description": (
             "Save a fact to persistent memory. Use this when the user shares a "
             "personal preference, important detail, or explicitly asks you to "
-            "remember something."
+            "remember something. Saves to global memory by default (available "
+            "across all projects). Set project_specific=true to save only to "
+            "the current project."
         ),
         "input_schema": {
             "type": "object",
@@ -101,6 +103,10 @@ TOOLS = [
                 "fact": {
                     "type": "string",
                     "description": "The fact to remember",
+                },
+                "project_specific": {
+                    "type": "boolean",
+                    "description": "If true, save to project memory instead of global. Default: false.",
                 },
             },
             "required": ["fact"],
@@ -1456,21 +1462,43 @@ def execute_tool(name, tool_input, confirm_fn=None):
 
     elif name == "remember":
         fact = tool_input["fact"]
-        memory.memories.append(fact)
-        memory.save_memories(memory.memories)
-        return f"Remembered: {fact}", False
+        if tool_input.get("project_specific"):
+            memory.memories.append(fact)
+            memory.save_memories(memory.memories)
+            return f"Remembered (project: {memory.active_project}): {fact}", False
+        else:
+            global_mems = memory.load_global_memories()
+            global_mems.append(fact)
+            memory.save_global_memories(global_mems)
+            return f"Remembered (global): {fact}", False
 
     elif name == "forget":
         fact = tool_input["fact"]
+        # Search project first, then global
         if fact in memory.memories:
             memory.memories.remove(fact)
             memory.save_memories(memory.memories)
-            return f"Forgot: {fact}", False
-        return f"No matching memory found. Current memories: {memory.memories}", True
+            return f"Forgot (project): {fact}", False
+        global_mems = memory.load_global_memories()
+        if fact in global_mems:
+            global_mems.remove(fact)
+            memory.save_global_memories(global_mems)
+            return f"Forgot (global): {fact}", False
+        all_mems, _, _ = memory.load_all_memories()
+        return f"No matching memory found. Current memories: {all_mems}", True
 
     elif name == "list_memories":
-        if memory.memories:
-            return "\n".join(f"- {m}" for m in memory.memories), False
+        global_mems = memory.load_global_memories()
+        proj_mems = memory.memories
+        lines = []
+        if global_mems:
+            lines.append("Global memories:")
+            lines.extend(f"- {m}" for m in global_mems)
+        if proj_mems:
+            lines.append(f"Project memories ({memory.active_project}):")
+            lines.extend(f"- {m}" for m in proj_mems)
+        if lines:
+            return "\n".join(lines), False
         return "No memories stored.", False
 
     elif name == "run_python":
@@ -1667,20 +1695,7 @@ def execute_tool(name, tool_input, confirm_fn=None):
 
         if pdf_type == "cover_letter":
             # Gather memories
-            all_memories = list(memory.memories)
-            root_mem = os.path.join(memory.BASE_DIR, "memory.json")
-            if os.path.exists(root_mem):
-                with open(root_mem, "r") as f:
-                    all_memories.extend(json.load(f))
-            general_mem = os.path.join(memory.PROJECTS_DIR, "general", "memory.json")
-            if memory.active_project != "general" and os.path.exists(general_mem):
-                with open(general_mem, "r") as f:
-                    all_memories.extend(json.load(f))
-            js_mem = os.path.join(memory.PROJECTS_DIR, memory.JOB_SEARCH_PROJECT, "memory.json")
-            if js_mem != memory.get_memory_file() and os.path.exists(js_mem):
-                with open(js_mem, "r") as f:
-                    all_memories.extend(json.load(f))
-            all_memories = list(dict.fromkeys(all_memories))
+            all_memories, _, _ = memory.load_all_memories()
 
             # Load resume
             resume_text = ""
