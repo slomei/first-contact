@@ -15,7 +15,6 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, HRFlowable,
 )
-from reportlab.lib.enums import TA_LEFT
 
 import memory
 

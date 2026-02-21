@@ -15,7 +15,6 @@ import email as email_lib
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from ddgs import DDGS
-import pdfplumber
 from dateutil import parser as dateutil_parser
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -394,12 +393,17 @@ TOOLS = [
 
 # --- Mutable globals ---
 last_job_results = []
+
+# Tool isolation safety flags: prevent cross-contamination between untrusted content.
+# When email content is loaded, outbound tools (web_search, run_python, write_file) are
+# restricted to prevent prompt-injection attacks from email bodies. When web content is
+# loaded, email drafting is blocked so fetched page instructions can't hijack outbound mail.
 _email_content_loaded = False
 _last_email_results = []
 _last_read_email = None       # Full metadata of last /email read message
 _session_draft_count = 0      # Rate limit: max 10 drafts per session
 DRAFT_RATE_LIMIT = 10
-_web_content_loaded = False   # Safety flag: web content in context
+_web_content_loaded = False
 _session_fetch_count = 0      # Rate limit: max 10 fetches per session
 FETCH_RATE_LIMIT = 10
 
@@ -624,13 +628,18 @@ def _check_scopes():
 
 
 def get_gmail_service():
-    """Load saved OAuth token and return a Gmail API service object."""
+    """Load saved OAuth token and return a Gmail API service object.
+
+    Returns None if credentials are missing, scopes changed, or auth fails.
+    """
     if not os.path.exists(memory.GMAIL_CREDENTIALS):
         return None
+    # Reject tokens from an older scope set (user must re-auth after scope changes)
     if not _check_scopes():
         return None
     try:
         creds = Credentials.from_authorized_user_file(memory.GMAIL_CREDENTIALS, memory.GMAIL_SCOPES)
+        # Google OAuth tokens expire after ~1 hour; auto-refresh and persist the new token
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
             with open(memory.GMAIL_CREDENTIALS, "w") as f:
@@ -887,7 +896,10 @@ def _check_calendar_scopes():
 
 
 def get_calendar_service():
-    """Load saved OAuth token and return a Calendar API service object."""
+    """Load saved OAuth token and return a Calendar API service object.
+
+    Returns None if credentials are missing, scopes changed, or auth fails.
+    """
     if not os.path.exists(memory.CALENDAR_CREDENTIALS):
         return None
     if not _check_calendar_scopes():
@@ -895,6 +907,7 @@ def get_calendar_service():
     try:
         creds = Credentials.from_authorized_user_file(
             memory.CALENDAR_CREDENTIALS, memory.CALENDAR_SCOPES)
+        # Auto-refresh expired token and persist for next use
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
             with open(memory.CALENDAR_CREDENTIALS, "w") as f:

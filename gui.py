@@ -5,7 +5,6 @@ Imports core logic from memory, models, tools — run with:
     python gui.py
 """
 
-import json
 import os
 import gradio as gr
 
