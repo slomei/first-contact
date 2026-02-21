@@ -39,6 +39,64 @@ class _ResponseCancelled(Exception):
     pass
 
 
+class _TerminalStreamer:
+    """Strips inline markdown from streaming chunks for terminal display.
+
+    Preserves code blocks (```). Strips **, *, inline `, and # headers.
+    The raw text is never modified — only the printed output is affected.
+    """
+
+    def __init__(self):
+        self._pending = ""
+        self._in_code_block = False
+
+    def feed(self, chunk):
+        """Process a streaming chunk. Returns stripped text ready to print."""
+        text = self._pending + chunk
+        self._pending = ""
+
+        if not self._in_code_block:
+            # Buffer trailing * or ` that could be part of ** or ```
+            while text and text[-1] in ('*', '`'):
+                self._pending = text[-1] + self._pending
+                text = text[:-1]
+            # If buffered chars form a code fence, flush them through
+            if '```' in self._pending:
+                text += self._pending
+                self._pending = ""
+
+        return self._process(text)
+
+    def flush(self):
+        """Return any remaining buffered text, stripped."""
+        text = self._pending
+        self._pending = ""
+        if self._in_code_block:
+            return text
+        return self._strip(text)
+
+    def _process(self, text):
+        if not text:
+            return ""
+        parts = text.split('```')
+        output = []
+        for i, part in enumerate(parts):
+            if i > 0:
+                self._in_code_block = not self._in_code_block
+                output.append('```')
+            output.append(part if self._in_code_block else self._strip(part))
+        return ''.join(output)
+
+    @staticmethod
+    def _strip(text):
+        """Remove inline markdown: **bold**, *italic*, `code`, # headers."""
+        text = text.replace('**', '')
+        text = text.replace('*', '')
+        text = text.replace('`', '')
+        text = re.sub(r'(?m)^#{1,6}\s+', '', text)
+        return text
+
+
 def _clean_exit():
     """Save conversation silently and exit."""
     print_session_summary()
@@ -201,6 +259,7 @@ def chat_turn():
                 print(f"\n{memory.CYAN}Claude:{memory.RESET} ", end="", flush=True)
 
             response_text = ""
+            _streamer = _TerminalStreamer()
             try:
                 with models.get_client().messages.stream(
                     model=models.active_model,
@@ -210,8 +269,11 @@ def chat_turn():
                     tools=tools.TOOLS,
                 ) as stream:
                     for text in stream.text_stream:
-                        print(text, end="", flush=True)
+                        print(_streamer.feed(text), end="", flush=True)
                         response_text += text
+                    _remaining = _streamer.flush()
+                    if _remaining:
+                        print(_remaining, end="", flush=True)
 
                     final = stream.get_final_message()
             except KeyboardInterrupt:
