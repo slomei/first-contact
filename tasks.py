@@ -9,7 +9,10 @@ import os
 import re
 from datetime import datetime, timedelta
 
-from dateutil import parser as dateutil_parser
+try:
+    from dateutil import parser as dateutil_parser
+except ImportError:
+    dateutil_parser = None
 
 import memory
 
@@ -105,6 +108,8 @@ def parse_natural_date(text):
                 return _apply_time_of_day(_next_weekday(num), tod_label)
 
     # Fallback: dateutil fuzzy parsing
+    if dateutil_parser is None:
+        return None
     try:
         parsed = dateutil_parser.parse(text, fuzzy=True)
         # If the parsed date is in the past and has no explicit year, bump to next year

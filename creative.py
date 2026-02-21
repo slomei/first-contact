@@ -11,7 +11,10 @@ call the API to avoid circular dependencies.
 import json
 import os
 import re
-import pdfplumber
+try:
+    import pdfplumber
+except ImportError:
+    pdfplumber = None
 from difflib import get_close_matches
 
 import memory
@@ -55,6 +58,8 @@ def extract_bible_text(bible_path=None):
     if bible_path is None:
         bible_path = get_bible_path()
     if bible_path is None or not os.path.exists(bible_path):
+        return []
+    if pdfplumber is None:
         return []
 
     pages = []

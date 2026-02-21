@@ -14,15 +14,29 @@ import base64
 import email as email_lib
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from ddgs import DDGS
-from dateutil import parser as dateutil_parser
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
+try:
+    from ddgs import DDGS
+except ImportError:
+    DDGS = None
+
+try:
+    from dateutil import parser as dateutil_parser
+except ImportError:
+    dateutil_parser = None
+
+try:
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from googleapiclient.discovery import build
+except ImportError:
+    Request = Credentials = InstalledAppFlow = build = None
 
 import requests
-from bs4 import BeautifulSoup
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    BeautifulSoup = None
 
 import memory
 from glob import glob as _glob
@@ -505,6 +519,8 @@ JOB_BOARD_DOMAINS = [
 
 def web_search(query, max_results=5):
     """Search the web using DuckDuckGo and return formatted results."""
+    if DDGS is None:
+        return None
     # Suppress primp "Impersonate ... does not exist" warnings
     import contextlib, io
     with contextlib.redirect_stderr(io.StringIO()):
@@ -530,6 +546,8 @@ SPAM_TITLE_PATTERNS = [
 
 def search_jobs(query, max_results=10):
     """Search for job listings using DuckDuckGo with quality filtering."""
+    if DDGS is None:
+        return []
     search_query = f"{query} jobs hiring"
     import contextlib, io
     with contextlib.redirect_stderr(io.StringIO()):
@@ -569,8 +587,12 @@ def fetch_url(url):
     """Fetch a URL and return clean text content.
 
     Returns (text, title, is_job_posting) or (error_string, None, False).
+    Requires beautifulsoup4; returns an error string if not installed.
     """
     global _session_fetch_count, _web_content_loaded
+
+    if BeautifulSoup is None:
+        return "beautifulsoup4 not installed. Install with: pip install beautifulsoup4 lxml", None, False
 
     if _session_fetch_count >= FETCH_RATE_LIMIT:
         return f"Fetch rate limit reached ({FETCH_RATE_LIMIT} per session).", None, False
@@ -758,6 +780,8 @@ def get_gmail_service(credentials_path=None):
     If credentials_path is None, uses the default gmail_credentials.json.
     Returns None if credentials are missing, scopes changed, or auth fails.
     """
+    if Credentials is None:
+        return None
     cred_path = credentials_path or memory.GMAIL_CREDENTIALS
     if not os.path.exists(cred_path):
         return None
@@ -1139,6 +1163,8 @@ def get_calendar_service():
 
     Returns None if credentials are missing, scopes changed, or auth fails.
     """
+    if Credentials is None:
+        return None
     if not os.path.exists(memory.CALENDAR_CREDENTIALS):
         return None
     if not _check_calendar_scopes():
@@ -1194,6 +1220,8 @@ def _parse_date_to_aware(text):
 
     Returns a datetime in the user's timezone, or None if parsing fails.
     """
+    if dateutil_parser is None:
+        return None
     tz = _get_user_timezone()
     now = datetime.now(tz)
     try:

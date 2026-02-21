@@ -17,7 +17,10 @@ import re
 import shutil
 import sys
 from datetime import datetime
-import pdfplumber
+try:
+    import pdfplumber
+except ImportError:
+    pdfplumber = None
 
 import memory
 import models
@@ -2105,6 +2108,9 @@ if __name__ == "__main__":
             ext = os.path.splitext(src)[1].lower()
             try:
                 if ext == ".pdf":
+                    if pdfplumber is None:
+                        print(f"{memory.YELLOW}pdfplumber not installed.{memory.RESET} Install with: pip install pdfplumber\n")
+                        continue
                     with pdfplumber.open(src) as pdf:
                         text = "\n\n".join(
                             page.extract_text() or "" for page in pdf.pages

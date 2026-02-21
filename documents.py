@@ -8,22 +8,30 @@ import os
 import re
 from datetime import datetime
 
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.units import inch
-from reportlab.lib.colors import HexColor, black, gray
-from reportlab.lib.styles import ParagraphStyle
-from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, HRFlowable,
-)
+try:
+    from reportlab.lib.pagesizes import letter as _letter_size
+    from reportlab.lib.units import inch
+    from reportlab.lib.colors import HexColor, black, gray
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, HRFlowable,
+    )
+    _REPORTLAB_AVAILABLE = True
+except ImportError:
+    _REPORTLAB_AVAILABLE = False
+    _letter_size = (612, 792)
+    inch = 72
+    HexColor = black = gray = None
+    ParagraphStyle = SimpleDocTemplate = Paragraph = Spacer = HRFlowable = None
 
 import memory
 
 # --- Constants ---
 
-ACCENT_COLOR = HexColor("#145545")
-HEADER_GRAY = HexColor("#666666")
+ACCENT_COLOR = HexColor("#145545") if HexColor else None
+HEADER_GRAY = HexColor("#666666") if HexColor else None
 
-PAGE_WIDTH, PAGE_HEIGHT = letter  # 612 x 792 points
+PAGE_WIDTH, PAGE_HEIGHT = _letter_size  # 612 x 792 points
 
 def _load_contact():
     """Load contact info from config (matches resume)."""
@@ -193,6 +201,19 @@ def generate_cover_letter_pdf(
     Returns:
         The output file path.
     """
+    if not _REPORTLAB_AVAILABLE:
+        # Fallback: save as plain text file
+        if output_path is None:
+            os.makedirs(COVER_LETTER_DIR, exist_ok=True)
+            slug = re.sub(r'[^\w]+', '_', f"{company_name}_{job_title}").strip('_')
+            output_path = os.path.join(COVER_LETTER_DIR, f"{slug}_cover.txt")
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        with open(output_path, "w") as f:
+            f.write(f"Cover Letter — {job_title} at {company_name}\n\n")
+            f.write(f"Dear {recipient_name},\n\n")
+            f.write(cover_letter_text)
+        return output_path
+
     if output_path is None:
         os.makedirs(COVER_LETTER_DIR, exist_ok=True)
         slug = re.sub(r'[^\w]+', '_', f"{company_name}_{job_title}").strip('_')
@@ -299,13 +320,21 @@ def generate_pdf(title, body_text, output_path):
     Returns:
         The output file path.
     """
+    if not _REPORTLAB_AVAILABLE:
+        # Fallback: save as plain text
+        txt_path = output_path.rsplit(".", 1)[0] + ".txt"
+        os.makedirs(os.path.dirname(txt_path), exist_ok=True)
+        with open(txt_path, "w") as f:
+            f.write(f"{title}\n{'=' * len(title)}\n\n{body_text}")
+        return txt_path
+
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     styles = _base_styles()
 
     doc = SimpleDocTemplate(
         output_path,
-        pagesize=letter,
+        pagesize=_letter_size,
         leftMargin=1 * inch,
         rightMargin=1 * inch,
         topMargin=1 * inch,
