@@ -9,6 +9,8 @@ Usage:
     python chat.py
 """
 
+print("Starting First Contact...")
+
 import json
 import os
 import re
