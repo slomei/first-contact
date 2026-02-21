@@ -5,6 +5,7 @@
 !.env.example
 config.json
 gmail_client_secret.json
+client_secret*.json
 gmail_credentials*.json
 calendar_credentials.json
 *.json.bak
@@ -30,6 +31,7 @@ logs/
 # Generated files
 *.pdf
 conversations/
+daemon.pid
 
 # Python
 __pycache__/
@@ -42,6 +44,7 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+*:Zone.Identifier
 
 # Sync
 sync_sources.json

@@ -286,111 +286,241 @@ if __name__ == "__main__":
         print_conversations(existing)
         print()
 
-    HELP_TEXT = f"""{memory.DIM}Available commands:
-      /help              Show this help message
-      /clear             Clear the terminal screen
-      /setup             Run onboarding wizard
-      /read <path>       Load a file into the conversation
-      /web <query>       Search the web and discuss results
-      /fetch <url>       Fetch a web page and load into conversation
-      /write <file>      Save last response to workspace/<file>
-      /run               Run the code block from Claude's last response
-      /remember <fact>   Save a fact to global memory
-      /remember -p <fact> Save a fact to project memory
-      /forget <fact>     Remove a fact from memory
-      /memories          List all stored memories
-      /note <text>       Save a timestamped note to daily notes file
-      /notes             List recent notes (last 7 days)
-      /notes search <q>  Search notes for keyword matches
-      /challenge on|off  Toggle devil's advocate mode
-      /project           Create a new project (prompts for name)
-      /project <name>    Switch to a project (creates if needed)
-      /project list      List all projects
-      /watch <topic>     Add a topic to the watchlist
-      /watch list        Show all watched topics
-      /watch remove <topic>  Remove a topic from the watchlist
-      /digest            Search web for watched topics and save a digest
-      /work search <q>   Search for job listings
-      /work save [#,#|all]  Save search results (by number, comma-separated, or all)
-      /work list         Show all saved job listings
-      /work remove <#>   Remove a saved listing
-      /work apply <#>    Open listing + generate cover letter to jobs/<slug>/
-      /work track <#> <status>  Set status (applied, interviewing, rejected, offer)
-      /work status       Show tracked jobs grouped by status
-      /resume              Show loaded resume status
-      /resume <path>       Load a resume file (txt, md, pdf, docx)
-      /email setup         Authenticate with Gmail (OAuth2)
-      /email check         Show recent unread emails
-      /email read <#>      Read full email by number
-      /email search <q>    Search emails by keyword
-      /draft reply         Draft a reply to the last-read email (Opus)
-      /draft new <to> [subj]  Compose a new email draft (Opus)
-      /draft work <#>      Draft a job application email (Opus)
-      /drafts              List drafts created this session
-      /cover <#>           Generate cover letter PDF for a saved job (Opus)
-      /cover new <co> <title>  Cover letter PDF for a job not in the pipeline
-      /pdf <title>         Save last Claude response as a formatted PDF
-      /task add <desc>    Add a task (--high/--low, natural date parsing)
-      /tasks              Show open tasks (sorted by urgency)
-      /task done <#>      Mark a task as done
-      /task remove <#>    Remove a task
-      /task edit <#> <desc>  Edit task description
-      /task note <#> <note>  Add a note to a task
-      /tasks done         Show completed tasks
-      /tasks all          Show all tasks
-      /remind <desc> <time>  Set a reminder (natural language time)
-      /reminders          Show pending reminders
-      /remind cancel <#>  Cancel a reminder
-      /cal                 Show today's calendar events
-      /cal today           Same as /cal
-      /cal tomorrow        Tomorrow's events
-      /cal week            Next 7 days
-      /cal <date>          Events for a specific date (natural language)
-      /cal add <desc>      Create a calendar event (with confirmation)
-      /cal setup           Authenticate with Google Calendar (OAuth2)
-      /briefing            Run daily briefing (email, tasks, jobs, reminders, watchlist)
-      /briefing time HH:MM Set auto-briefing time (Discord)
-      /briefing on|off     Enable/disable auto-briefing (Discord)
-      /notify              Show email notification status
-      /notify on|off       Enable/disable email notifications (Discord)
-      /notify domain add|remove <domain>  Add/remove priority domain
-      /notify keyword add|remove <word>   Add/remove priority keyword
-      /notify mute add|remove <pattern>   Add/remove mute pattern
-      /notify log          Show recent notification log
-      /scan                Run a job scan across configured platforms
-      /scan results        Show results from the last scan
-      /scan status         Show scan configuration and rate limits
-      /scan query add <q>  Add a search query
-      /scan query remove <q>  Remove a search query
-      /scan queries        List configured search queries
-      /scan on|off         Enable/disable auto-scanning (Discord)
-      /update [key] [path]  Sync files from source (all keys if omitted, explicit path optional)
-      /characters        List all indexed characters (first-light only)
-      /character <name>  Show character details (first-light only)
-      /locations         List all indexed locations (first-light only)
-      /location <name>   Show location details (first-light only)
-      /delegates         Show specialist agents and their models
-      /billing           Show billing link for API credits
-      /new               Save current conversation and start fresh
-      /load              Load a previous conversation into context
-      /conversations     List previous conversations
-      /delete            Delete a saved conversation
-      /status            Show agent status (project, model, context, daemon, tasks)
-      /tokens            Show conversation size and compression status
-      /reset             Wipe all user data and return to clean state
-      /opus              Switch to Claude Opus
-      /sonnet            Switch to Claude Sonnet
-      /haiku             Switch to Claude Haiku
-      quit / exit        End the conversation
+    HELP_CATEGORIES = {
+        "chat": {
+            "desc": "Conversation and model controls",
+            "commands": [
+                ("/opus, /sonnet, /haiku", "Switch Claude model"),
+                ("/challenge on|off", "Toggle devil's advocate mode"),
+                ("/new", "Save conversation and start fresh"),
+                ("/load", "Load a previous conversation"),
+                ("/conversations", "List saved conversations"),
+                ("/delete", "Delete a saved conversation"),
+                ("/clear", "Clear the terminal screen"),
+            ],
+            "tip": "Claude picks the best model automatically. Use these to override.",
+        },
+        "memory": {
+            "desc": "Persistent facts and notes",
+            "commands": [
+                ("/remember <fact>", "Save a fact to global memory"),
+                ("/remember -p <fact>", "Save a fact to project memory"),
+                ("/forget <fact>", "Remove a fact from memory"),
+                ("/memories", "List all stored memories"),
+                ("/note <text>", "Save a timestamped note"),
+                ("/notes", "List recent notes (last 7 days)"),
+                ("/notes search <q>", "Search notes by keyword"),
+            ],
+            "tip": "Global memories persist across all projects. Use -p for project-only facts.",
+        },
+        "email": {
+            "desc": "Gmail integration and drafting",
+            "commands": [
+                ("/email check", "Show recent unread emails"),
+                ("/email read <#>", "Read full email by number"),
+                ("/email search <q>", "Search emails by keyword"),
+                ("/draft reply", "Draft a reply to the last-read email"),
+                ("/draft new <to> [subj]", "Compose a new email draft"),
+                ("/draft work <#>", "Draft a job application email"),
+                ("/drafts", "List drafts created this session"),
+                ("/email setup", "Authenticate with Gmail (OAuth2)"),
+            ],
+            "tip": "Drafts are created in Gmail — the agent never sends email directly.",
+        },
+        "calendar": {
+            "desc": "Google Calendar events",
+            "commands": [
+                ("/cal", "Show today's events"),
+                ("/cal tomorrow", "Tomorrow's events"),
+                ("/cal week", "Next 7 days"),
+                ("/cal <date>", "Events for a specific date"),
+                ("/cal add <desc>", "Create event (with confirmation)"),
+                ("/cal setup", "Authenticate with Google Calendar"),
+            ],
+            "tip": "Use natural language for dates: 'next friday', 'march 5th'.",
+        },
+        "jobs": {
+            "desc": "Job search, tracking, and applications",
+            "commands": [
+                ("/work search <q>", "Search for job listings"),
+                ("/work save [#,#|all]", "Save results by number or all"),
+                ("/work list", "Show saved listings"),
+                ("/work remove <#>", "Remove a saved listing"),
+                ("/work apply <#>", "Open listing + generate cover letter"),
+                ("/work track <#> <status>", "Set status (applied, interviewing, etc.)"),
+                ("/work status", "Show jobs grouped by status"),
+                ("/resume", "Show loaded resume status"),
+                ("/resume <path>", "Load a resume file"),
+                ("/cover <#>", "Generate cover letter for saved job"),
+                ("/cover new <co> <title>", "Cover letter for unlisted job"),
+            ],
+            "tip": "Load your resume first (/resume path/to/resume.pdf) for better cover letters.",
+        },
+        "scanning": {
+            "desc": "Automated job scanning",
+            "commands": [
+                ("/scan", "Run a job scan now"),
+                ("/scan results", "Show last scan results"),
+                ("/scan status", "Show scan config and rate limits"),
+                ("/scan query add <q>", "Add a search query"),
+                ("/scan query remove <q>", "Remove a search query"),
+                ("/scan queries", "List configured queries"),
+                ("/scan on|off", "Enable/disable auto-scanning"),
+            ],
+            "tip": "Configure queries once, then let the daemon scan automatically.",
+        },
+        "tasks": {
+            "desc": "Tasks and reminders",
+            "commands": [
+                ("/task add <desc>", "Add a task (--high/--low, natural dates)"),
+                ("/tasks", "Show open tasks sorted by urgency"),
+                ("/task done <#>", "Mark a task as done"),
+                ("/task remove <#>", "Remove a task"),
+                ("/task edit <#> <desc>", "Edit task description"),
+                ("/task note <#> <note>", "Add a note to a task"),
+                ("/tasks done", "Show completed tasks"),
+                ("/remind <desc> <time>", "Set a reminder"),
+                ("/reminders", "Show pending reminders"),
+                ("/remind cancel <#>", "Cancel a reminder"),
+            ],
+            "tip": "Natural dates work: 'tomorrow 3pm', 'next monday', 'in 2 hours'.",
+        },
+        "web": {
+            "desc": "Web search and file tools",
+            "commands": [
+                ("/web <query>", "Search the web"),
+                ("/fetch <url>", "Fetch a web page"),
+                ("/read <path>", "Load a file into conversation"),
+                ("/write <file>", "Save last response to workspace"),
+                ("/run", "Run code from Claude's last response"),
+                ("/pdf <title>", "Save last response as formatted PDF"),
+            ],
+            "tip": "Claude also searches the web autonomously when it would help.",
+        },
+        "system": {
+            "desc": "Status, briefing, notifications, projects",
+            "commands": [
+                ("/status", "Agent status overview"),
+                ("/briefing", "Run daily briefing"),
+                ("/briefing time HH:MM", "Set auto-briefing time"),
+                ("/briefing on|off", "Enable/disable auto-briefing"),
+                ("/notify on|off", "Enable/disable email notifications"),
+                ("/notify domain add|remove <d>", "Priority domain filter"),
+                ("/notify keyword add|remove <w>", "Priority keyword filter"),
+                ("/project", "Create a new project"),
+                ("/project <name>", "Switch to a project"),
+                ("/project list", "List all projects"),
+                ("/tokens", "Context size and compression status"),
+                ("/delegates", "Show specialist agents"),
+                ("/setup", "Run onboarding wizard"),
+                ("/reset", "Wipe all data and start fresh"),
+            ],
+            "tip": "Use /status for a quick overview of everything active.",
+        },
+    }
 
-    Claude also uses tools autonomously (web search, file read/write, memory, code execution).{memory.RESET}"""
+    def print_help(category=None):
+        """Print help — overview if no category, detailed if category given."""
+        if category:
+            cat = HELP_CATEGORIES.get(category)
+            if not cat:
+                close = [k for k in HELP_CATEGORIES if k.startswith(category)]
+                if close:
+                    cat = HELP_CATEGORIES[close[0]]
+                    category = close[0]
+                else:
+                    print(f"{memory.RED}Unknown category: {category}{memory.RESET}")
+                    print(f"{memory.DIM}Available: {', '.join(HELP_CATEGORIES.keys())}{memory.RESET}")
+                    return
+            # Detailed view for one category
+            max_cmd = max(len(c[0]) for c in cat["commands"])
+            width = max(max_cmd + 4 + max(len(c[1]) for c in cat["commands"]), len(cat.get("tip", "")) + 4, len(category) + 3)
+            width = min(width, 72)
+            print(f"\n{memory.CYAN}┌{'─' * (width + 2)}┐{memory.RESET}")
+            print(f"{memory.CYAN}│{memory.RESET} {memory.BOLD}{category.upper()}{memory.RESET}{' ' * (width - len(category))}{memory.CYAN}│{memory.RESET}")
+            print(f"{memory.CYAN}├{'─' * (width + 2)}┤{memory.RESET}")
+            for cmd, desc in cat["commands"]:
+                line = f"  {cmd:<{max_cmd}}  {memory.DIM}{desc}{memory.RESET}"
+                # Calculate padding without ANSI codes
+                visible = f"  {cmd:<{max_cmd}}  {desc}"
+                pad = width - len(visible)
+                print(f"{memory.CYAN}│{memory.RESET}{line}{' ' * max(pad, 0)} {memory.CYAN}│{memory.RESET}")
+            if cat.get("tip"):
+                print(f"{memory.CYAN}├{'─' * (width + 2)}┤{memory.RESET}")
+                tip_line = f"  {cat['tip']}"
+                tip_pad = width - len(tip_line)
+                print(f"{memory.CYAN}│{memory.RESET}{memory.DIM}{tip_line}{memory.RESET}{' ' * max(tip_pad, 0)} {memory.CYAN}│{memory.RESET}")
+            print(f"{memory.CYAN}└{'─' * (width + 2)}┘{memory.RESET}\n")
+        else:
+            # Overview: categories only
+            max_name = max(len(k) for k in HELP_CATEGORIES)
+            width = max(max_name + 4 + max(len(v["desc"]) for v in HELP_CATEGORIES.values()), 40)
+            width = min(width, 60)
+            print(f"\n{memory.CYAN}┌{'─' * (width + 2)}┐{memory.RESET}")
+            print(f"{memory.CYAN}│{memory.RESET} {memory.BOLD}HELP{memory.RESET}{' ' * (width - 4)} {memory.CYAN}│{memory.RESET}")
+            print(f"{memory.CYAN}├{'─' * (width + 2)}┤{memory.RESET}")
+            for name, cat in HELP_CATEGORIES.items():
+                line = f"  /help {name:<{max_name}}  {cat['desc']}"
+                pad = width - len(line)
+                print(f"{memory.CYAN}│{memory.RESET}{memory.DIM}  /help {memory.RESET}{name:<{max_name}}{memory.DIM}  {cat['desc']}{memory.RESET}{' ' * max(pad, 0)} {memory.CYAN}│{memory.RESET}")
+            print(f"{memory.CYAN}├{'─' * (width + 2)}┤{memory.RESET}")
+            footer = "  Type /help <category> for details"
+            fpad = width - len(footer)
+            print(f"{memory.CYAN}│{memory.RESET}{memory.DIM}{footer}{memory.RESET}{' ' * max(fpad, 0)} {memory.CYAN}│{memory.RESET}")
+            print(f"{memory.CYAN}└{'─' * (width + 2)}┘{memory.RESET}\n")
 
     # Silently warm up OAuth tokens
     tools.get_gmail_service()
     tools.get_calendar_service()
 
+    # --- Startup summary ---
+    status_parts = []
     if memory.memories:
-        print(f"Loaded {len(memory.memories)} memor{'y' if len(memory.memories) == 1 else 'ies'} from {memory.active_project}/memory.json")
+        status_parts.append(f"{len(memory.memories)} memor{'y' if len(memory.memories) == 1 else 'ies'}")
+
+    # Active job applications
+    try:
+        jobs = memory.load_jobs()
+        active = [j for j in jobs if j.get("status") in ("applied", "interviewing")]
+        if active:
+            status_parts.append(f"{len(active)} active application{'s' if len(active) != 1 else ''}")
+    except Exception:
+        pass
+
+    # Daemon status
+    daemon_pid_path = os.path.join(memory.BASE_DIR, "daemon.pid")
+    daemon_running = False
+    if os.path.exists(daemon_pid_path):
+        try:
+            with open(daemon_pid_path, "r") as f:
+                dpid = int(f.read().strip())
+            os.kill(dpid, 0)  # check if alive
+            daemon_running = True
+            status_parts.append(f"daemon running (PID {dpid})")
+        except (OSError, ValueError):
+            # Stale PID file — clean it up
+            try:
+                os.remove(daemon_pid_path)
+            except OSError:
+                pass
+
+    if status_parts:
+        print(f"{memory.DIM}{' · '.join(status_parts)}{memory.RESET}")
+
+    # Welcome-back message if last conversation is old
+    try:
+        convos = memory.list_conversations()
+        if convos:
+            last_file = convos[-1]  # sorted, last is most recent
+            # Parse date from filename (format: YYYY-MM-DD_HHMMSS_*.txt)
+            date_part = last_file[:10]
+            last_date = datetime.strptime(date_part, "%Y-%m-%d")
+            days_ago = (datetime.now() - last_date).days
+            if days_ago >= 7:
+                print(f"{memory.DIM}Welcome back! Last conversation was {days_ago} days ago.{memory.RESET}")
+    except Exception:
+        pass
+
     print("Chatbot ready! Type your message and press Enter.")
     print("Type /help to see available commands.\n")
 
@@ -438,7 +568,11 @@ if __name__ == "__main__":
         command_lower = command.lower()
 
         if command_lower == "/help":
-            print(HELP_TEXT)
+            print_help()
+            continue
+
+        if command_lower.startswith("/help "):
+            print_help(command[6:].strip().lower())
             continue
 
         if command_lower == "/clear":
@@ -490,7 +624,7 @@ if __name__ == "__main__":
             try:
                 results = tools.web_search(query)
             except Exception as e:
-                print(f"{memory.DIM}Search failed: {e}{memory.RESET}\n")
+                print(f"{memory.YELLOW}Search failed:{memory.RESET} {e}\n")
                 continue
             if not results:
                 print(f"{memory.DIM}No results found.{memory.RESET}\n")
@@ -809,12 +943,12 @@ if __name__ == "__main__":
                     if tools.gmail_setup():
                         print(f"{memory.DIM}Gmail authenticated successfully. Token saved to {memory.GMAIL_CREDENTIALS}{memory.RESET}\n")
                     else:
-                        print(f"{memory.DIM}Gmail setup failed.{memory.RESET}\n")
+                        print(f"{memory.YELLOW}Gmail setup failed.{memory.RESET} Check your client_secret file and try /email setup again.\n")
 
             elif email_arg_lower == "check":
                 service = tools.get_gmail_service()
                 if not service:
-                    print(f"{memory.DIM}Gmail not authenticated. Run /email setup first.{memory.RESET}\n")
+                    print(f"{memory.YELLOW}Gmail not authenticated.{memory.RESET} Run /email setup to connect your account.\n")
                     continue
                 print(f"{memory.DIM}Checking inbox...{memory.RESET}")
                 result = tools.gmail_check()
@@ -822,7 +956,7 @@ if __name__ == "__main__":
                     print(f"{memory.DIM}{result}{memory.RESET}\n")
                     continue
                 if result is None:
-                    print(f"{memory.DIM}Gmail not authenticated. Run /email setup first.{memory.RESET}\n")
+                    print(f"{memory.YELLOW}Gmail not authenticated.{memory.RESET} Run /email setup to connect your account.\n")
                     continue
                 tools._last_email_results.clear()
                 tools._last_email_results.extend(result)
@@ -849,7 +983,7 @@ if __name__ == "__main__":
                 print(f"{memory.DIM}Reading: {msg['subject']}...{memory.RESET}")
                 body = tools.gmail_read(msg["id"])
                 if body is None:
-                    print(f"{memory.DIM}Gmail not authenticated. Run /email setup first.{memory.RESET}\n")
+                    print(f"{memory.YELLOW}Gmail not authenticated.{memory.RESET} Run /email setup to connect your account.\n")
                     continue
                 tools._email_content_loaded = True
                 print(f"\n{memory.CYAN}From:{memory.RESET} {msg['sender']}")
@@ -867,7 +1001,7 @@ if __name__ == "__main__":
                     continue
                 service = tools.get_gmail_service()
                 if not service:
-                    print(f"{memory.DIM}Gmail not authenticated. Run /email setup first.{memory.RESET}\n")
+                    print(f"{memory.YELLOW}Gmail not authenticated.{memory.RESET} Run /email setup to connect your account.\n")
                     continue
                 print(f"{memory.DIM}Searching emails: {query}...{memory.RESET}")
                 result = tools.gmail_search(query)
@@ -875,7 +1009,7 @@ if __name__ == "__main__":
                     print(f"{memory.DIM}{result}{memory.RESET}\n")
                     continue
                 if result is None:
-                    print(f"{memory.DIM}Gmail not authenticated. Run /email setup first.{memory.RESET}\n")
+                    print(f"{memory.YELLOW}Gmail not authenticated.{memory.RESET} Run /email setup to connect your account.\n")
                     continue
                 tools._last_email_results.clear()
                 tools._last_email_results.extend(result)
@@ -905,7 +1039,7 @@ if __name__ == "__main__":
             # Check Gmail auth
             service = tools.get_gmail_service()
             if not service:
-                print(f"{memory.DIM}Gmail not authenticated (or scopes changed). Run /email setup first.{memory.RESET}\n")
+                print(f"{memory.YELLOW}Gmail not authenticated (or scopes changed).{memory.RESET} Run /email setup to reconnect.\n")
                 continue
 
             # Rate limit check
@@ -1140,6 +1274,11 @@ if __name__ == "__main__":
                 if not job_desc:
                     print(f"{memory.DIM}Tip: /fetch a job posting URL first for better results.{memory.RESET}")
 
+                # Guardrails
+                if not resume_text:
+                    print(f"{memory.YELLOW}No resume loaded.{memory.RESET} Cover letter quality will be limited.")
+                    print(f"{memory.DIM}  Load one with: /resume path/to/resume.pdf{memory.RESET}")
+
                 job = {"title": job_title, "url": "N/A", "body": job_desc}
                 recipient = "Hiring Manager"
 
@@ -1201,6 +1340,14 @@ if __name__ == "__main__":
 
                 recipient = "Hiring Manager"
                 job_title = job["title"]
+
+                # Guardrails
+                if not resume_text:
+                    print(f"{memory.YELLOW}No resume loaded.{memory.RESET} Cover letter quality will be limited.")
+                    print(f"{memory.DIM}  Load one with: /resume path/to/resume.pdf{memory.RESET}")
+                if len(job.get("body", "")) < 50:
+                    print(f"{memory.YELLOW}Job description is very short ({len(job.get('body', ''))} chars).{memory.RESET}")
+                    print(f"{memory.DIM}  Tip: /fetch the job URL first, then /cover <#> for better results.{memory.RESET}")
 
                 print(f"{memory.DIM}Generating cover letter for: {memory.CYAN}{job_title}{memory.RESET}")
                 print(f"{memory.DIM}Using Opus...{memory.RESET}")
@@ -1297,12 +1444,12 @@ if __name__ == "__main__":
                 # Show today's events
                 service = tools.get_calendar_service()
                 if not service:
-                    print(f"{memory.DIM}Google Calendar not authenticated. Run /cal setup first.{memory.RESET}\n")
+                    print(f"{memory.YELLOW}Google Calendar not authenticated.{memory.RESET} Run /cal setup to connect your account.\n")
                     continue
                 print(f"{memory.DIM}Checking calendar...{memory.RESET}")
                 events = tools.calendar_get_events("today")
                 if events is None:
-                    print(f"{memory.DIM}Google Calendar not authenticated. Run /cal setup first.{memory.RESET}\n")
+                    print(f"{memory.YELLOW}Google Calendar not authenticated.{memory.RESET} Run /cal setup to connect your account.\n")
                     continue
                 print(f"\n{memory.CYAN}📅 Today's Events{memory.RESET}")
                 print(tools.format_events_ansi(events, "today"))
@@ -1311,12 +1458,12 @@ if __name__ == "__main__":
             elif cal_arg_lower == "tomorrow":
                 service = tools.get_calendar_service()
                 if not service:
-                    print(f"{memory.DIM}Google Calendar not authenticated. Run /cal setup first.{memory.RESET}\n")
+                    print(f"{memory.YELLOW}Google Calendar not authenticated.{memory.RESET} Run /cal setup to connect your account.\n")
                     continue
                 print(f"{memory.DIM}Checking calendar...{memory.RESET}")
                 events = tools.calendar_get_events("tomorrow")
                 if events is None:
-                    print(f"{memory.DIM}Google Calendar not authenticated. Run /cal setup first.{memory.RESET}\n")
+                    print(f"{memory.YELLOW}Google Calendar not authenticated.{memory.RESET} Run /cal setup to connect your account.\n")
                     continue
                 print(f"\n{memory.CYAN}📅 Tomorrow's Events{memory.RESET}")
                 print(tools.format_events_ansi(events, "tomorrow"))
@@ -1325,7 +1472,7 @@ if __name__ == "__main__":
             elif cal_arg_lower == "week":
                 service = tools.get_calendar_service()
                 if not service:
-                    print(f"{memory.DIM}Google Calendar not authenticated. Run /cal setup first.{memory.RESET}\n")
+                    print(f"{memory.YELLOW}Google Calendar not authenticated.{memory.RESET} Run /cal setup to connect your account.\n")
                     continue
                 print(f"{memory.DIM}Checking calendar...{memory.RESET}")
                 from datetime import timedelta as _td
@@ -1333,7 +1480,7 @@ if __name__ == "__main__":
                 now = datetime.now(tz)
                 events = tools.calendar_get_events("today", (now + _td(days=7)).strftime("%Y-%m-%d"))
                 if events is None:
-                    print(f"{memory.DIM}Google Calendar not authenticated. Run /cal setup first.{memory.RESET}\n")
+                    print(f"{memory.YELLOW}Google Calendar not authenticated.{memory.RESET} Run /cal setup to connect your account.\n")
                     continue
                 print(f"\n{memory.CYAN}📅 Next 7 Days{memory.RESET}")
                 if isinstance(events, list) and events:
@@ -1385,7 +1532,7 @@ if __name__ == "__main__":
 
                 service = tools.get_calendar_service()
                 if not service:
-                    print(f"{memory.DIM}Google Calendar not authenticated. Run /cal setup first.{memory.RESET}\n")
+                    print(f"{memory.YELLOW}Google Calendar not authenticated.{memory.RESET} Run /cal setup to connect your account.\n")
                     continue
 
                 # Use Haiku to parse the natural language event description
@@ -1457,7 +1604,7 @@ if __name__ == "__main__":
 
                 result = tools.calendar_create_event(title, start_str, end_str)
                 if result is None:
-                    print(f"{memory.DIM}Calendar not authenticated. Run /cal setup first.{memory.RESET}\n")
+                    print(f"{memory.YELLOW}Calendar not authenticated.{memory.RESET} Run /cal setup to connect your account.\n")
                 elif isinstance(result, str):
                     print(f"{memory.RED}{result}{memory.RESET}\n")
                 else:
@@ -1470,12 +1617,12 @@ if __name__ == "__main__":
                 # Try to parse as a date
                 service = tools.get_calendar_service()
                 if not service:
-                    print(f"{memory.DIM}Google Calendar not authenticated. Run /cal setup first.{memory.RESET}\n")
+                    print(f"{memory.YELLOW}Google Calendar not authenticated.{memory.RESET} Run /cal setup to connect your account.\n")
                     continue
                 print(f"{memory.DIM}Checking calendar...{memory.RESET}")
                 events = tools.calendar_get_events(cal_arg)
                 if events is None:
-                    print(f"{memory.DIM}Google Calendar not authenticated. Run /cal setup first.{memory.RESET}\n")
+                    print(f"{memory.YELLOW}Google Calendar not authenticated.{memory.RESET} Run /cal setup to connect your account.\n")
                     continue
                 if isinstance(events, str) and events.startswith("Could not parse"):
                     print(f"{memory.DIM}{events}")
@@ -2052,7 +2199,7 @@ if __name__ == "__main__":
                     tools.last_job_results.clear()
                     tools.last_job_results.extend(results)
                 except Exception as e:
-                    print(f"{memory.DIM}Search failed: {e}{memory.RESET}\n")
+                    print(f"{memory.YELLOW}Search failed:{memory.RESET} {e}\n")
                     continue
                 if not results:
                     print(f"{memory.DIM}No results found.{memory.RESET}\n")
@@ -2188,14 +2335,23 @@ if __name__ == "__main__":
                 except Exception:
                     print(f"{memory.DIM}  (Could not open browser \u2014 copy the URL above){memory.RESET}")
 
-                print(f"{memory.DIM}Using Opus for cover letter generation{memory.RESET}")
-                print(f"{memory.DIM}Generating cover letter for: {job['title']}...{memory.RESET}")
                 all_memories, _, _ = memory.load_all_memories()
                 resume_path = memory.get_resume_path()
                 resume_text = ""
                 if os.path.exists(resume_path):
                     with open(resume_path, "r") as f:
                         resume_text = f.read()
+
+                # Guardrails
+                if not resume_text:
+                    print(f"{memory.YELLOW}No resume loaded.{memory.RESET} Cover letter quality will be limited.")
+                    print(f"{memory.DIM}  Load one with: /resume path/to/resume.pdf{memory.RESET}")
+                if len(job.get("body", "")) < 50:
+                    print(f"{memory.YELLOW}Job description is very short ({len(job.get('body', ''))} chars).{memory.RESET}")
+                    print(f"{memory.DIM}  Tip: /fetch the job URL first for better results.{memory.RESET}")
+
+                print(f"{memory.DIM}Using Opus for cover letter generation{memory.RESET}")
+                print(f"{memory.DIM}Generating cover letter for: {job['title']}...{memory.RESET}")
                 try:
                     letter, cost = models.generate_cover_letter(job, all_memories, resume_text=resume_text)
 
@@ -2227,10 +2383,32 @@ if __name__ == "__main__":
 
                     memory.save_jobs(jobs)
 
-                    print(f"\n{memory.CYAN}Cover Letter \u2014 {job['title']}{memory.RESET}\n")
-                    print(letter)
-                    print(f"\n{memory.DIM}  Saved to: jobs/{job['folder']}/cover-letter.md")
-                    print(f"  [${cost:.4f}] session: ${models.session_cost:.4f}{memory.RESET}\n")
+                    # Generate PDF
+                    company_name = job["title"].split(" at ")[-1] if " at " in job["title"] else "Company"
+                    for sep in (" - ", " | ", " — ", " @ "):
+                        if sep in job["title"]:
+                            company_name = job["title"].split(sep)[-1].strip()
+                            break
+                    pdf_path = documents.generate_cover_letter_pdf(
+                        "Hiring Manager", company_name, job["title"], letter)
+
+                    # Preview
+                    preview_lines = letter.strip().splitlines()[:5]
+                    print(f"\n{memory.CYAN}Preview:{memory.RESET}")
+                    for line in preview_lines:
+                        print(f"  {line}")
+                    if len(letter.strip().splitlines()) > 5:
+                        print(f"  {memory.DIM}...{memory.RESET}")
+
+                    print(f"\n{memory.GREEN}Cover letter saved:{memory.RESET}")
+                    print(f"  {memory.CYAN}{pdf_path}{memory.RESET}")
+                    print(f"  {memory.DIM}Markdown: jobs/{job['folder']}/cover-letter.md{memory.RESET}")
+                    print(f"{memory.DIM}  [${cost:.4f}] session: ${models.session_cost:.4f}{memory.RESET}\n")
+
+                    try:
+                        memory.open_file(pdf_path)
+                    except Exception:
+                        pass
                 except Exception as e:
                     print(f"{memory.DIM}Failed to generate cover letter: {e}{memory.RESET}\n")
 

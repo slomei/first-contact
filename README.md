@@ -157,25 +157,19 @@ This isn't an afterthought — security is baked into the architecture.
 
 ## Commands
 
-First Contact responds to natural conversation and also supports direct commands:
+First Contact responds to natural conversation and also supports direct commands. Type `/help` for a category overview, or `/help <category>` for details:
 
 | Category | Commands |
 |----------|----------|
-| **Chat** | `/opus`, `/sonnet`, `/haiku` (switch models), `/challenge on\|off`, `/new`, `/clear` |
-| **Memory** | `/remember`, `/remember -p`, `/forget`, `/memories` |
-| **Notes** | `/note <text>`, `/notes`, `/notes search <query>` |
-| **Files** | `/read`, `/write`, `/run` |
-| **Web** | `/web`, `/fetch` |
+| **Chat** | `/opus`, `/sonnet`, `/haiku`, `/challenge on\|off`, `/new`, `/clear` |
+| **Memory** | `/remember`, `/remember -p`, `/forget`, `/memories`, `/note`, `/notes` |
 | **Email** | `/email check`, `/email read`, `/email search`, `/draft reply`, `/draft new`, `/draft work` |
-| **Calendar** | `/cal`, `/cal today`, `/cal week`, `/cal add`, `/cal setup` |
-| **Work** | `/work search`, `/work save [#/all]`, `/work list`, `/work remove`, `/work apply`, `/work track`, `/work status` |
+| **Calendar** | `/cal`, `/cal tomorrow`, `/cal week`, `/cal add`, `/cal setup` |
+| **Jobs** | `/work search`, `/work save`, `/work list`, `/work apply`, `/work track`, `/work status` |
 | **Scanning** | `/scan`, `/scan results`, `/scan queries`, `/scan on\|off` |
-| **Tasks** | `/task add`, `/tasks`, `/task done`, `/task edit`, `/task note` |
-| **Reminders** | `/remind`, `/reminders`, `/remind cancel` |
-| **Documents** | `/cover`, `/cover new`, `/pdf` |
-| **Briefing** | `/briefing`, `/briefing time`, `/briefing on\|off` |
-| **Projects** | `/project`, `/project list` |
-| **System** | `/help`, `/setup`, `/status`, `/reset`, `/delete`, `/tokens`, `/billing`, `/delegates` |
+| **Tasks** | `/task add`, `/tasks`, `/task done`, `/remind`, `/reminders` |
+| **Web** | `/web`, `/fetch`, `/read`, `/write`, `/run`, `/pdf` |
+| **System** | `/help`, `/status`, `/briefing`, `/notify`, `/project`, `/setup`, `/delegates` |
 
 Claude also uses tools autonomously when they'd help — searching the web mid-conversation, saving facts to memory, checking your calendar when you ask about availability.
 

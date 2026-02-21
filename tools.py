@@ -517,16 +517,50 @@ def web_search(query, max_results=5):
     return "\n".join(lines)
 
 
+BLOCKED_JOB_DOMAINS = {
+    "indeed.com", "linkedin.com", "glassdoor.com", "ziprecruiter.com",
+    "monster.com", "careerbuilder.com", "simplyhired.com",
+}
+
+SPAM_TITLE_PATTERNS = [
+    "top 10", "top 20", "best companies", "highest paying",
+    "salary guide", "career advice", "how to get",
+]
+
+
 def search_jobs(query, max_results=10):
-    """Search for job listings using DuckDuckGo."""
+    """Search for job listings using DuckDuckGo with quality filtering."""
     search_query = f"{query} jobs hiring"
-    # Suppress primp "Impersonate ... does not exist" warnings
     import contextlib, io
     with contextlib.redirect_stderr(io.StringIO()):
-        results = DDGS().text(search_query, max_results=max_results)
+        results = DDGS().text(search_query, max_results=max_results + 10)
     if not results:
         return []
-    return [{"title": r["title"], "url": r["href"], "body": r["body"]} for r in results]
+
+    filtered = []
+    title_lower_patterns = SPAM_TITLE_PATTERNS
+    for r in results:
+        url = r["href"].lower()
+        title_lower = r["title"].lower()
+        # Skip aggregator domains (login walls, no direct apply)
+        if any(domain in url for domain in BLOCKED_JOB_DOMAINS):
+            continue
+        # Skip listicle / advice content
+        if any(pat in title_lower for pat in title_lower_patterns):
+            continue
+        filtered.append({"title": r["title"], "url": r["href"], "body": r["body"]})
+        if len(filtered) >= max_results:
+            break
+
+    # If filtering removed everything, do a direct board search
+    if not filtered:
+        fallback_query = f"{query} apply site:lever.co OR site:greenhouse.io OR site:jobs.ashbyhq.com OR site:boards.greenhouse.io"
+        with contextlib.redirect_stderr(io.StringIO()):
+            results = DDGS().text(fallback_query, max_results=max_results)
+        if results:
+            filtered = [{"title": r["title"], "url": r["href"], "body": r["body"]} for r in results[:max_results]]
+
+    return filtered
 
 
 # --- Web fetching ---
