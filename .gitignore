@@ -1,29 +1,50 @@
-# Credentials
+# Credentials & secrets
+.env
+*.env
+.env.*
+!.env.example
 config.json
 gmail_client_secret.json
 gmail_credentials.json
 calendar_credentials.json
 *.json.bak
+*.pem
+*.key
+setup_env.sh
 
-# Data files
+# Personal data
+CLAUDE.md
+Claude.md
 memory.json
 reminders.json
+seen_jobs.json
+scan_results.json
+seen_emails.json
+
+# Project data (contains personal info)
 projects/
+
+# Logs (may contain personal data)
 logs/
 
-# Generated
+# Generated files
 *.pdf
-*.pyc
-__pycache__/
-
-# Environment
-.env
-*.env
-.env.*
-!.env.example
-setup_env.sh
-venv/
-
-# Workspace & conversations
 conversations/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Sync
+sync_sources.json
+
+# Workspace
 workspace/

@@ -32,10 +32,12 @@ GMAIL_SCOPES = [
 GMAIL_CLIENT_SECRET = os.path.join(BASE_DIR, "gmail_client_secret.json")
 GMAIL_CREDENTIALS = os.path.join(BASE_DIR, "gmail_credentials.json")
 
-# Google Calendar constants — read + create (NO delete, NO modify)
+# Google Calendar constants — read + create events only
+# Events scope only — read + create. NOT full calendar access.
+# NOTE: Existing users must re-authenticate (`/cal setup`) after this scope change.
 CALENDAR_SCOPES = [
     "https://www.googleapis.com/auth/calendar.readonly",
-    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/calendar.events",
 ]
 CALENDAR_CREDENTIALS = os.path.join(BASE_DIR, "calendar_credentials.json")
 

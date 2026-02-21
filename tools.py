@@ -1281,6 +1281,20 @@ def execute_tool(name, tool_input, confirm_fn=None):
 
     elif name == "read_file":
         filepath = tool_input["path"]
+
+        # --- Path restriction: only allow reads within project directory ---
+        resolved = os.path.realpath(os.path.expanduser(filepath))
+        allowed_bases = [os.path.realpath(memory.BASE_DIR)]
+        blocked_patterns = ["/.", "/etc/", "/proc/", "/sys/"]
+
+        path_allowed = any(resolved.startswith(base + os.sep) or resolved == base
+                          for base in allowed_bases)
+        path_blocked = any(pattern in resolved for pattern in blocked_patterns)
+
+        if not path_allowed or path_blocked:
+            return (f"Access denied: read_file is restricted to project directories. "
+                    f"Path '{filepath}' is outside the allowed area."), True
+
         try:
             with open(filepath, "r") as f:
                 contents = f.read()
