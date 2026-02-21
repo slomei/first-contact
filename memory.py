@@ -8,6 +8,7 @@ All three interfaces (chat.py, discord_bot.py, gui.py) import from here.
 import json
 import os
 import re
+import shutil
 import subprocess
 import webbrowser
 
@@ -438,3 +439,39 @@ def slugify(text):
     text = re.sub(r'[\s_]+', '-', text)
     text = re.sub(r'-+', '-', text)
     return text.strip('-')[:60]
+
+
+def reset_all_data(include_config=False):
+    """Delete all user data and return the app to a clean first-launch state.
+
+    Removes projects/, conversations/, logs/, memory.json, reminders.json,
+    and Claude.md. Optionally removes config.json to re-trigger onboarding.
+
+    Never touches: .env, gmail_client_secret.json, gmail_credentials.json,
+    calendar_credentials.json, config.example.json, .env.example, source code,
+    venv/, .git/
+    """
+    # Directories to wipe
+    dirs_to_remove = [
+        PROJECTS_DIR,
+        os.path.join(BASE_DIR, "conversations"),
+        os.path.join(BASE_DIR, "logs"),
+    ]
+    for d in dirs_to_remove:
+        if os.path.isdir(d):
+            shutil.rmtree(d)
+
+    # Individual files to remove
+    files_to_remove = [
+        os.path.join(BASE_DIR, "memory.json"),
+        os.path.join(BASE_DIR, "reminders.json"),
+        os.path.join(BASE_DIR, "Claude.md"),
+    ]
+    if include_config:
+        files_to_remove.append(os.path.join(BASE_DIR, "config.json"))
+
+    for f in files_to_remove:
+        try:
+            os.remove(f)
+        except FileNotFoundError:
+            pass

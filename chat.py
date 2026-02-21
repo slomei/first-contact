@@ -301,6 +301,7 @@ if __name__ == "__main__":
       /load              Load a previous conversation into context
       /conversations     List previous conversations
       /tokens            Show conversation size and compression status
+      /reset             Wipe all user data and return to clean state
       /opus              Switch to Claude Opus
       /sonnet            Switch to Claude Sonnet
       /haiku             Switch to Claude Haiku
@@ -2320,6 +2321,30 @@ if __name__ == "__main__":
                 continue
             print(f"\n{memory.CYAN}{creative.format_location(loc)}{memory.RESET}\n")
             continue
+
+        if command_lower == "/reset":
+            try:
+                confirm = input(
+                    f"\n{memory.YELLOW}This will delete all conversations, memories, "
+                    f"tasks, jobs, and project data. Are you sure? [y/N] {memory.RESET}"
+                ).strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print(f"\n{memory.DIM}Reset cancelled.{memory.RESET}\n")
+                continue
+            if confirm != "y":
+                print(f"{memory.DIM}Reset cancelled.{memory.RESET}\n")
+                continue
+            try:
+                config_confirm = input(
+                    f"{memory.YELLOW}Also reset your profile and integrations? "
+                    f"This will re-trigger the onboarding wizard. [y/N] {memory.RESET}"
+                ).strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                config_confirm = "n"
+            include_config = config_confirm == "y"
+            memory.reset_all_data(include_config=include_config)
+            print(f"\n{memory.GREEN}Reset complete. Restart to begin fresh.{memory.RESET}")
+            raise SystemExit(0)
 
         # Skip empty messages
         if not command:
