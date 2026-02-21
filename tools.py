@@ -610,15 +610,16 @@ def run_code_in_workspace(code):
 
 # --- Gmail functions ---
 
-def _check_scopes():
+def _check_scopes(credentials_path=None):
     """Check if stored credentials have all required scopes.
 
     Returns True if scopes match, False if re-auth is needed.
     """
-    if not os.path.exists(memory.GMAIL_CREDENTIALS):
+    cred_path = credentials_path or memory.GMAIL_CREDENTIALS
+    if not os.path.exists(cred_path):
         return False
     try:
-        with open(memory.GMAIL_CREDENTIALS, "r") as f:
+        with open(cred_path, "r") as f:
             data = json.load(f)
         stored = set(data.get("scopes", []))
         required = set(memory.GMAIL_SCOPES)
@@ -627,22 +628,24 @@ def _check_scopes():
         return False
 
 
-def get_gmail_service():
+def get_gmail_service(credentials_path=None):
     """Load saved OAuth token and return a Gmail API service object.
 
+    If credentials_path is None, uses the default gmail_credentials.json.
     Returns None if credentials are missing, scopes changed, or auth fails.
     """
-    if not os.path.exists(memory.GMAIL_CREDENTIALS):
+    cred_path = credentials_path or memory.GMAIL_CREDENTIALS
+    if not os.path.exists(cred_path):
         return None
     # Reject tokens from an older scope set (user must re-auth after scope changes)
-    if not _check_scopes():
+    if not _check_scopes(credentials_path=cred_path):
         return None
     try:
-        creds = Credentials.from_authorized_user_file(memory.GMAIL_CREDENTIALS, memory.GMAIL_SCOPES)
+        creds = Credentials.from_authorized_user_file(cred_path, memory.GMAIL_SCOPES)
         # Google OAuth tokens expire after ~1 hour; auto-refresh and persist the new token
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
-            with open(memory.GMAIL_CREDENTIALS, "w") as f:
+            with open(cred_path, "w") as f:
                 f.write(creds.to_json())
         if not creds or not creds.valid:
             return None
@@ -651,33 +654,78 @@ def get_gmail_service():
         return None
 
 
-def gmail_setup():
+def get_all_gmail_services():
+    """Return list of (label, service) for all configured Gmail accounts.
+
+    Falls back to [("default", service)] for legacy single-account setup.
+    Returns empty list if no accounts are authenticated.
+    """
+    config = memory.load_config()
+    accounts = config.get("email_accounts", [])
+    if not accounts:
+        svc = get_gmail_service()
+        return [("default", svc)] if svc else []
+    services = []
+    for acct in accounts:
+        cred_path = os.path.join(memory.BASE_DIR, acct["credentials_file"])
+        svc = get_gmail_service(credentials_path=cred_path)
+        if svc:
+            services.append((acct["label"], svc))
+    return services
+
+
+def gmail_setup(label=None):
     """Run the OAuth2 flow to authenticate with Gmail.
+
+    If label is None, uses legacy path (gmail_credentials.json).
+    If label is provided, saves to gmail_credentials_<label>.json and
+    adds the account to config["email_accounts"].
 
     If stored token lacks required scopes, deletes it and re-authorizes.
     Returns True on success, False on failure. No printing.
     """
     if not os.path.exists(memory.GMAIL_CLIENT_SECRET):
         return False
+
+    if label:
+        cred_file = f"gmail_credentials_{label}.json"
+    else:
+        cred_file = "gmail_credentials.json"
+    cred_path = os.path.join(memory.BASE_DIR, cred_file)
+
     # Delete stale token if scopes changed
-    if os.path.exists(memory.GMAIL_CREDENTIALS) and not _check_scopes():
-        os.remove(memory.GMAIL_CREDENTIALS)
+    if os.path.exists(cred_path) and not _check_scopes(credentials_path=cred_path):
+        os.remove(cred_path)
     try:
         flow = InstalledAppFlow.from_client_secrets_file(memory.GMAIL_CLIENT_SECRET, memory.GMAIL_SCOPES)
         creds = flow.run_local_server(port=0)
-        with open(memory.GMAIL_CREDENTIALS, "w") as f:
+        with open(cred_path, "w") as f:
             f.write(creds.to_json())
+
+        # Update email_accounts in config
+        config = memory.load_config()
+        accounts = config.get("email_accounts", [])
+        acct_label = label or "default"
+        # Check if this label already exists
+        existing = [a for a in accounts if a["label"] == acct_label]
+        if not existing:
+            accounts.append({"label": acct_label, "credentials_file": cred_file})
+            config["email_accounts"] = accounts
+            memory.save_config(config)
+
         return True
     except Exception:
         return False
 
 
-def gmail_check(max_results=10):
+def gmail_check(max_results=10, service=None):
     """List recent unread emails.
 
+    If service is None, uses the default Gmail service (backward compat).
     Returns a list of dicts with id, sender, subject, date, snippet.
     """
-    service = get_gmail_service()
+    if service is None:
+        service = get_gmail_service()
     if not service:
         return None
     try:
@@ -706,14 +754,52 @@ def gmail_check(max_results=10):
         return f"Gmail error: {e}"
 
 
-def gmail_read(message_id):
+def gmail_check_all(max_results=10):
+    """Check unread emails across all configured accounts.
+
+    Returns list of dicts with id, sender, subject, date, snippet, account,
+    _credentials_file. Returns None if no services available.
+    """
+    services = get_all_gmail_services()
+    if not services:
+        return None
+    config = memory.load_config()
+    accounts = config.get("email_accounts", [])
+    cred_map = {a["label"]: a["credentials_file"] for a in accounts}
+    all_emails = []
+    for label, svc in services:
+        result = gmail_check(max_results=max_results, service=svc)
+        if isinstance(result, list):
+            for email_item in result:
+                email_item["account"] = label
+                email_item["_credentials_file"] = cred_map.get(label)
+            all_emails.extend(result)
+    return all_emails if all_emails or services else None
+
+
+def gmail_read(message_id, service=None):
     """Get the full email body by message ID. Only reads INBOX messages.
+
+    If service is None, looks up the message_id in _last_email_results to find
+    the account's credentials file, then gets the right service. Falls back to
+    the default service if not found.
 
     Returns the body text string, or None/error string.
     Also stores full message metadata in _last_read_email for reply threading.
     """
     global _last_read_email
-    service = get_gmail_service()
+    if service is None:
+        # Try to find the right service from _last_email_results
+        cred_file = None
+        for cached in _last_email_results:
+            if cached.get("id") == message_id:
+                cred_file = cached.get("_credentials_file")
+                break
+        if cred_file:
+            cred_path = os.path.join(memory.BASE_DIR, cred_file)
+            service = get_gmail_service(credentials_path=cred_path)
+        if not service:
+            service = get_gmail_service()
     if not service:
         return None
     try:
@@ -763,9 +849,13 @@ def gmail_read(message_id):
         return f"Gmail error: {e}"
 
 
-def gmail_search(query, max_results=10):
-    """Search emails using Gmail query syntax."""
-    service = get_gmail_service()
+def gmail_search(query, max_results=10, service=None):
+    """Search emails using Gmail query syntax.
+
+    If service is None, uses the default Gmail service (backward compat).
+    """
+    if service is None:
+        service = get_gmail_service()
     if not service:
         return None
     try:
@@ -792,6 +882,29 @@ def gmail_search(query, max_results=10):
         return emails
     except Exception as e:
         return f"Gmail error: {e}"
+
+
+def gmail_search_all(query, max_results=10):
+    """Search emails across all configured accounts.
+
+    Returns list of dicts with id, sender, subject, date, snippet, account,
+    _credentials_file. Returns None if no services available.
+    """
+    services = get_all_gmail_services()
+    if not services:
+        return None
+    config = memory.load_config()
+    accounts = config.get("email_accounts", [])
+    cred_map = {a["label"]: a["credentials_file"] for a in accounts}
+    all_emails = []
+    for label, svc in services:
+        result = gmail_search(query, max_results=max_results, service=svc)
+        if isinstance(result, list):
+            for email_item in result:
+                email_item["account"] = label
+                email_item["_credentials_file"] = cred_map.get(label)
+            all_emails.extend(result)
+    return all_emails if all_emails or services else None
 
 
 # --- Draft functions ---
@@ -825,18 +938,20 @@ def check_draft_rate_limit():
     return _session_draft_count < DRAFT_RATE_LIMIT
 
 
-def gmail_create_draft(to, subject, body_text, reply_to=None):
+def gmail_create_draft(to, subject, body_text, reply_to=None, service=None):
     """Create a draft in Gmail. Never sends.
 
     to: recipient email address
     subject: email subject
     body_text: plain text body
     reply_to: dict with thread_id, message_id_header, original_body for reply threading
+    service: optional Gmail service object (uses default if None)
 
     Returns the Gmail draft ID string, or None on failure.
     """
     global _session_draft_count
-    service = get_gmail_service()
+    if service is None:
+        service = get_gmail_service()
     if not service:
         return None
 
@@ -1378,7 +1493,7 @@ def execute_tool(name, tool_input, confirm_fn=None):
 
     elif name == "check_email":
         max_results = tool_input.get("max_results", 10)
-        result = gmail_check(max_results)
+        result = gmail_check_all(max_results)
         if result is None:
             return "Gmail not authenticated. User needs to run /email setup first.", True
         if isinstance(result, str):
@@ -1387,18 +1502,28 @@ def execute_tool(name, tool_input, confirm_fn=None):
         _last_email_results.extend(result)
         if not result:
             return "No unread emails.", False
+        # Show account labels when multiple accounts exist
+        multi = len(set(e.get("account", "default") for e in result)) > 1
         lines = []
         for i, e in enumerate(result, 1):
-            lines.append(f"{i}. From: {e['sender']}\n   Subject: {e['subject']}\n   Date: {e['date']}\n   {e['snippet']}")
+            prefix = f"[{e['account']}] " if multi else ""
+            lines.append(f"{i}. {prefix}From: {e['sender']}\n   Subject: {e['subject']}\n   Date: {e['date']}\n   {e['snippet']}")
         return "\n".join(lines), False
 
     elif name == "read_email":
         message_id = tool_input["message_id"]
+        read_service = None
         if message_id.isdigit():
             idx = int(message_id) - 1
             if 0 <= idx < len(_last_email_results):
-                message_id = _last_email_results[idx]["id"]
-        body = gmail_read(message_id)
+                cached = _last_email_results[idx]
+                message_id = cached["id"]
+                # Get the right service for this account
+                cred_file = cached.get("_credentials_file")
+                if cred_file:
+                    cred_path = os.path.join(memory.BASE_DIR, cred_file)
+                    read_service = get_gmail_service(credentials_path=cred_path)
+        body = gmail_read(message_id, service=read_service)
         if body is None:
             return "Gmail not authenticated. User needs to run /email setup first.", True
         _email_content_loaded = True
@@ -1407,7 +1532,7 @@ def execute_tool(name, tool_input, confirm_fn=None):
     elif name == "search_email":
         query = tool_input["query"]
         max_results = tool_input.get("max_results", 10)
-        result = gmail_search(query, max_results)
+        result = gmail_search_all(query, max_results)
         if result is None:
             return "Gmail not authenticated. User needs to run /email setup first.", True
         if isinstance(result, str):
@@ -1416,9 +1541,12 @@ def execute_tool(name, tool_input, confirm_fn=None):
         _last_email_results.extend(result)
         if not result:
             return "No emails found matching that query.", False
+        # Show account labels when multiple accounts exist
+        multi = len(set(e.get("account", "default") for e in result)) > 1
         lines = []
         for i, e in enumerate(result, 1):
-            lines.append(f"{i}. From: {e['sender']}\n   Subject: {e['subject']}\n   Date: {e['date']}\n   {e['snippet']}")
+            prefix = f"[{e['account']}] " if multi else ""
+            lines.append(f"{i}. {prefix}From: {e['sender']}\n   Subject: {e['subject']}\n   Date: {e['date']}\n   {e['snippet']}")
         return "\n".join(lines), False
 
     elif name == "create_task":

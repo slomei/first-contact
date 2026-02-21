@@ -37,28 +37,34 @@ def _gather_calendar():
 
 
 def _gather_email():
-    """Check Gmail for unread emails. Returns dict with count and top 5."""
+    """Check Gmail for unread emails across all accounts. Returns dict with count and top 5."""
     try:
-        service = tools.get_gmail_service()
-        if not service:
+        services = tools.get_all_gmail_services()
+        if not services:
             return {"ok": False, "error": "Gmail not configured"}
-        result = tools.gmail_check(max_results=5)
-        if result is None:
-            return {"ok": False, "error": "Gmail not configured"}
-        if isinstance(result, str):
-            return {"ok": False, "error": result}
-        # Get total unread count (the list may be capped at 5)
-        try:
-            count_result = service.users().messages().list(
-                userId="me", q="is:unread", labelIds=["INBOX"], maxResults=1
-            ).execute()
-            total_unread = count_result.get("resultSizeEstimate", len(result))
-        except Exception:
-            total_unread = len(result)
+        multi = len(services) > 1
+        all_emails = []
+        total_unread = 0
+        for label, svc in services:
+            result = tools.gmail_check(max_results=5, service=svc)
+            if isinstance(result, list):
+                for e in result:
+                    entry = {"sender": e["sender"], "subject": e["subject"]}
+                    if multi:
+                        entry["account"] = label
+                    all_emails.append(entry)
+            # Get total unread count per account
+            try:
+                count_result = svc.users().messages().list(
+                    userId="me", q="is:unread", labelIds=["INBOX"], maxResults=1
+                ).execute()
+                total_unread += count_result.get("resultSizeEstimate", 0)
+            except Exception:
+                total_unread += len(result) if isinstance(result, list) else 0
         return {
             "ok": True,
             "count": total_unread,
-            "emails": [{"sender": e["sender"], "subject": e["subject"]} for e in result],
+            "emails": all_emails[:5],
         }
     except Exception as e:
         return {"ok": False, "error": f"Error checking email: {e}"}
@@ -302,7 +308,8 @@ def format_briefing_ansi(email_data, tasks_data, jobs_data, reminders_data, watc
         lines.append(f"  {email_data['count']} unread")
         for e in email_data["emails"]:
             sender = _format_sender(e["sender"])
-            lines.append(f"  {BOLD}•{R} {BOLD}{sender}{R} — {e['subject']}")
+            acct_tag = f"{D}[{e['account']}]{R} " if e.get("account") else ""
+            lines.append(f"  {BOLD}•{R} {acct_tag}{BOLD}{sender}{R} — {e['subject']}")
 
     # CALENDAR
     if calendar_data is not None:
@@ -424,7 +431,8 @@ def format_briefing_discord(email_data, tasks_data, jobs_data, reminders_data, w
         lines.append(f"  {email_data['count']} unread")
         for e in email_data["emails"]:
             sender = _format_sender(e["sender"])
-            lines.append(f"  • **{sender}** — {e['subject']}")
+            acct_tag = f"[{e['account']}] " if e.get("account") else ""
+            lines.append(f"  • {acct_tag}**{sender}** — {e['subject']}")
 
     # CALENDAR
     if calendar_data is not None:

@@ -373,8 +373,59 @@ class OnboardingWizard:
         return self._next_prompt()
 
     def _handle_oauth_step(self, key, user_input, is_terminal):
-        """Handle Gmail/Calendar OAuth steps."""
+        """Handle Gmail/Calendar OAuth steps.
+
+        For Gmail, after successful connection supports adding additional accounts
+        via sub_step: 0=initial yes/skip, 1=ask add another, 2=enter label,
+        3=run OAuth for additional account.
+        """
         text = user_input.strip().lower()
+
+        # Gmail: sub-steps for additional accounts
+        if key == "gmail" and self.sub_step == 1:
+            # "Add another Gmail account? (yes/skip)"
+            if text in ("skip", "s", "no", "n"):
+                self.sub_step = 0
+                self.step += 1
+                return self._next_prompt()
+            elif text in ("yes", "y"):
+                self.sub_step = 2
+                return ("Enter a label for this account (e.g. 'work'):", False)
+            else:
+                return ("Please enter 'yes' or 'skip'.", False)
+
+        if key == "gmail" and self.sub_step == 2:
+            # Capture label, run OAuth
+            label = user_input.strip()
+            if not label or " " in label:
+                return ("Enter a simple label with no spaces (e.g. 'work', 'personal'):", False)
+            if not is_terminal:
+                self.sub_step = 0
+                self.step += 1
+                next_prompt, done = self._next_prompt()
+                return (
+                    f"OAuth requires a browser — run `/email setup {label}` from the terminal instead.\n\n{next_prompt}",
+                    done,
+                )
+            success = tools.gmail_setup(label=label)
+            if success:
+                # Track additional accounts
+                extra = self.data.get("gmail_extra_accounts", [])
+                extra.append(label)
+                self.data["gmail_extra_accounts"] = extra
+                gmail_count = 1 + len(extra)
+                if gmail_count < 4:
+                    # Allow up to 3 additional accounts
+                    self.sub_step = 1
+                    return (f"Gmail account '{label}' connected! Add another Gmail account? (yes/skip)", False)
+                else:
+                    self.sub_step = 0
+                    self.step += 1
+                    next_prompt, done = self._next_prompt()
+                    return (f"Gmail account '{label}' connected! (max accounts reached)\n\n{next_prompt}", done)
+            else:
+                self.sub_step = 1
+                return (f"Gmail setup for '{label}' failed. Add another Gmail account? (yes/skip)", False)
 
         if text in ("skip", "s", "no", "n"):
             self.data[key] = "skip"
@@ -396,7 +447,14 @@ class OnboardingWizard:
                         )
                     success = tools.gmail_setup()
                     self.data[key] = "connected" if success else "failed"
-                    msg = "Gmail connected!" if success else "Gmail setup failed — you can try again later with /email setup."
+                    if success:
+                        self.sub_step = 1
+                        return ("Gmail connected! Add another Gmail account? (yes/skip)", False)
+                    else:
+                        msg = "Gmail setup failed — you can try again later with /email setup."
+                        self.step += 1
+                        next_prompt, done = self._next_prompt()
+                        return (f"{msg}\n\n{next_prompt}", done)
                 elif key == "calendar":
                     if not os.path.exists(memory.GMAIL_CLIENT_SECRET):
                         self.data[key] = "skip"
@@ -639,7 +697,11 @@ class OnboardingWizard:
         if d.get("telegram") == "configured":
             integrations.append("Telegram")
         if d.get("gmail") == "connected":
-            integrations.append("Gmail")
+            extra = d.get("gmail_extra_accounts", [])
+            if extra:
+                integrations.append(f"Gmail ({1 + len(extra)} accounts)")
+            else:
+                integrations.append("Gmail")
         if d.get("calendar") == "connected":
             integrations.append("Google Calendar")
         if integrations:
@@ -730,6 +792,20 @@ class OnboardingWizard:
 
         config["user_profile"] = profile
         config["notification_channels"] = self.data.get("notify_prefs", [])
+
+        # Ensure email_accounts reflects connected Gmail accounts
+        if d.get("gmail") == "connected":
+            accounts = config.get("email_accounts", [])
+            # Add default account if not already present
+            if not any(a["credentials_file"] == "gmail_credentials.json" for a in accounts):
+                accounts.append({"label": "default", "credentials_file": "gmail_credentials.json"})
+            # Add extra accounts from onboarding
+            for extra_label in d.get("gmail_extra_accounts", []):
+                cred_file = f"gmail_credentials_{extra_label}.json"
+                if not any(a["credentials_file"] == cred_file for a in accounts):
+                    accounts.append({"label": extra_label, "credentials_file": cred_file})
+            config["email_accounts"] = accounts
+
         memory.save_config(config)
         results.append("Updated config.json")
 

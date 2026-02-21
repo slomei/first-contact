@@ -237,11 +237,7 @@ def check_new_emails():
     if not config.get("enabled", True):
         return {"high": [], "medium": [], "low": [], "error": None}
 
-    service = tools.get_gmail_service()
-    if not service:
-        return {"high": [], "medium": [], "low": [], "error": "Gmail not authenticated"}
-
-    result = tools.gmail_check(max_results=20)
+    result = tools.gmail_check_all(max_results=20)
     if result is None:
         return {"high": [], "medium": [], "low": [], "error": "Gmail not authenticated"}
     if isinstance(result, str):
@@ -274,6 +270,7 @@ def check_new_emails():
 def send_email_notification(subject, body):
     """Create a self-addressed Gmail draft with notification content.
 
+    Uses the primary (first) account for draft creation.
     Returns draft_id or None.
     """
     import tools
@@ -281,4 +278,8 @@ def send_email_notification(subject, body):
     email = profile.get("email", "")
     if not email or email == "you@example.com":
         return None
-    return tools.gmail_create_draft(email, subject, body)
+    services = tools.get_all_gmail_services()
+    if not services:
+        return None
+    _label, svc = services[0]
+    return tools.gmail_create_draft(email, subject, body, service=svc)
