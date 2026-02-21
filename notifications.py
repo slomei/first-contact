@@ -267,3 +267,18 @@ def check_new_emails():
     memory.save_config(config_full)
 
     return classified
+
+
+# --- Email channel delivery ---
+
+def send_email_notification(subject, body):
+    """Create a self-addressed Gmail draft with notification content.
+
+    Returns draft_id or None.
+    """
+    import tools
+    profile = memory.get_user_profile()
+    email = profile.get("email", "")
+    if not email or email == "you@example.com":
+        return None
+    return tools.gmail_create_draft(email, subject, body)

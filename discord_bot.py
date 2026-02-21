@@ -38,6 +38,12 @@ MODEL_DISPLAY_NAMES = {
 }
 
 
+def _should_notify():
+    """Check if Discord is in the user's notification_channels. Empty list = yes (legacy)."""
+    channels = memory.load_config().get("notification_channels", [])
+    return not channels or "discord" in channels
+
+
 class UserState:
     """Per-user conversation state."""
 
@@ -487,10 +493,15 @@ async def reminder_check_loop():
             # Check due reminders
             triggered = tasks.check_due_reminders()
             if triggered:
-                user = await bot.fetch_user(ALLOWED_USER_ID)
-                if user:
+                channels = memory.load_config().get("notification_channels", [])
+                if _should_notify():
+                    user = await bot.fetch_user(ALLOWED_USER_ID)
+                    if user:
+                        for r in triggered:
+                            await user.send(f"**Reminder:** {r['description']}")
+                if "email" in channels:
                     for r in triggered:
-                        await user.send(f"**Reminder:** {r['description']}")
+                        notifications.send_email_notification("Reminder", r['description'])
 
             # Auto-briefing check
             now = datetime.now()
@@ -516,10 +527,14 @@ async def reminder_check_loop():
                         memory.save_config(config)
                         try:
                             text = await asyncio.to_thread(briefing.run_briefing_discord)
-                            user = await bot.fetch_user(ALLOWED_USER_ID)
-                            if user:
-                                for chunk in split_message(text):
-                                    await user.send(chunk)
+                            if _should_notify():
+                                user = await bot.fetch_user(ALLOWED_USER_ID)
+                                if user:
+                                    for chunk in split_message(text):
+                                        await user.send(chunk)
+                            channels = memory.load_config().get("notification_channels", [])
+                            if "email" in channels:
+                                notifications.send_email_notification("Daily Briefing", text)
                         except Exception:
                             pass
 
@@ -527,10 +542,14 @@ async def reminder_check_loop():
             if now.hour >= 8:
                 summary_text, should_send = tasks.get_daily_summary()
                 if should_send and summary_text:
-                    user = await bot.fetch_user(ALLOWED_USER_ID)
-                    if user:
-                        for chunk in split_message(summary_text):
-                            await user.send(chunk)
+                    if _should_notify():
+                        user = await bot.fetch_user(ALLOWED_USER_ID)
+                        if user:
+                            for chunk in split_message(summary_text):
+                                await user.send(chunk)
+                    channels = memory.load_config().get("notification_channels", [])
+                    if "email" in channels:
+                        notifications.send_email_notification("Task Summary", summary_text)
         except Exception:
             pass  # Never crash the loop
 
@@ -566,42 +585,43 @@ async def email_check_loop():
 
             user = None
 
-            # High priority → immediate DM
-            for email_data, priority in result.get("high", []):
-                if not notifications.check_rate_limit():
-                    notifications.log_notification(email_data, priority, "rate_limited")
-                    continue
-                if user is None:
-                    user = await bot.fetch_user(ALLOWED_USER_ID)
-                if user:
-                    msg = notifications.format_notification_discord(email_data, priority)
-                    await user.send(msg)
-                    notifications.log_notification(email_data, priority, "sent")
-
-            # Medium priority → buffer
-            for email_data, priority in result.get("medium", []):
-                _medium_batch.append(email_data)
-                notifications.log_notification(email_data, priority, "batched")
-
-            # Low priority → log only
-            for email_data, priority in result.get("low", []):
-                notifications.log_notification(email_data, priority, "skipped")
-
-            # Check if it's time to send the batch
-            batch_interval = config.get("batch_interval_minutes", 30) * 60
-            if _medium_batch and (datetime.now() - _last_batch_sent).total_seconds() >= batch_interval:
-                if notifications.check_rate_limit():
+            if _should_notify():
+                # High priority → immediate DM
+                for email_data, priority in result.get("high", []):
+                    if not notifications.check_rate_limit():
+                        notifications.log_notification(email_data, priority, "rate_limited")
+                        continue
                     if user is None:
                         user = await bot.fetch_user(ALLOWED_USER_ID)
                     if user:
-                        msg = notifications.format_batch_discord(_medium_batch)
-                        if msg:
-                            for chunk in split_message(msg):
-                                await user.send(chunk)
-                        for e in _medium_batch:
-                            notifications.log_notification(e, "medium", "sent")
-                _medium_batch = []
-                _last_batch_sent = datetime.now()
+                        msg = notifications.format_notification_discord(email_data, priority)
+                        await user.send(msg)
+                        notifications.log_notification(email_data, priority, "sent")
+
+                # Medium priority → buffer
+                for email_data, priority in result.get("medium", []):
+                    _medium_batch.append(email_data)
+                    notifications.log_notification(email_data, priority, "batched")
+
+                # Check if it's time to send the batch
+                batch_interval = config.get("batch_interval_minutes", 30) * 60
+                if _medium_batch and (datetime.now() - _last_batch_sent).total_seconds() >= batch_interval:
+                    if notifications.check_rate_limit():
+                        if user is None:
+                            user = await bot.fetch_user(ALLOWED_USER_ID)
+                        if user:
+                            msg = notifications.format_batch_discord(_medium_batch)
+                            if msg:
+                                for chunk in split_message(msg):
+                                    await user.send(chunk)
+                            for e in _medium_batch:
+                                notifications.log_notification(e, "medium", "sent")
+                    _medium_batch = []
+                    _last_batch_sent = datetime.now()
+
+            # Low priority → log only (always)
+            for email_data, priority in result.get("low", []):
+                notifications.log_notification(email_data, priority, "skipped")
 
         except Exception:
             pass  # Never crash the loop
@@ -670,17 +690,25 @@ async def job_scan_loop():
             # Send notification if there are strong matches
             notification = job_scanner.format_scan_notification_discord(results)
             if notification:
-                user = await bot.fetch_user(ALLOWED_USER_ID)
-                if user:
-                    for chunk in split_message(notification):
-                        await user.send(chunk)
+                if _should_notify():
+                    user = await bot.fetch_user(ALLOWED_USER_ID)
+                    if user:
+                        for chunk in split_message(notification):
+                            await user.send(chunk)
+                channels = memory.load_config().get("notification_channels", [])
+                if "email" in channels:
+                    notifications.send_email_notification("Job Scan Alert", notification)
 
             # Send summary if there are any matches (medium included)
             elif results.get("medium"):
                 summary = job_scanner.format_scan_summary_discord(results)
-                user = await bot.fetch_user(ALLOWED_USER_ID)
-                if user:
-                    await user.send(summary)
+                if _should_notify():
+                    user = await bot.fetch_user(ALLOWED_USER_ID)
+                    if user:
+                        await user.send(summary)
+                channels = memory.load_config().get("notification_channels", [])
+                if "email" in channels:
+                    notifications.send_email_notification("Job Scan Alert", summary)
 
         except Exception:
             pass  # Never crash the loop

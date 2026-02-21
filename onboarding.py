@@ -64,6 +64,18 @@ STEPS = [
     ("telegram", "Set up Telegram bot integration? (yes/skip)", "multi"),
     ("gmail", "Connect Gmail? (yes/skip)", "oauth"),
     ("calendar", "Connect Google Calendar? (yes/skip)", "oauth"),
+    (
+        "notify_prefs",
+        (
+            "Where do you want to receive daily briefings and alerts?\n"
+            "  1. Discord DM\n"
+            "  2. Telegram\n"
+            "  3. Email (Gmail draft to self)\n"
+            "  4. All of the above\n"
+            "(Enter numbers separated by commas, e.g. '1,2')"
+        ),
+        "multi_select",
+    ),
     ("review", None, "auto-advance"),
     ("confirm", None, "confirm"),
 ]
@@ -273,6 +285,48 @@ class OnboardingWizard:
                 return ("Please enter 1, 2, 3, or 4.", False)
             self.data[key] = choice
 
+        self.step += 1
+        return self._next_prompt()
+
+    def _handle_multi_select(self, key, user_input):
+        """Handle a multi-select step (comma-separated numbers)."""
+        text = user_input.strip().lower()
+
+        # Default: derive from configured integrations
+        if not text or text == "skip":
+            prefs = []
+            if self.data.get("discord") == "configured":
+                prefs.append("discord")
+            if self.data.get("telegram") == "configured":
+                prefs.append("telegram")
+            if self.data.get("gmail") == "connected":
+                prefs.append("email")
+            # If nothing was configured, default to all
+            if not prefs:
+                prefs = ["discord", "telegram", "email"]
+            self.data[key] = prefs
+            self.step += 1
+            return self._next_prompt()
+
+        mapping = {"1": "discord", "2": "telegram", "3": "email"}
+        selections = []
+
+        for part in text.replace(" ", "").split(","):
+            part = part.strip()
+            if part == "4":
+                selections = ["discord", "telegram", "email"]
+                break
+            if part in mapping:
+                val = mapping[part]
+                if val not in selections:
+                    selections.append(val)
+            else:
+                return ("Please enter numbers 1-4 separated by commas (e.g. '1,2').", False)
+
+        if not selections:
+            return ("Please select at least one channel.", False)
+
+        self.data[key] = selections
         self.step += 1
         return self._next_prompt()
 
@@ -523,6 +577,9 @@ class OnboardingWizard:
         if notes == "numbered":
             return self._handle_numbered(key, user_input)
 
+        if notes == "multi_select":
+            return self._handle_multi_select(key, user_input)
+
         return self._handle_text(key, user_input)
 
     def _next_prompt(self):
@@ -589,6 +646,13 @@ class OnboardingWizard:
             lines.append(f"  Integrations: {', '.join(integrations)}")
         elif not any(d.get(k) not in (None, "skip", "failed") for k in ("discord", "telegram", "gmail", "calendar")):
             lines.append("  Integrations: none (can be added later)")
+
+        # Notification channels
+        notify = d.get("notify_prefs", [])
+        if notify:
+            channel_labels = {"discord": "Discord", "telegram": "Telegram", "email": "Email"}
+            labels = [channel_labels.get(c, c) for c in notify]
+            lines.append(f"  Notifications: {', '.join(labels)}")
 
         return "\n".join(lines)
 
@@ -665,6 +729,7 @@ class OnboardingWizard:
             profile["title"] = d["work"]
 
         config["user_profile"] = profile
+        config["notification_channels"] = self.data.get("notify_prefs", [])
         memory.save_config(config)
         results.append("Updated config.json")
 

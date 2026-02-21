@@ -214,6 +214,7 @@ def load_config():
             "monday_time": "06:00",
             "last_auto_scan": None,
         },
+        "notification_channels": [],
         "discord_prefix": "!fc",
         "user_profile": {
             "name": "Your Name",
