@@ -124,7 +124,13 @@ def load_tasks():
     path = memory.get_tasks_file()
     if os.path.exists(path):
         with open(path, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+        # Filter out old-format tasks that aren't dicts
+        if isinstance(data.get("tasks"), list):
+            data["tasks"] = [t for t in data["tasks"] if isinstance(t, dict)]
+        else:
+            data["tasks"] = []
+        return data
     return {"next_id": 1, "tasks": []}
 
 
@@ -373,7 +379,9 @@ def get_daily_summary():
             except (json.JSONDecodeError, OSError):
                 continue
             for task in proj_data.get("tasks", []):
-                if task["status"] != "open":
+                if not isinstance(task, dict):
+                    continue
+                if task.get("status") != "open":
                     continue
                 total_open += 1
                 if not task.get("due_date"):

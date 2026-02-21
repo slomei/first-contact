@@ -95,10 +95,13 @@ def _gather_tasks():
             except (json.JSONDecodeError, OSError):
                 continue
             for task in data.get("tasks", []):
+                if not isinstance(task, dict):
+                    continue
                 if task.get("status") != "open":
                     continue
-                desc = task["description"]
-                tid = task["id"]
+                desc = task.get("description", "")
+                tid = task.get("id", "?")
+
                 due = task.get("due_date")
                 priority = task.get("priority", "normal")
                 proj_tag = f"[{project_name}]" if project_name != memory.active_project else ""
@@ -131,6 +134,8 @@ def _gather_jobs():
         if not jobs:
             return {"ok": True, "total": 0, "unapplied": 0, "last_applied": None}
 
+        # Filter out old-format entries that aren't dicts
+        jobs = [j for j in jobs if isinstance(j, dict)]
         unapplied = [j for j in jobs if not j.get("status")]
         applied = [j for j in jobs if j.get("status") == "applied"]
         interviewing = [j for j in jobs if j.get("status") == "interviewing"]

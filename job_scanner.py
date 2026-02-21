@@ -73,13 +73,13 @@ def _build_fit_prompt():
     if experience:
         lines.append(f"- {experience}")
     if credits_list:
-        lines.append(f"- Credits: {', '.join(credits_list)}")
+        lines.append(f"- Credits: {', '.join(str(c) for c in credits_list)}")
     if tools_list:
-        lines.append(f"- Tools: {', '.join(tools_list)}")
+        lines.append(f"- Tools: {', '.join(str(t) for t in tools_list)}")
     if location:
         lines.append(f"- Based in {location}")
     if target_roles:
-        lines.append(f"- Looking for: {', '.join(target_roles)}")
+        lines.append(f"- Looking for: {', '.join(str(r) for r in target_roles)}")
 
     lines.append("")
     lines.append(
@@ -480,17 +480,17 @@ def format_scan_ansi(results):
 
     lines = []
 
-    if not results["ok"]:
-        return f"{RED}{results['error']}{R}"
+    if not results.get("ok"):
+        return f"{RED}{results.get('error', 'Unknown error')}{R}"
 
-    high = results["high"]
-    medium = results["medium"]
-    low = results["low"]
+    high = results.get("high", [])
+    medium = results.get("medium", [])
+    low = results.get("low", [])
 
     lines.append(f"\n{C}{'━' * 3} JOB SCAN RESULTS {'━' * 3}{R}")
-    lines.append(f"{D}  Searched {results['total_searched']} listings, "
-                 f"{results['total_new']} new, "
-                 f"{results['total_assessed']} assessed{R}")
+    lines.append(f"{D}  Searched {results.get('total_searched', 0)} listings, "
+                 f"{results.get('total_new', 0)} new, "
+                 f"{results.get('total_assessed', 0)} assessed{R}")
 
     if high:
         lines.append(f"\n{GREEN}STRONG MATCHES ({len(high)}):{R}")
@@ -520,7 +520,7 @@ def format_scan_ansi(results):
     elif low:
         lines.append(f"\n{D}  ({len(low)} weak/unrelated listing(s) filtered out){R}")
 
-    lines.append(f"\n{D}  Scan cost: ${results['cost']:.4f}{R}")
+    lines.append(f"\n{D}  Scan cost: ${results.get('cost', 0):.4f}{R}")
 
     return "\n".join(lines)
 
@@ -529,17 +529,17 @@ def format_scan_discord(results):
     """Format scan results for Discord display."""
     lines = []
 
-    if not results["ok"]:
-        return f"*{results['error']}*"
+    if not results.get("ok"):
+        return f"*{results.get('error', 'Unknown error')}*"
 
-    high = results["high"]
-    medium = results["medium"]
-    low = results["low"]
+    high = results.get("high", [])
+    medium = results.get("medium", [])
+    low = results.get("low", [])
 
     lines.append(f"**━━━ JOB SCAN RESULTS ━━━**")
-    lines.append(f"Searched {results['total_searched']} listings, "
-                 f"{results['total_new']} new, "
-                 f"{results['total_assessed']} assessed")
+    lines.append(f"Searched {results.get('total_searched', 0)} listings, "
+                 f"{results.get('total_new', 0)} new, "
+                 f"{results.get('total_assessed', 0)} assessed")
 
     if high:
         lines.append(f"\n**STRONG MATCHES ({len(high)}):**")
@@ -566,7 +566,7 @@ def format_scan_discord(results):
     elif low:
         lines.append(f"\n*({len(low)} weak/unrelated listing(s) filtered out)*")
 
-    lines.append(f"\n*Scan cost: ${results['cost']:.4f}*")
+    lines.append(f"\n*Scan cost: ${results.get('cost', 0):.4f}*")
 
     return "\n".join(lines)
 

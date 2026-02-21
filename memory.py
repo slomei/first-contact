@@ -561,7 +561,7 @@ def get_cross_project_summary():
             try:
                 with open(tasks_path, "r") as f:
                     task_data = json.load(f)
-                open_count = sum(1 for t in task_data.get("tasks", []) if t.get("status") == "open")
+                open_count = sum(1 for t in task_data.get("tasks", []) if isinstance(t, dict) and t.get("status") == "open")
                 if open_count:
                     parts.append(f"{open_count} open task{'s' if open_count != 1 else ''}")
             except (json.JSONDecodeError, OSError):
@@ -622,7 +622,7 @@ def get_detailed_project_summaries():
             try:
                 with open(tasks_path, "r") as f:
                     task_data = json.load(f)
-                open_tasks = [t for t in task_data.get("tasks", []) if t.get("status") == "open"]
+                open_tasks = [t for t in task_data.get("tasks", []) if isinstance(t, dict) and t.get("status") == "open"]
                 if open_tasks:
                     due_dates = []
                     for t in open_tasks:
