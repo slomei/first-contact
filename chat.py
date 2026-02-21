@@ -32,6 +32,22 @@ import onboarding
 
 # --- Terminal-specific helpers ---
 
+class _ResponseCancelled(Exception):
+    """Raised when the user cancels a streaming response with Ctrl+C."""
+    pass
+
+
+def _clean_exit():
+    """Save conversation, print summary, and exit."""
+    print_session_summary()
+    result = models.save_conversation(models.conversation_history)
+    if result:
+        title, filepath = result
+        print(f"Conversation saved: {title}")
+        print(f"{memory.DIM}  \u2192 {filepath}{memory.RESET}")
+    print("Goodbye!")
+
+
 def terminal_confirm(prompt):
     """Wrap input() for execute_tool's confirm_fn."""
     try:
@@ -181,64 +197,80 @@ def chat_turn():
                 last_user_query = " ".join(texts)
             break
 
-    for turn in range(10):
-        if turn == 0:
-            print(f"\n{memory.CYAN}Claude:{memory.RESET} ", end="", flush=True)
+    try:
+        for turn in range(10):
+            if turn == 0:
+                print(f"\n{memory.CYAN}Claude:{memory.RESET} ", end="", flush=True)
 
-        with models.get_client().messages.stream(
-            model=models.active_model,
-            max_tokens=4096,
-            system=memory.build_system_prompt(memory.memories, creative_context=creative_ctx, query=last_user_query),
-            messages=models.conversation_history,
-            tools=tools.TOOLS,
-        ) as stream:
             response_text = ""
-            for text in stream.text_stream:
-                print(text, end="", flush=True)
-                response_text += text
+            try:
+                with models.get_client().messages.stream(
+                    model=models.active_model,
+                    max_tokens=4096,
+                    system=memory.build_system_prompt(memory.memories, creative_context=creative_ctx, query=last_user_query),
+                    messages=models.conversation_history,
+                    tools=tools.TOOLS,
+                ) as stream:
+                    for text in stream.text_stream:
+                        print(text, end="", flush=True)
+                        response_text += text
 
-            final = stream.get_final_message()
+                    final = stream.get_final_message()
+            except KeyboardInterrupt:
+                if response_text:
+                    models.conversation_history.append({"role": "assistant", "content": response_text})
+                raise _ResponseCancelled()
+            except Exception:
+                if response_text:
+                    # Stream was interrupted after partial output — treat as cancellation
+                    models.conversation_history.append({"role": "assistant", "content": response_text})
+                    raise _ResponseCancelled()
+                raise  # No partial output — genuine API error, propagate normally
 
-        input_tokens = final.usage.input_tokens
-        output_tokens = final.usage.output_tokens
-        prices = models.PRICING.get(models.active_model, {"input": 0, "output": 0})
-        msg_cost = (input_tokens * prices["input"] + output_tokens * prices["output"]) / 1_000_000
-        total_input += input_tokens
-        total_output += output_tokens
-        total_cost += msg_cost
+            input_tokens = final.usage.input_tokens
+            output_tokens = final.usage.output_tokens
+            prices = models.PRICING.get(models.active_model, {"input": 0, "output": 0})
+            msg_cost = (input_tokens * prices["input"] + output_tokens * prices["output"]) / 1_000_000
+            total_input += input_tokens
+            total_output += output_tokens
+            total_cost += msg_cost
 
-        if final.stop_reason == "tool_use":
-            assistant_content = []
-            for block in final.content:
-                if block.type == "text":
-                    assistant_content.append({"type": "text", "text": block.text})
-                elif block.type == "tool_use":
-                    assistant_content.append({
-                        "type": "tool_use",
-                        "id": block.id,
-                        "name": block.name,
-                        "input": block.input,
-                    })
-            models.conversation_history.append({"role": "assistant", "content": assistant_content})
+            if final.stop_reason == "tool_use":
+                assistant_content = []
+                for block in final.content:
+                    if block.type == "text":
+                        assistant_content.append({"type": "text", "text": block.text})
+                    elif block.type == "tool_use":
+                        assistant_content.append({
+                            "type": "tool_use",
+                            "id": block.id,
+                            "name": block.name,
+                            "input": block.input,
+                        })
+                models.conversation_history.append({"role": "assistant", "content": assistant_content})
 
-            tool_results = []
-            for block in final.content:
-                if block.type == "tool_use":
-                    print_tool_status(block.name, block.input)
-                    result, is_error = tools.execute_tool(block.name, block.input, confirm_fn=terminal_confirm)
-                    tool_result = {
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result,
-                    }
-                    if is_error:
-                        tool_result["is_error"] = True
-                    tool_results.append(tool_result)
-            models.conversation_history.append({"role": "user", "content": tool_results})
-            continue
-        else:
-            models.conversation_history.append({"role": "assistant", "content": response_text})
-            break
+                tool_results = []
+                for block in final.content:
+                    if block.type == "tool_use":
+                        print_tool_status(block.name, block.input)
+                        result, is_error = tools.execute_tool(block.name, block.input, confirm_fn=terminal_confirm)
+                        tool_result = {
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": result,
+                        }
+                        if is_error:
+                            tool_result["is_error"] = True
+                        tool_results.append(tool_result)
+                models.conversation_history.append({"role": "user", "content": tool_results})
+                continue
+            else:
+                models.conversation_history.append({"role": "assistant", "content": response_text})
+                break
+
+    except _ResponseCancelled:
+        print(f"\n{memory.DIM}  [response cancelled]{memory.RESET}\n")
+        return
 
     # Update session totals
     models.session_input_tokens += total_input
@@ -559,25 +591,17 @@ if __name__ == "__main__":
         challenge_tag = " challenge" if memory.challenge_mode else ""
         try:
             user_input = input(f"{memory.GREEN}You {memory.DIM}[{short_name}/{memory.active_project}{challenge_tag}]{memory.RESET}{memory.GREEN}: {memory.RESET}")
-        except (EOFError, KeyboardInterrupt):
+        except EOFError:
             print()
-            print_session_summary()
-            result = models.save_conversation(models.conversation_history)
-            if result:
-                title, filepath = result
-                print(f"Conversation saved: {title}")
-                print(f"{memory.DIM}  \u2192 {filepath}{memory.RESET}")
-            print("Goodbye!")
+            _clean_exit()
+            break
+        except KeyboardInterrupt:
+            print()
+            _clean_exit()
             break
 
-        if user_input.strip().lower() in ("quit", "exit"):
-            print_session_summary()
-            result = models.save_conversation(models.conversation_history)
-            if result:
-                title, filepath = result
-                print(f"Conversation saved: {title}")
-                print(f"{memory.DIM}  \u2192 {filepath}{memory.RESET}")
-            print("Goodbye!")
+        if user_input.strip().lower() in ("quit", "exit", "/quit", "/exit"):
+            _clean_exit()
             break
 
         command = user_input.strip()
