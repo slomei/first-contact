@@ -119,17 +119,26 @@ def parse_natural_date(text):
 
 # --- Task I/O ---
 
+def _extract_tasks_list(data):
+    """Extract a list of task dicts from tasks.json data (handles old bare-list format)."""
+    if isinstance(data, dict):
+        tasks = data.get("tasks", [])
+    elif isinstance(data, list):
+        tasks = data
+    else:
+        return []
+    return [t for t in tasks if isinstance(t, dict)]
+
+
 def load_tasks():
     """Load tasks from the active project's tasks.json."""
     path = memory.get_tasks_file()
     if os.path.exists(path):
         with open(path, "r") as f:
             data = json.load(f)
-        # Filter out old-format tasks that aren't dicts
-        if isinstance(data.get("tasks"), list):
-            data["tasks"] = [t for t in data["tasks"] if isinstance(t, dict)]
-        else:
-            data["tasks"] = []
+        if not isinstance(data, dict):
+            data = {"next_id": 1, "tasks": []}
+        data["tasks"] = _extract_tasks_list(data)
         return data
     return {"next_id": 1, "tasks": []}
 
@@ -270,11 +279,17 @@ def get_all_tasks():
 
 def load_reminders():
     """Load reminders from the global reminders.json."""
+    default = {"next_id": 1, "last_daily_notify": None, "reminders": []}
     path = memory.get_reminders_file()
     if os.path.exists(path):
         with open(path, "r") as f:
-            return json.load(f)
-    return {"next_id": 1, "last_daily_notify": None, "reminders": []}
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return default
+        if not isinstance(data.get("reminders"), list):
+            data["reminders"] = []
+        return data
+    return default
 
 
 def save_reminders(data):
@@ -378,9 +393,7 @@ def get_daily_summary():
                     proj_data = json.load(f)
             except (json.JSONDecodeError, OSError):
                 continue
-            for task in proj_data.get("tasks", []):
-                if not isinstance(task, dict):
-                    continue
+            for task in _extract_tasks_list(proj_data):
                 if task.get("status") != "open":
                     continue
                 total_open += 1

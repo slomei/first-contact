@@ -25,7 +25,8 @@ def load_sources():
     if not os.path.exists(SYNC_CONFIG):
         return {}
     with open(SYNC_CONFIG, "r") as f:
-        return json.load(f)
+        data = json.load(f)
+    return data if isinstance(data, dict) else {}
 
 
 def _extract_version(filename, pattern):

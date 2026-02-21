@@ -94,7 +94,8 @@ def _gather_tasks():
                     data = json.load(f)
             except (json.JSONDecodeError, OSError):
                 continue
-            for task in data.get("tasks", []):
+            task_list = data.get("tasks", []) if isinstance(data, dict) else data if isinstance(data, list) else []
+            for task in task_list:
                 if not isinstance(task, dict):
                     continue
                 if task.get("status") != "open":
@@ -201,7 +202,8 @@ def _gather_watchlist():
                     try:
                         with open(wl_path, "r") as f:
                             topics = json.load(f)
-                        all_topics.extend(topics)
+                        if isinstance(topics, list):
+                            all_topics.extend(topics)
                     except (json.JSONDecodeError, OSError):
                         pass
 

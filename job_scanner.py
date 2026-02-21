@@ -111,9 +111,11 @@ def load_seen_jobs():
             data = json.load(f)
     except (json.JSONDecodeError, OSError):
         return {}
+    if not isinstance(data, dict):
+        return {}
     # Prune old entries
     cutoff = (datetime.now() - timedelta(days=30)).isoformat()
-    pruned = {k: v for k, v in data.items() if v.get("seen_at", "") > cutoff}
+    pruned = {k: v for k, v in data.items() if isinstance(v, dict) and v.get("seen_at", "") > cutoff}
     return pruned
 
 
@@ -154,7 +156,8 @@ def load_scan_results():
         return None
     try:
         with open(SCAN_RESULTS_FILE, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+        return data if isinstance(data, dict) else None
     except (json.JSONDecodeError, OSError):
         return None
 

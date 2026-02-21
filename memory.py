@@ -294,6 +294,8 @@ def load_config():
         try:
             with open(path, "r") as f:
                 config = json.load(f)
+            if not isinstance(config, dict):
+                return defaults
             # Merge in any missing default keys
             for key, val in defaults.items():
                 if key not in config:
@@ -571,7 +573,8 @@ def get_cross_project_summary():
             try:
                 with open(tasks_path, "r") as f:
                     task_data = json.load(f)
-                open_count = sum(1 for t in task_data.get("tasks", []) if isinstance(t, dict) and t.get("status") == "open")
+                task_list = task_data.get("tasks", []) if isinstance(task_data, dict) else task_data if isinstance(task_data, list) else []
+                open_count = sum(1 for t in task_list if isinstance(t, dict) and t.get("status") == "open")
                 if open_count:
                     parts.append(f"{open_count} open task{'s' if open_count != 1 else ''}")
             except (json.JSONDecodeError, OSError):
@@ -590,7 +593,8 @@ def get_cross_project_summary():
             if os.path.exists(jobs_path):
                 try:
                     with open(jobs_path, "r") as f:
-                        jobs_count = len(json.load(f))
+                        jobs_data = json.load(f)
+                    jobs_count = len(jobs_data) if isinstance(jobs_data, list) else 0
                     if jobs_count:
                         parts.append(f"{jobs_count} saved job{'s' if jobs_count != 1 else ''}")
                 except (json.JSONDecodeError, OSError):
@@ -632,7 +636,8 @@ def get_detailed_project_summaries():
             try:
                 with open(tasks_path, "r") as f:
                     task_data = json.load(f)
-                open_tasks = [t for t in task_data.get("tasks", []) if isinstance(t, dict) and t.get("status") == "open"]
+                task_list = task_data.get("tasks", []) if isinstance(task_data, dict) else task_data if isinstance(task_data, list) else []
+                open_tasks = [t for t in task_list if isinstance(t, dict) and t.get("status") == "open"]
                 if open_tasks:
                     due_dates = []
                     for t in open_tasks:
@@ -649,7 +654,8 @@ def get_detailed_project_summaries():
             if os.path.exists(jobs_path):
                 try:
                     with open(jobs_path, "r") as f:
-                        jobs_count = len(json.load(f))
+                        jobs_data = json.load(f)
+                    jobs_count = len(jobs_data) if isinstance(jobs_data, list) else 0
                     if jobs_count:
                         parts.append(f"{jobs_count} saved job{'s' if jobs_count != 1 else ''}")
                 except (json.JSONDecodeError, OSError):
@@ -752,7 +758,8 @@ def load_watchlist():
     path = get_watchlist_file()
     if os.path.exists(path):
         with open(path, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+        return data if isinstance(data, list) else []
     return []
 
 
@@ -770,7 +777,8 @@ def load_jobs():
     path = get_jobs_file()
     if os.path.exists(path):
         with open(path, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+        return data if isinstance(data, list) else []
     return []
 
 

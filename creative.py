@@ -209,7 +209,8 @@ def load_characters():
     path = get_characters_path()
     if os.path.exists(path):
         with open(path, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+        return data if isinstance(data, list) else []
     return []
 
 
@@ -218,7 +219,8 @@ def load_locations():
     path = get_locations_path()
     if os.path.exists(path):
         with open(path, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+        return data if isinstance(data, list) else []
     return []
 
 

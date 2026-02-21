@@ -30,6 +30,8 @@ def load_seen():
             data = json.load(f)
     except (json.JSONDecodeError, OSError):
         return {}
+    if not isinstance(data, dict):
+        return {}
     # Prune old entries (older than 7 days)
     cutoff = (datetime.now() - timedelta(days=7)).isoformat()
     pruned = {k: v for k, v in data.items() if v > cutoff}
