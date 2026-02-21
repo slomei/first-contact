@@ -42,3 +42,22 @@ def test_import_job_scanner():
 def test_import_onboarding():
     import onboarding
     assert hasattr(onboarding, "OnboardingWizard")
+
+
+def test_import_help_data():
+    import help_data
+    assert hasattr(help_data, "HELP_CATEGORIES")
+    assert hasattr(help_data, "fuzzy_match_category")
+
+
+def test_import_creative():
+    import creative
+    assert hasattr(creative, "load_characters")
+
+
+def test_import_sync():
+    import sync
+
+
+def test_import_daemon():
+    import daemon
