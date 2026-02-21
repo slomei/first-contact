@@ -19,11 +19,21 @@ _semantic_device = None
 _embedding_model = None
 
 try:
-    from sentence_transformers import SentenceTransformer
-    import torch
-    _semantic_device = "cuda" if torch.cuda.is_available() else "cpu"
-    _embedding_model = SentenceTransformer("all-MiniLM-L6-v2", device=_semantic_device)
-    SEMANTIC_AVAILABLE = True
+    import io, sys, logging, warnings
+    # Suppress HuggingFace/transformers progress bars, load reports, and warnings
+    logging.getLogger("transformers").setLevel(logging.ERROR)
+    logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
+    warnings.filterwarnings("ignore", message=".*unauthenticated.*")
+    _stderr_backup = sys.stderr
+    sys.stderr = io.StringIO()
+    try:
+        from sentence_transformers import SentenceTransformer
+        import torch
+        _semantic_device = "cuda" if torch.cuda.is_available() else "cpu"
+        _embedding_model = SentenceTransformer("all-MiniLM-L6-v2", device=_semantic_device)
+        SEMANTIC_AVAILABLE = True
+    finally:
+        sys.stderr = _stderr_backup
 except ImportError:
     pass
 
