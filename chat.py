@@ -252,7 +252,7 @@ if __name__ == "__main__":
       /email search <q>    Search emails by keyword
       /draft reply         Draft a reply to the last-read email (Opus)
       /draft new <to> [subj]  Compose a new email draft (Opus)
-      /draft job <#>       Draft a job application email (Opus)
+      /draft work <#>      Draft a job application email (Opus)
       /drafts              List drafts created this session
       /cover <#>           Generate cover letter PDF for a saved job (Opus)
       /cover new <co> <title>  Cover letter PDF for a job not in the pipeline
@@ -762,7 +762,7 @@ if __name__ == "__main__":
             draft_arg_lower = draft_arg.lower()
 
             if not draft_arg:
-                print(f"{memory.DIM}Usage: /draft reply | /draft new <to> [subject] | /draft job <#>{memory.RESET}\n")
+                print(f"{memory.DIM}Usage: /draft reply | /draft new <to> [subject] | /draft work <#>{memory.RESET}\n")
                 continue
 
             # Check Gmail auth
@@ -893,8 +893,8 @@ if __name__ == "__main__":
                 elif final_body is None:
                     print(f"{memory.DIM}  [${cost:.4f}] session: ${models.session_cost:.4f}{memory.RESET}\n")
 
-            elif draft_arg_lower.startswith("job "):
-                num_str = draft_arg[4:].strip()
+            elif draft_arg_lower.startswith("work "):
+                num_str = draft_arg[5:].strip()
                 try:
                     idx = int(num_str) - 1
                     jobs = memory.load_jobs()
@@ -951,7 +951,7 @@ if __name__ == "__main__":
                 draft_id, final_body = draft_review_flow(to_addr, subject, body, create_job)
 
                 if draft_id:
-                    tools._log_draft(to_addr, subject, draft_id, "/draft job")
+                    tools._log_draft(to_addr, subject, draft_id, "/draft work")
                     print(f"{memory.DIM}Draft saved. Check Gmail drafts to review and send.")
                     print(f"  [{tools._session_draft_count}/{tools.DRAFT_RATE_LIMIT} drafts] "
                           f"[${cost:.4f}] session: ${models.session_cost:.4f}{memory.RESET}\n")
@@ -960,7 +960,7 @@ if __name__ == "__main__":
 
             else:
                 print(f"{memory.DIM}Unknown /draft subcommand: {draft_arg}")
-                print(f"  Use: reply, new <to> [subject], job <#>{memory.RESET}\n")
+                print(f"  Use: reply, new <to> [subject], work <#>{memory.RESET}\n")
             continue
 
         if command_lower == "/drafts":
