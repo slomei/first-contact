@@ -40,13 +40,8 @@ class _ResponseCancelled(Exception):
 
 
 def _clean_exit():
-    """Save conversation, print summary, and exit."""
-    print_session_summary()
-    result = models.save_conversation(models.conversation_history)
-    if result:
-        title, filepath = result
-        print(f"Conversation saved: {title}")
-        print(f"{memory.DIM}  \u2192 {filepath}{memory.RESET}")
+    """Save conversation silently and exit."""
+    models.save_conversation(models.conversation_history)
     print("Goodbye!")
 
 
