@@ -6,6 +6,7 @@ Imports core logic from memory, models, tools — run with:
 """
 
 import json
+import os
 import gradio as gr
 
 import memory
@@ -222,5 +223,8 @@ def build_ui():
 
 
 if __name__ == "__main__":
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        print("Error: ANTHROPIC_API_KEY not set. Add it to your .env file and try again.")
+        raise SystemExit(1)
     app = build_ui()
     app.launch(theme=gr.themes.Soft())

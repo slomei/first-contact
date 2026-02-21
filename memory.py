@@ -278,14 +278,13 @@ def get_resume_path():
 
 def load_memories():
     """Load memories from the active project's memory file, falling back to root."""
-    path = get_memory_file()
-    if os.path.exists(path):
-        with open(path, "r") as f:
-            return json.load(f)
-    root_path = os.path.join(BASE_DIR, "memory.json")
-    if os.path.exists(root_path):
-        with open(root_path, "r") as f:
-            return json.load(f)
+    for path in [get_memory_file(), os.path.join(BASE_DIR, "memory.json")]:
+        if os.path.exists(path):
+            try:
+                with open(path, "r") as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, OSError):
+                pass
     return []
 
 

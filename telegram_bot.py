@@ -2116,6 +2116,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        print("Error: ANTHROPIC_API_KEY not set. Add it to your .env file and try again.")
+        raise SystemExit(1)
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
         print("Error: Set TELEGRAM_BOT_TOKEN environment variable.")

@@ -191,6 +191,10 @@ def chat_turn():
 
 
 if __name__ == "__main__":
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        print("Error: ANTHROPIC_API_KEY not set. Add it to your .env file and try again.")
+        raise SystemExit(1)
+
     # Initialize project system
     memory.switch_project("general")
 

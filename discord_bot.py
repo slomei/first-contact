@@ -2203,6 +2203,9 @@ async def on_message(message):
 
 
 if __name__ == "__main__":
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        print("Error: ANTHROPIC_API_KEY not set. Add it to your .env file and try again.")
+        raise SystemExit(1)
     token = os.environ.get("DISCORD_BOT_TOKEN")
     if not token:
         print("Error: Set DISCORD_BOT_TOKEN environment variable.")
