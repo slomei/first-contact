@@ -939,13 +939,57 @@ class OnboardingWizard:
             results.append("Created setup_env.sh (chmod 600)")
 
         summary = "\n".join(f"  - {r}" for r in results)
+        getting_started = self._build_getting_started()
         return (
             f"Setup complete!\n{summary}\n\n"
             "Next steps:\n"
             "  - Review Claude.md and edit anything you'd like to change\n"
-            "  - If you created setup_env.sh, run: source setup_env.sh\n"
-            "  - Start chatting!"
+            "  - If you created setup_env.sh, run: source setup_env.sh\n\n"
+            + getting_started
         )
+
+    def _build_getting_started(self) -> str:
+        """Build a Getting Started box based on configured integrations."""
+        d = self.data
+        suggestions = []
+
+        has_gmail = d.get("gmail") == "connected"
+        has_discord = d.get("discord") == "configured"
+        has_telegram = d.get("telegram") == "configured"
+        has_bot = has_discord or has_telegram
+
+        use_case = (d.get("use_case") or "").lower()
+        work = (d.get("work") or "").lower()
+        job_keywords = ("job", "career", "search", "hiring", "editor", "looking for")
+        is_job_seeking = any(kw in use_case or kw in work for kw in job_keywords)
+
+        if has_gmail:
+            suggestions.append("/briefing \u2014 get your daily morning report")
+            suggestions.append("/email check \u2014 triage your inbox")
+        if has_bot:
+            suggestions.append("python daemon.py \u2014 enable background notifications")
+        if is_job_seeking:
+            suggestions.append("/scan \u2014 find jobs matching your profile")
+        if not has_gmail and not has_bot:
+            suggestions.append("/web \u2014 search the web")
+            suggestions.append("/remember \u2014 teach me about you")
+            suggestions.append("/task add \u2014 start tracking tasks")
+
+        suggestions.append("Just talk \u2014 ask me anything naturally")
+
+        # Build the box
+        inner_width = 47
+        lines = [f"\u250c\u2500 GETTING STARTED \u2500{'=' * (inner_width - 19)}\u2510"]
+        lines.append(f"\u2502{' ' * inner_width}\u2502")
+        lines.append(f"\u2502  Based on your setup, try these first:{' ' * (inner_width - 40)}\u2502")
+        lines.append(f"\u2502{' ' * inner_width}\u2502")
+        for i, s in enumerate(suggestions, 1):
+            text = f"  {i}. {s}"
+            pad = inner_width - len(text)
+            lines.append(f"\u2502{text}{' ' * pad}\u2502")
+        lines.append(f"\u2502{' ' * inner_width}\u2502")
+        lines.append(f"\u2514{'=' * inner_width}\u2518")
+        return "\n".join(lines)
 
     def _build_claude_md(self) -> str:
         """Generate Claude.md from collected data."""

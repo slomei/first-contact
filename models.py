@@ -97,6 +97,9 @@ conversation_history = []
 session_input_tokens = 0
 session_output_tokens = 0
 session_cost = 0.0
+session_compressions = 0
+session_message_count = 0
+context_indicator_interval = 10  # Show context usage every N messages
 
 
 def track_usage(input_tokens, output_tokens, model):
@@ -272,9 +275,11 @@ def compress_conversation():
         new_history.insert(1, {"role": "assistant",
             "content": "Understood, I have the context from our earlier conversation."})
 
+    global session_compressions
     old_tokens = tokens
     conversation_history = new_history
     new_tokens = estimate_conversation_tokens()
+    session_compressions += 1
 
     return (old_tokens, new_tokens, len(remove), len(keep))
 

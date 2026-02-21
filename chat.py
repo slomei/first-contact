@@ -13,6 +13,7 @@ import json
 import os
 import re
 import shutil
+import sys
 from datetime import datetime
 import pdfplumber
 
@@ -45,6 +46,22 @@ def print_tool_status(name, tool_input):
     """Print a dim status line showing what tool Claude is using."""
     label = tools.tool_status_text(name, tool_input)
     print(f"\n{memory.DIM}\u27e1 {label}{memory.RESET}")
+
+
+def check_compression():
+    """Run compression with pre/post warnings. Returns True if compressed."""
+    # Pre-compression warning
+    tokens = models.estimate_conversation_tokens()
+    if tokens >= models.TOKEN_THRESHOLD:
+        print(f"\n{memory.YELLOW}  \u26a0 Context window filling up \u2014 compressing older messages to keep conversation going.{memory.RESET}")
+    result = models.compress_conversation()
+    if result:
+        old_tokens, new_tokens, removed, kept = result
+        print(f"{memory.DIM}  \u2713 Compressed: ~{old_tokens:,} \u2192 ~{new_tokens:,} tokens "
+              f"({removed} exchanges summarized, {kept} kept)")
+        print(f"  If I forgot something important, just remind me.{memory.RESET}")
+        return True
+    return False
 
 
 def print_session_summary():
@@ -225,6 +242,27 @@ if __name__ == "__main__":
         print("Error: ANTHROPIC_API_KEY not set. Add it to your .env file and try again.")
         raise SystemExit(1)
 
+    # Optional: start the background daemon alongside chat
+    _daemon_proc = None
+    if "--with-daemon" in sys.argv:
+        import subprocess as _sp
+        _daemon_pid_file = os.path.join(memory.BASE_DIR, "daemon.pid")
+        _daemon_running = False
+        if os.path.exists(_daemon_pid_file):
+            try:
+                with open(_daemon_pid_file, "r") as _f:
+                    _dpid = int(_f.read().strip())
+                os.kill(_dpid, 0)
+                _daemon_running = True
+            except (OSError, ValueError):
+                pass
+        if not _daemon_running:
+            _daemon_proc = _sp.Popen(
+                [sys.executable, os.path.join(memory.BASE_DIR, "daemon.py")],
+                stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+            )
+            print(f"{memory.DIM}Background daemon started (PID {_daemon_proc.pid}){memory.RESET}")
+
     # Initialize project system
     memory.switch_project("general")
 
@@ -257,9 +295,13 @@ if __name__ == "__main__":
       /fetch <url>       Fetch a web page and load into conversation
       /write <file>      Save last response to workspace/<file>
       /run               Run the code block from Claude's last response
-      /remember <fact>   Save a fact to persistent memory
+      /remember <fact>   Save a fact to global memory
+      /remember -p <fact> Save a fact to project memory
       /forget <fact>     Remove a fact from memory
       /memories          List all stored memories
+      /note <text>       Save a timestamped note to daily notes file
+      /notes             List recent notes (last 7 days)
+      /notes search <q>  Search notes for keyword matches
       /challenge on|off  Toggle devil's advocate mode
       /project           Create a new project (prompts for name)
       /project <name>    Switch to a project (creates if needed)
@@ -333,6 +375,7 @@ if __name__ == "__main__":
       /load              Load a previous conversation into context
       /conversations     List previous conversations
       /delete            Delete a saved conversation
+      /status            Show agent status (project, model, context, daemon, tasks)
       /tokens            Show conversation size and compression status
       /reset             Wipe all user data and return to clean state
       /opus              Switch to Claude Opus
@@ -456,11 +499,7 @@ if __name__ == "__main__":
             search_message = f"[Web search: {query}]\n{results}\n\nUsing these search results, answer my question: {query}"
             models.conversation_history.append({"role": "user", "content": search_message})
             chat_turn()
-            result = models.compress_conversation()
-            if result:
-                old_tokens, new_tokens, removed, kept = result
-                print(f"\n{memory.DIM}\u27e1 Context compressed: ~{old_tokens:,} \u2192 ~{new_tokens:,} tokens "
-                      f"({removed} exchanges summarized, {kept} kept){memory.RESET}")
+            check_compression()
             continue
 
         if command_lower.startswith("/fetch "):
@@ -517,11 +556,7 @@ if __name__ == "__main__":
 
             # Let Claude discuss the content
             chat_turn()
-            result = models.compress_conversation()
-            if result:
-                old_tokens, new_tokens, removed, kept = result
-                print(f"\n{memory.DIM}\u27e1 Context compressed: ~{old_tokens:,} \u2192 ~{new_tokens:,} tokens "
-                      f"({removed} exchanges summarized, {kept} kept){memory.RESET}")
+            check_compression()
             continue
 
         if command_lower.startswith("/write "):
@@ -612,6 +647,43 @@ if __name__ == "__main__":
                 print(memory.RESET)
             else:
                 print(f"{memory.DIM}No memories stored. Use /remember <fact> to add one.{memory.RESET}\n")
+            continue
+
+        if command_lower.startswith("/note ") and not command_lower.startswith("/notes"):
+            note_text = command[6:].strip()
+            if note_text:
+                filepath = tools.save_note(note_text)
+                date_str = datetime.now().strftime("%Y-%m-%d")
+                print(f"{memory.DIM}Note saved to {memory.active_project}/notes/{date_str}.md{memory.RESET}\n")
+            else:
+                print(f"{memory.DIM}Usage: /note <text>{memory.RESET}\n")
+            continue
+
+        if command_lower == "/notes" or command_lower.startswith("/notes "):
+            notes_arg = command[6:].strip().lower() if len(command) > 6 else ""
+            if notes_arg.startswith("search "):
+                query = command[13:].strip()
+                if not query:
+                    print(f"{memory.DIM}Usage: /notes search <query>{memory.RESET}\n")
+                    continue
+                results = tools.search_notes(query)
+                if results:
+                    print(f"{memory.DIM}Notes matching '{query}':")
+                    for date, line in results[:20]:
+                        print(f"  [{date}] {line}")
+                    print(memory.RESET)
+                else:
+                    print(f"{memory.DIM}No notes matching '{query}'.{memory.RESET}\n")
+            else:
+                recent = tools.list_recent_notes()
+                if recent:
+                    print(f"{memory.DIM}Recent notes ({memory.active_project}):")
+                    for date, filepath, preview in recent:
+                        preview_str = f" \u2014 {preview}" if preview else ""
+                        print(f"  {date}{preview_str}")
+                    print(memory.RESET)
+                else:
+                    print(f"{memory.DIM}No notes yet. Use /note <text> to save one.{memory.RESET}\n")
             continue
 
         if command_lower in ("/challenge on", "/challenge off"):
@@ -2309,6 +2381,85 @@ if __name__ == "__main__":
             print(memory.RESET)
             continue
 
+        if command_lower == "/status":
+            D = memory.DIM
+            C = memory.CYAN
+            R = memory.RESET
+
+            # Context
+            _st_tokens = models.estimate_conversation_tokens()
+            _st_pct = min(100, int(_st_tokens / models.TOKEN_THRESHOLD * 100))
+            _st_model = models.MODEL_SHORT_NAMES.get(models.active_model, models.active_model)
+
+            # Daemon
+            _daemon_pid_file = os.path.join(memory.BASE_DIR, "daemon.pid")
+            _daemon_status = "not running"
+            if os.path.exists(_daemon_pid_file):
+                try:
+                    with open(_daemon_pid_file, "r") as _f:
+                        _dpid = int(_f.read().strip())
+                    os.kill(_dpid, 0)
+                    _daemon_status = f"running (PID {_dpid})"
+                except (OSError, ValueError):
+                    _daemon_status = "not running (stale PID)"
+
+            # Last briefing/scan
+            _st_config = memory.load_config()
+            _last_briefing = _st_config.get("briefing", {}).get("last_sent")
+            _last_briefing_str = _last_briefing if _last_briefing else "never"
+
+            import job_scanner as _js
+            _last_scan_data = _js.load_scan_results()
+            _last_scan_str = "never"
+            _scan_matches = ""
+            if _last_scan_data:
+                _scan_time = _last_scan_data.get("scan_time", "")
+                try:
+                    _scan_dt = datetime.fromisoformat(_scan_time)
+                    _last_scan_str = _scan_dt.strftime("%b %d %I:%M %p").replace(" 0", " ")
+                    _high = len(_last_scan_data.get("high", []))
+                    if _high:
+                        _scan_matches = f" ({_high} strong match{'es' if _high != 1 else ''})"
+                except (ValueError, TypeError):
+                    pass
+
+            # Tasks & reminders
+            _st_open = tasks.get_open_tasks()
+            _next_due = ""
+            for _t in _st_open:
+                if _t.get("due_date"):
+                    try:
+                        _due_dt = datetime.fromisoformat(_t["due_date"])
+                        _next_due = f" (next due: {_due_dt.strftime('%b %d')})"
+                    except (ValueError, TypeError):
+                        pass
+                    break
+            _st_reminders = tasks.get_pending_reminders()
+
+            # Memories
+            _st_global = memory.load_global_memories()
+            _st_proj = memory.memories
+
+            inner = 49
+            print(f"{C}\u250c\u2500 AGENT STATUS \u2500{'=' * (inner - 16)}\u2510{R}")
+            _lines = [
+                f"Project: {memory.active_project}",
+                f"Model: {_st_model}",
+                f"Context: {_st_pct}% used | {models.session_compressions} compression{'s' if models.session_compressions != 1 else ''}",
+                f"Session cost: ${models.session_cost:.4f}",
+                f"Daemon: {_daemon_status}",
+                f"Last briefing: {_last_briefing_str}",
+                f"Last scan: {_last_scan_str}{_scan_matches}",
+                f"Pending tasks: {len(_st_open)}{_next_due}",
+                f"Pending reminders: {len(_st_reminders)}",
+                f"Memories: {len(_st_global)} global, {len(_st_proj)} project",
+            ]
+            for _line in _lines:
+                pad = inner - len(_line) - 2
+                print(f"{C}\u2502{R} {_line}{' ' * pad} {C}\u2502{R}")
+            print(f"{C}\u2514{'=' * inner}\u2518{R}\n")
+            continue
+
         if command_lower == "/run":
             last = models.get_last_response()
             if not last:
@@ -2497,6 +2648,15 @@ if __name__ == "__main__":
 
         # Add the user's message to the conversation history
         models.conversation_history.append({"role": "user", "content": user_input})
+        models.session_message_count += 1
+
+        # Periodic context usage indicator
+        if models.session_message_count % models.context_indicator_interval == 0:
+            _ctx_tokens = models.estimate_conversation_tokens()
+            _ctx_pct = min(100, int(_ctx_tokens / models.TOKEN_THRESHOLD * 100))
+            print(f"{memory.DIM}  [Context: {_ctx_pct}% used | "
+                  f"{models.session_compressions} compression{'s' if models.session_compressions != 1 else ''} "
+                  f"this session]{memory.RESET}")
 
         # Route: let the director decide if a specialist should handle this
         routing = models.route_message(user_input)
@@ -2518,8 +2678,4 @@ if __name__ == "__main__":
             )
 
         chat_turn()
-        result = models.compress_conversation()
-        if result:
-            old_tokens, new_tokens, removed, kept = result
-            print(f"\n{memory.DIM}\u27e1 Context compressed: ~{old_tokens:,} \u2192 ~{new_tokens:,} tokens "
-                  f"({removed} exchanges summarized, {kept} kept){memory.RESET}")
+        check_compression()

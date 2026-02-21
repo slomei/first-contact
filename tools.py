@@ -25,6 +25,66 @@ import requests
 from bs4 import BeautifulSoup
 
 import memory
+from glob import glob as _glob
+
+
+# --- Notes functions ---
+
+def save_note(text):
+    """Append a timestamped note to the daily notes file. Returns the filepath."""
+    notes_dir = os.path.join(memory.get_project_dir(), "notes")
+    os.makedirs(notes_dir, exist_ok=True)
+    today = datetime.now().strftime("%Y-%m-%d")
+    filepath = os.path.join(notes_dir, f"{today}.md")
+    time_str = datetime.now().strftime("%H:%M")
+    entry = f"## {time_str}\n{text}\n\n---\n\n"
+    with open(filepath, "a") as f:
+        f.write(entry)
+    return filepath
+
+
+def list_recent_notes(days=7):
+    """List note files from the last N days. Returns list of (date, filepath, preview)."""
+    notes_dir = os.path.join(memory.get_project_dir(), "notes")
+    if not os.path.isdir(notes_dir):
+        return []
+    results = []
+    cutoff = datetime.now() - timedelta(days=days)
+    for filepath in sorted(_glob(os.path.join(notes_dir, "*.md")), reverse=True):
+        basename = os.path.basename(filepath).removesuffix(".md")
+        try:
+            file_date = datetime.strptime(basename, "%Y-%m-%d")
+        except ValueError:
+            continue
+        if file_date < cutoff:
+            continue
+        # Read first non-header line as preview
+        preview = ""
+        with open(filepath, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("##") and line != "---":
+                    preview = line[:80]
+                    break
+        results.append((basename, filepath, preview))
+    return results
+
+
+def search_notes(query):
+    """Search note files for keyword matches. Returns list of (date, line)."""
+    notes_dir = os.path.join(memory.get_project_dir(), "notes")
+    if not os.path.isdir(notes_dir):
+        return []
+    query_lower = query.lower()
+    results = []
+    for filepath in sorted(_glob(os.path.join(notes_dir, "*.md")), reverse=True):
+        basename = os.path.basename(filepath).removesuffix(".md")
+        with open(filepath, "r") as f:
+            for line in f:
+                if query_lower in line.lower() and line.strip() and line.strip() != "---":
+                    results.append((basename, line.strip()))
+    return results
+
 
 # Tool definitions for the Anthropic API
 TOOLS = [
@@ -139,6 +199,24 @@ TOOLS = [
             "type": "object",
             "properties": {},
             "required": [],
+        },
+    },
+    {
+        "name": "save_note",
+        "description": (
+            "Save a timestamped note to the daily notes file. Use this when the user "
+            "says things like 'save this thought', 'note this down', 'remind me about this', "
+            "or wants to capture an idea, link, or research finding."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "The note content to save",
+                },
+            },
+            "required": ["text"],
         },
     },
     {
@@ -1500,6 +1578,12 @@ def execute_tool(name, tool_input, confirm_fn=None):
         if lines:
             return "\n".join(lines), False
         return "No memories stored.", False
+
+    elif name == "save_note":
+        text = tool_input["text"]
+        filepath = save_note(text)
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        return f"Note saved to {memory.active_project}/notes/{date_str}.md", False
 
     elif name == "run_python":
         code = tool_input["code"]
