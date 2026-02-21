@@ -220,6 +220,7 @@ if __name__ == "__main__":
 
     HELP_TEXT = f"""{memory.DIM}Available commands:
       /help              Show this help message
+      /clear             Clear the terminal screen
       /setup             Run onboarding wizard
       /read <path>       Load a file into the conversation
       /web <query>       Search the web and discuss results
@@ -363,6 +364,11 @@ if __name__ == "__main__":
 
         if command_lower == "/help":
             print(HELP_TEXT)
+            continue
+
+        if command_lower == "/clear":
+            os.system('cls' if os.name == 'nt' else 'clear')
+            print(f"{memory.DIM}(Screen cleared.){memory.RESET}\n")
             continue
 
         if command_lower == "/setup":
