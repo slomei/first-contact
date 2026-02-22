@@ -1,14 +1,14 @@
 # CLAUDE.md — First Contact Project Context
 
-*Last updated: February 21, 2026*
+*Last updated: February 22, 2026*
 
 ---
 
 ## Project Overview
 
-First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Four interfaces (terminal, web GUI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
+First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Five interfaces (terminal, web UI, Gradio GUI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
 
-**Status:** Pre-ship. All 104 tests passing. Ready for GitHub.
+**Status:** Pre-ship. All 117 tests passing. Ready for GitHub.
 
 ---
 
@@ -19,6 +19,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | File | Description |
 |------|-------------|
 | `chat.py` | Terminal chatbot — primary interface. Streaming output, markdown stripping, session cost tracking, startup diagnostics. |
+| `web_ui/` | WebSocket-based web frontend (server.py + vanilla HTML/CSS/JS). Per-connection state, streaming responses, tool loop, token tracking. Designed as Tauri desktop app foundation. |
 | `gui.py` | Web GUI via Gradio. Returns markdown strings from command handlers. |
 | `discord_bot.py` | Discord bot (prefix: `!fc`). Background loops for reminders, email, briefing, scans. Async with typing indicators. |
 | `telegram_bot.py` | Telegram bot. Same command set as Discord, adapted for Telegram's API. |
@@ -56,6 +57,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `tests/test_onboarding.py` | Onboarding — calibration flow, step ordering, error handling. |
 | `tests/test_help_data.py` | Help system — categories, fuzzy matching, all 4 interface formatters. |
 | `tests/test_notes_status.py` | Notes, reminders, draft rate limits, daemon PID, config loading. |
+| `tests/test_skills.py` | Skills system — skill loading, keyword matching, specialist prompt injection. |
 
 ### Config & Data Files
 
@@ -93,6 +95,13 @@ first-contact/
 │   ├── base_adapter.py     # Abstract base class for new interfaces
 │   ├── example_adapter.py  # Commented reference implementation
 │   └── README.md           # How to build a new interface
+├── web_ui/
+│   ├── server.py           # WebSocket server (thin adapter)
+│   ├── index.html           # Entry point
+│   ├── app.js              # Client logic (WebSocket, rendering)
+│   ├── styles.css          # Styling (CSS custom properties)
+│   └── README.md           # Architecture & Tauri integration guide
+├── skills/                 # Specialist skill files (.md with YAML front matter)
 ├── tests/
 └── venv/
 ```
@@ -146,6 +155,21 @@ Specialists can be augmented with skills — `.md` files in the `skills/` direct
 - Email check/search operations iterate across all accounts
 - Legacy single-account setup supported as fallback
 - OAuth2 per account, separate credential files
+
+### System Prompt Behaviors
+
+The system prompt (`memory.py`) includes three behavioral directives built from actual usage patterns:
+
+- **Calibrated honesty** — Evaluate work accurately. Praise when earned, critique when warranted. Never default to enthusiasm, sugarcoat bad news, or inflate quality to be supportive.
+- **Act-don't-ask** — When the user asks to do something, do it immediately. Don't ask for confirmation, optional fields, or clarifying questions unless the request is truly ambiguous. Programmatic confirmation gates (calendar events, file overwrites) handle their own confirmation — the agent doesn't add a second layer.
+- **Self-knowledge** — Dynamic section describing First Contact's own identity, capabilities, tool count, skill count, and architecture. Rebuilt each turn so the agent can accurately answer "what are you?" questions.
+
+### Timezone Handling
+
+- `memory.get_timezone()` reads `config.briefing.timezone`, defaults to `America/New_York`
+- `memory.local_now()` returns timezone-aware datetime — all modules use this instead of bare `datetime.now()`
+- System prompt includes dynamic date/time in the user's local timezone
+- All user-facing timestamps (notes, tasks, reminders, briefings) use `local_now()`
 
 ### Security Architecture
 
@@ -223,6 +247,14 @@ When working with the project owner:
 - Session cost per-turn and cumulative; summary on exit
 - Graceful exit: `/quit`, `/exit`, `quit`, `exit`, Ctrl+C, EOF
 
+**Web UI (`web_ui/`):**
+- WebSocket server on `ws://localhost:8765` (configurable port)
+- Per-connection isolation — each browser tab gets its own conversation history, model, and token counters
+- Vanilla HTML/CSS/JS frontend — no framework, no build step
+- Streaming responses, tool status indicators, model switching, accent color picker
+- Designed as foundation for eventual Tauri desktop app
+- `confirm_fn=None` (auto-approve, same as gui.py/discord)
+
 **Discord (`discord_bot.py`):**
 - Background loop intervals: reminders (60s), email checks (5min), daily briefing (configurable), job scan (Mon-Fri)
 - Notification priority: high = immediate DM, medium = batched every 30min, low = silent
@@ -241,7 +273,7 @@ When working with the project owner:
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 104 tests across 8 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 117 tests across 9 test files.
 
 ---
 

@@ -10,11 +10,11 @@ A personal AI agent built from scratch with the Anthropic API. Not a chatbot —
 
 ## What Is This?
 
-First Contact is a personal AI agent that connects to your email, calendar, job boards, and the web — then helps you manage all of it through natural conversation. It runs locally, stores everything on your machine, and never sends an email without your explicit approval. Built security-first: draft-only email, credential lockdown, untrusted web content isolation, human-in-the-loop for every write operation.
+First Contact is a personal AI agent that connects to your email, calendar, job boards, and the web — then helps you manage all of it through natural conversation. Five interfaces (terminal, web UI, Gradio GUI, Discord, Telegram) share a single core. It runs locally, stores everything on your machine, and never sends an email without your explicit approval. Built security-first: draft-only email, credential lockdown, untrusted web content isolation, human-in-the-loop for every write operation.
 
 ## Features
 
-**Four interfaces, one agent.** Talk to First Contact through the terminal, a web GUI, Discord, or Telegram. All four share the same brain, memory, and tools.
+**Five interfaces, one agent.** Talk to First Contact through the terminal, a standalone web UI, a Gradio GUI, Discord, or Telegram. All five share the same brain, memory, and tools.
 
 **Smart model routing.** Every request is routed to the right Claude model for the job. Haiku handles research and summaries. Sonnet handles conversation and code. Opus handles cover letters, deep analysis, and creative writing. A director model evaluates each message and can delegate to specialist agents (researcher, writer, coder, analyst) when the task calls for it.
 
@@ -44,21 +44,27 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 
 **Project system.** Separate workspaces with their own memories, tasks, conversations, and files. Switch between work, creative projects, and job searching without context bleed.
 
+**Calibrated honesty.** The system prompt enforces honest evaluation — praise when earned, critique when warranted. No default enthusiasm, no sugarcoating, no inflated feedback. Combined with act-don't-ask behavior: when you tell the agent to do something, it does it immediately instead of asking for confirmation or optional details.
+
+**Self-knowledge.** The agent knows what it is. A dynamic self-knowledge section in the system prompt describes First Contact's identity, capabilities, tool count, skill count, and architecture — rebuilt every turn so the agent can accurately answer questions about itself.
+
+**Timezone-aware.** All timestamps use the user's configured timezone (`config.briefing.timezone`). Notes, tasks, reminders, briefings, and the system prompt's date/time display all use `memory.local_now()` instead of bare `datetime.now()`.
+
 **Personalized onboarding.** A guided setup wizard configures your profile, communication style, integrations, and notification preferences. Then the agent has a short conversation with you to calibrate its personality to how you actually communicate — not just what you selected from a menu. No config file editing required.
 
-**Two-tier help system.** Type `/help` for a category overview, `/help <category>` for detailed commands. Help text is shared across all four interfaces from a single source of truth (`help_data.py`), formatted appropriately for each platform.
+**Two-tier help system.** Type `/help` for a category overview, `/help <category>` for detailed commands. Help text is shared across all interfaces from a single source of truth (`help_data.py`), formatted appropriately for each platform.
 
 **Transparent status.** The `/status` command shows everything at a glance: active model, project, context usage, session cost, daemon status, last briefing, last scan results, pending tasks, reminders, and memory counts.
 
 ## Architecture
 
 ```
-┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│  Terminal    │  │   Web GUI   │  │   Discord    │  │  Telegram   │
-│  (chat.py)  │  │  (gui.py)   │  │(discord_bot) │  │(telegram_bot│
-└──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘
-       │                │                │                │
-       └────────────────┴────────┬───────┴────────────────┘
+┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
+│ Terminal  │  │  Web UI  │  │  Gradio  │  │ Discord  │  │ Telegram │
+│ (chat.py) │  │ (web_ui/)│  │ (gui.py) │  │(disc_bot)│  │(tele_bot)│
+└────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘
+     │              │             │              │              │
+     └──────────────┴─────────┬──┴──────────────┴──────────────┘
                                  │
                     ┌────────────▼────────────┐
                     │      Shared Core        │
@@ -78,11 +84,12 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
          └────────┘ └────────┘ └───┘ └────────┘ └────────┘
 ```
 
-**18 Python modules:**
+**19 Python modules:**
 
 | File | Purpose |
 |------|---------|
 | `chat.py` | Terminal interface — primary interactive chat |
+| `web_ui/server.py` | WebSocket server — standalone web frontend (vanilla HTML/CSS/JS client) |
 | `gui.py` | Web GUI interface (Gradio) |
 | `discord_bot.py` | Discord bot with background monitoring loops |
 | `telegram_bot.py` | Telegram bot |
@@ -101,9 +108,9 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 | `skills_loader.py` | Extensible skills system (keyword matching, specialist prompt injection) |
 | `sync.py` | File sync with version conflict resolution |
 
-The four interfaces are thin layers. All logic lives in the shared core — model routing, tool execution, memory, notifications. Adding a new interface means writing the I/O adapter; all tools and capabilities come for free.
+The five interfaces are thin layers. All logic lives in the shared core — model routing, tool execution, memory, notifications. Adding a new interface means writing the I/O adapter; all tools and capabilities come for free.
 
-**Building new interfaces:** The `interfaces/` directory contains an `InterfaceAdapter` abstract base class that defines the contract for new interfaces. Subclass it, implement the abstract methods (receive input, send output, send files, notifications, confirmation), and wire up the shared core. See `interfaces/example_adapter.py` for a reference. The four existing interfaces predate this pattern and work independently.
+**Building new interfaces:** The `interfaces/` directory contains an `InterfaceAdapter` abstract base class that defines the contract for new interfaces. Subclass it, implement the abstract methods (receive input, send output, send files, notifications, confirmation), and wire up the shared core. See `interfaces/example_adapter.py` for a reference. The existing interfaces predate this pattern and work independently.
 
 ## Quick Start
 
@@ -129,6 +136,14 @@ python daemon.py
 ```
 
 The setup script creates a virtual environment, installs dependencies, and copies config templates. On first launch, the onboarding wizard walks you through everything else — name, integrations, preferences, and a short calibration conversation so the agent learns how you actually communicate.
+
+For the web interface instead of terminal:
+
+```bash
+pip install websockets
+python web_ui/server.py
+# Open web_ui/index.html in a browser
+```
 
 For background monitoring, run `python daemon.py` in a separate terminal (or use `--with-daemon`). The daemon handles scheduled briefings, email monitoring, job scans, and reminder delivery without keeping the chat open.
 
