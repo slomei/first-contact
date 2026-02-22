@@ -2102,11 +2102,30 @@ footer { display: none !important; }
     line-height: 1.4 !important;
 }
 
-/* Color picker */
+/* Chatbot placeholder: accent-colored */
+#fc-chatbot .placeholder {
+    color: var(--fc-accent-muted, #2d6a4f99) !important;
+}
+#fc-chatbot .placeholder * {
+    color: var(--fc-accent-muted, #2d6a4f99) !important;
+}
+
+/* Model dropdown text: accent-colored */
+#fc-model-select select,
+#fc-model-select input,
+#fc-model-select span,
+#fc-model-select .secondary-wrap,
+#fc-model-select .token {
+    color: var(--fc-accent, #2d6a4f) !important;
+}
+
+/* Color picker: 200px wide container */
+#fc-accent-picker { min-width: 200px !important; }
 #fc-accent-picker label { display: none !important; }
 #fc-accent-picker input[type="color"] {
     height: 42px !important;
-    width: 42px !important;
+    width: 100% !important;
+    min-width: 180px !important;
     border: 1px solid #2a2a2a !important;
     border-radius: 6px !important;
     cursor: pointer;
@@ -2201,7 +2220,7 @@ def build_ui():
                 show_label=False,
                 interactive=True,
                 elem_id="fc-accent-picker",
-                min_width=60,
+                min_width=200,
                 scale=0,
             )
 
