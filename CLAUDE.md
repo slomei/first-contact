@@ -22,6 +22,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `gui.py` | Web GUI via Gradio. Returns markdown strings from command handlers. |
 | `discord_bot.py` | Discord bot (prefix: `!fc`). Background loops for reminders, email, briefing, scans. Async with typing indicators. |
 | `telegram_bot.py` | Telegram bot. Same command set as Discord, adapted for Telegram's API. |
+| `interfaces/` | Base adapter pattern for new interfaces. `InterfaceAdapter` ABC in `base_adapter.py`, example implementation, README. Existing interfaces predate this and work independently. |
 
 ### Shared Core
 
@@ -87,6 +88,11 @@ first-contact/
 │       ├── tasks.json
 │       ├── conversations/
 │       └── workspace/
+├── interfaces/
+│   ├── __init__.py         # Exports InterfaceAdapter
+│   ├── base_adapter.py     # Abstract base class for new interfaces
+│   ├── example_adapter.py  # Commented reference implementation
+│   └── README.md           # How to build a new interface
 ├── tests/
 └── venv/
 ```

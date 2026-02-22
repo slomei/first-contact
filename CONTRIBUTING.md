@@ -16,15 +16,27 @@ Tools live in `tools.py`. To add one:
 
 ## Adding a New Interface
 
-Interfaces are thin adapters. See `chat.py` (terminal), `discord_bot.py`, or `telegram_bot.py` for examples. Your interface needs to:
+New interfaces should subclass `InterfaceAdapter` from `interfaces/base_adapter.py`. This abstract base class defines the contract:
+
+- `receive_input()` — get a message from the user
+- `send_output(message)` — send a response
+- `send_file(filepath, description)` — send a file
+- `send_notification(message, priority)` — deliver background notifications
+- `get_interface_name()` — return the interface name for logging
+- `supports_rich_formatting()` — whether markdown is supported
+- `confirm(prompt)` — yes/no confirmation for destructive operations
+
+See `interfaces/example_adapter.py` for a commented reference implementation and `interfaces/README.md` for full details.
+
+Your interface also needs to wire up the shared core:
 
 - Build the system prompt via `memory.build_system_prompt()`
-- Send messages through `models.client.messages.create()` with `tools=tools.TOOLS`
+- Send messages through `models.get_client().messages.create()` with `tools=tools.TOOLS`
 - Handle tool use loops (assistant requests tool → execute → return result → continue)
 - Call `tools.execute_tool()` for tool execution
-- Provide a `confirm_fn` for destructive operations
+- Pass your `confirm` method as `confirm_fn` for destructive operations
 
-Everything else — model routing, memory, tool logic — comes from the shared core.
+Everything else — model routing, memory, tool logic — comes from the shared core. The four existing interfaces (`chat.py`, `gui.py`, `discord_bot.py`, `telegram_bot.py`) predate this pattern and work independently.
 
 ## Code Style
 

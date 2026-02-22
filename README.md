@@ -103,6 +103,8 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 
 The four interfaces are thin layers. All logic lives in the shared core — model routing, tool execution, memory, notifications. Adding a new interface means writing the I/O adapter; all tools and capabilities come for free.
 
+**Building new interfaces:** The `interfaces/` directory contains an `InterfaceAdapter` abstract base class that defines the contract for new interfaces. Subclass it, implement the abstract methods (receive input, send output, send files, notifications, confirmation), and wire up the shared core. See `interfaces/example_adapter.py` for a reference. The four existing interfaces predate this pattern and work independently.
+
 ## Quick Start
 
 **Prerequisites:** Python 3.10+, an [Anthropic API key](https://console.anthropic.com/)
