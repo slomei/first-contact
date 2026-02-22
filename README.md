@@ -18,7 +18,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 
 **Smart model routing.** Every request is routed to the right Claude model for the job. Haiku handles research and summaries. Sonnet handles conversation and code. Opus handles cover letters, deep analysis, and creative writing. A director model evaluates each message and can delegate to specialist agents (researcher, writer, coder, analyst) when the task calls for it.
 
-**17 integrated tools:**
+**18 integrated tools:**
 
 - **Web search** — DuckDuckGo-powered, with page fetching and content extraction
 - **Gmail** — Read your inbox, search emails, draft replies. Multi-account support. Draft-only: the agent creates drafts, you send them
@@ -27,20 +27,26 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 - **Proactive job scanning** — Scheduled multi-platform scans with AI fit assessment against your profile, delivered via Discord/Telegram
 - **Task & reminder system** — Natural language dates, priority levels, due date tracking, background reminder delivery
 - **Daily briefing** — Aggregates email, calendar, tasks, jobs, reminders, and watchlist topics into a single morning report
-- **Persistent memory** — Two-layer memory system: global facts persist across all projects, project-specific memories stay scoped. Optionally install `sentence-transformers` for semantic search — retrieves the most relevant memories per query instead of loading all. Works on CPU; uses GPU if available
+- **Persistent memory** — Two-layer memory system: global facts persist across all projects, project-specific memories stay scoped. Semantic search retrieves the most relevant memories per query instead of loading all (requires optional `sentence-transformers` — works on CPU, uses GPU if available)
 - **File operations** — Read, write, and manage files in sandboxed project workspaces
 - **Code execution** — Run Python in a sandboxed workspace with timeout protection
 - **PDF generation** — Professional cover letters with formatted headers, or general documents from any text
 - **Notification routing** — Background email monitoring with priority filtering, delivered to Discord, Telegram, email, or all three
 - **Markdown notes** — Capture timestamped thoughts, research, and links organized as daily markdown files. Searchable across your project
 
-**Background daemon.** A lightweight scheduler (`daemon.py`) that runs in the background and executes scheduled tasks — daily briefings, email monitoring, job scans, and reminder delivery — without keeping the chat open. Works with Discord, Telegram, or email notifications.
+**Background daemon.** A lightweight scheduler (`daemon.py`) that runs in the background and executes scheduled tasks — daily briefings, email monitoring, job scans, and reminder delivery — without keeping the chat open. Manages its own PID file, handles graceful shutdown, and routes notifications to Discord, Telegram, or email based on your config.
 
-**Context window management.** Automatic conversation compression when context gets large — summarizes older exchanges with Haiku, keeps recent ones intact. You never hit a wall mid-conversation.
+**Semantic memory search.** Optionally install `sentence-transformers` for meaning-based memory retrieval. Instead of loading every memory into context, the agent retrieves the top 15 most relevant to each query using 384-dimensional embeddings. Falls back gracefully to loading all memories when the package isn't installed. Works on CPU; auto-detects and uses GPU when available.
+
+**Context window management.** Automatic conversation compression when context gets large — summarizes older exchanges with Haiku, keeps recent ones intact. You never hit a wall mid-conversation. The `/status` command shows context usage percentage and compression count.
 
 **Project system.** Separate workspaces with their own memories, tasks, conversations, and files. Switch between work, creative projects, and job searching without context bleed.
 
 **Personalized onboarding.** A guided setup wizard configures your profile, communication style, integrations, and notification preferences. Then the agent has a short conversation with you to calibrate its personality to how you actually communicate — not just what you selected from a menu. No config file editing required.
+
+**Two-tier help system.** Type `/help` for a category overview, `/help <category>` for detailed commands. Help text is shared across all four interfaces from a single source of truth (`help_data.py`), formatted appropriately for each platform.
+
+**Transparent status.** The `/status` command shows everything at a glance: active model, project, context usage, session cost, daemon status, last briefing, last scan results, pending tasks, reminders, and memory counts.
 
 ## Architecture
 
@@ -53,11 +59,13 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
        └────────────────┴────────┬───────┴────────────────┘
                                  │
                     ┌────────────▼────────────┐
-                    │     Shared Core         │
+                    │      Shared Core        │
                     │  memory.py · models.py  │
                     │  tools.py · tasks.py    │
                     │  briefing · documents   │
                     │  notifications · sync   │
+                    │  help_data · creative   │
+                    │  job_scanner · daemon   │
                     └────────────┬────────────┘
                                  │
               ┌──────────┬───────┼───────┬──────────┐
@@ -67,6 +75,28 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
          │  API   │ │  API   │ │   │ │ Boards │ │ System │
          └────────┘ └────────┘ └───┘ └────────┘ └────────┘
 ```
+
+**17 Python modules:**
+
+| File | Purpose |
+|------|---------|
+| `chat.py` | Terminal interface — primary interactive chat |
+| `gui.py` | Web GUI interface (Gradio) |
+| `discord_bot.py` | Discord bot with background monitoring loops |
+| `telegram_bot.py` | Telegram bot |
+| `memory.py` | Persistent memory, semantic search, system prompt, projects |
+| `models.py` | Model routing, API calls, pricing, context compression, specialists |
+| `tools.py` | 18 tool definitions and execution engine |
+| `tasks.py` | Task and reminder system with natural language dates |
+| `documents.py` | PDF generation (cover letters, generic documents) |
+| `briefing.py` | Daily briefing aggregation (7 data sources) |
+| `notifications.py` | Email classification and notification routing |
+| `job_scanner.py` | Proactive multi-platform job scanning with AI fit assessment |
+| `daemon.py` | Background scheduler for briefings, email, scans, reminders |
+| `onboarding.py` | Interactive setup wizard (20 steps, multi-interface) |
+| `help_data.py` | Shared help categories and per-interface formatters |
+| `creative.py` | Creative project tools (world bible, characters, locations) |
+| `sync.py` | File sync with version conflict resolution |
 
 The four interfaces are thin layers. All logic lives in the shared core — model routing, tool execution, memory, notifications. Adding a new interface means writing the I/O adapter; all tools and capabilities come for free.
 
@@ -96,6 +126,16 @@ python daemon.py
 The setup script creates a virtual environment, installs dependencies, and copies config templates. On first launch, the onboarding wizard walks you through everything else — name, integrations, preferences, and a short calibration conversation so the agent learns how you actually communicate.
 
 For background monitoring, run `python daemon.py` in a separate terminal (or use `--with-daemon`). The daemon handles scheduled briefings, email monitoring, job scans, and reminder delivery without keeping the chat open.
+
+### Optional dependencies
+
+**Semantic memory search:** Install `sentence-transformers` for meaning-based memory retrieval. Without it, the agent loads all memories into context (works fine for smaller collections). With it, the agent retrieves only the top 15 most relevant memories per query using vector embeddings.
+
+```bash
+pip install sentence-transformers
+```
+
+Works on CPU. Auto-detects and uses GPU (CUDA) when available for faster embedding.
 
 ### Optional integrations
 
@@ -161,17 +201,21 @@ First Contact responds to natural conversation and also supports direct commands
 
 | Category | Commands |
 |----------|----------|
-| **Chat** | `/opus`, `/sonnet`, `/haiku`, `/challenge on\|off`, `/new`, `/clear` |
-| **Memory** | `/remember`, `/remember -p`, `/forget`, `/memories`, `/note`, `/notes` |
-| **Email** | `/email check`, `/email read`, `/email search`, `/draft reply`, `/draft new`, `/draft work` |
+| **Chat** | `/opus`, `/sonnet`, `/haiku`, `/challenge on\|off`, `/new`, `/load`, `/conversations`, `/delete`, `/clear` |
+| **Memory** | `/remember`, `/remember -p`, `/forget`, `/memories`, `/memories search`, `/note`, `/notes`, `/notes search` |
+| **Email** | `/email check`, `/email read`, `/email search`, `/draft reply`, `/draft new`, `/draft work`, `/drafts`, `/email setup` |
 | **Calendar** | `/cal`, `/cal tomorrow`, `/cal week`, `/cal add`, `/cal setup` |
-| **Jobs** | `/work search`, `/work save`, `/work list`, `/work apply`, `/work track`, `/work status` |
-| **Scanning** | `/scan`, `/scan results`, `/scan queries`, `/scan on\|off` |
-| **Tasks** | `/task add`, `/tasks`, `/task done`, `/remind`, `/reminders` |
+| **Jobs** | `/work search`, `/work save`, `/work list`, `/work remove`, `/work apply`, `/work track`, `/work status`, `/resume`, `/cover` |
+| **Scanning** | `/scan`, `/scan results`, `/scan status`, `/scan queries`, `/scan query add\|remove`, `/scan on\|off` |
+| **Tasks** | `/task add`, `/tasks`, `/task done`, `/task remove`, `/task edit`, `/task note`, `/tasks done`, `/remind`, `/reminders`, `/remind cancel` |
 | **Web** | `/web`, `/fetch`, `/read`, `/write`, `/run`, `/pdf` |
-| **System** | `/help`, `/status`, `/briefing`, `/notify`, `/project`, `/setup`, `/delegates` |
+| **System** | `/help`, `/status`, `/briefing`, `/notify`, `/project`, `/watch`, `/digest`, `/tokens`, `/delegates`, `/setup` |
 
 Claude also uses tools autonomously when they'd help — searching the web mid-conversation, saving facts to memory, checking your calendar when you ask about availability.
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on adding tools, building new interfaces, and code style.
 
 ## Built By
 
