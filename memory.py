@@ -69,6 +69,7 @@ CALENDAR_CREDENTIALS = os.path.join(BASE_DIR, "calendar_credentials.json")
 
 # Default system prompt template — {name} is substituted at build time
 _SYSTEM_PROMPT_TEMPLATE = (
+    "{today_line}\n\n"
     "You are {name}'s personal assistant. You know {name_pos} background, "
     "{name_pos} projects, and {name_pos} priorities through stored memories.\n\n"
     "Be honest. If an idea is good, say so and explain why. If it's bad, say so "
@@ -83,7 +84,9 @@ _SYSTEM_PROMPT_TEMPLATE = (
     "Don't guess and present it as fact.\n\n"
     "You have tools available \u2014 web search, file operations, memory, email, code "
     "execution, job search. Use them when they'd help. Don't ask permission to use "
-    "tools unless the action is irreversible or costly.\n\n"
+    "tools unless the action is irreversible or costly. Calendar event creation and "
+    "code execution have built-in confirmation prompts \u2014 call the tool directly and "
+    "the user will confirm at that step. Do not ask conversationally before calling.\n\n"
     "{bio_line}"
 )
 
@@ -98,6 +101,7 @@ _CHALLENGE_ADDENDUM_TEMPLATE = (
 
 def _build_base_prompt():
     """Build the system prompt with the user's name from config."""
+    from datetime import datetime as _dt
     profile = get_user_profile()
     name = profile.get("first_name") or profile.get("name", "the user")
 
@@ -109,12 +113,16 @@ def _build_base_prompt():
         bio_parts.append(f"{name} is a {profile['title']}.")
     bio_line = " ".join(bio_parts) if bio_parts else ""
 
+    # Dynamic date — computed fresh each time the prompt is built
+    today_line = _dt.now().strftime("Today is %A, %B %d, %Y.")
+
     return _SYSTEM_PROMPT_TEMPLATE.format(
         name=name,
         name_pos=name + "'s" if name != "the user" else "their",
         name_subj=name.lower() if name != "the user" else "they",
         name_obj=name.lower() if name != "the user" else "them",
         bio_line=bio_line,
+        today_line=today_line,
     )
 
 

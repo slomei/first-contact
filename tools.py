@@ -1217,15 +1217,57 @@ def _get_user_timezone():
 def _parse_date_to_aware(text):
     """Parse a natural language date string into a timezone-aware datetime.
 
+    Handles relative terms (today, tomorrow) that dateutil can't parse,
+    then falls back to dateutil for everything else.
     Returns a datetime in the user's timezone, or None if parsing fails.
     """
     if dateutil_parser is None:
         return None
     tz = _get_user_timezone()
     now = datetime.now(tz)
+    base = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    text_lower = text.lower().strip()
+
+    # Handle relative terms dateutil doesn't understand
+    relative_base = None
+    if text_lower.startswith("today"):
+        relative_base = base
+    elif text_lower.startswith("tomorrow"):
+        relative_base = base + timedelta(days=1)
+    elif text_lower.startswith("day after tomorrow"):
+        relative_base = base + timedelta(days=2)
+    elif text_lower.startswith("yesterday"):
+        relative_base = base - timedelta(days=1)
+
+    if relative_base is not None:
+        # Try to extract a time component from the rest of the text
+        # e.g. "tomorrow at noon", "today at 3pm"
+        # Split off the relative word to get the time part
+        for prefix in ("day after tomorrow", "tomorrow", "yesterday", "today"):
+            if text_lower.startswith(prefix):
+                remainder = text_lower[len(prefix):].strip()
+                break
+        # Normalize time words dateutil doesn't understand
+        time_words = {"noon": "12:00 PM", "midnight": "12:00 AM",
+                      "morning": "9:00 AM", "evening": "6:00 PM",
+                      "night": "8:00 PM", "afternoon": "2:00 PM"}
+        for word, replacement in time_words.items():
+            if word in remainder:
+                remainder = remainder.replace(word, replacement)
+        if remainder:
+            try:
+                time_part = dateutil_parser.parse(remainder, fuzzy=True, default=relative_base)
+                dt = relative_base.replace(hour=time_part.hour, minute=time_part.minute)
+            except (ValueError, OverflowError):
+                dt = relative_base
+        else:
+            dt = relative_base
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=tz)
+        return dt
+
     try:
-        dt = dateutil_parser.parse(text, fuzzy=True, default=now.replace(
-            hour=0, minute=0, second=0, microsecond=0))
+        dt = dateutil_parser.parse(text, fuzzy=True, default=base)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=tz)
         return dt
