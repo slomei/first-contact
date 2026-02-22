@@ -33,7 +33,7 @@ _TIME_OF_DAY = {
 
 def _next_weekday(weekday_num):
     """Return the next occurrence of a weekday (0=Monday) at 9am."""
-    now = datetime.now()
+    now = memory.local_now()
     days_ahead = weekday_num - now.weekday()
     if days_ahead <= 0:
         days_ahead += 7
@@ -53,7 +53,7 @@ def parse_natural_date(text):
         return None
     text = text.strip().lower()
 
-    now = datetime.now()
+    now = memory.local_now()
 
     # "tomorrow" / "tomorrow morning" etc.
     if text == "tomorrow":
@@ -166,7 +166,7 @@ def add_task(description, due_date=None, priority="normal"):
     task = {
         "id": data["next_id"],
         "description": description,
-        "created_at": datetime.now().isoformat(),
+        "created_at": memory.local_now().isoformat(),
         "due_date": due_date.isoformat() if isinstance(due_date, datetime) else due_date,
         "status": "open",
         "priority": priority,
@@ -233,7 +233,10 @@ def _sort_group(task):
         due = datetime.fromisoformat(task["due_date"])
     except (ValueError, TypeError):
         return "no_deadline"
-    now = datetime.now()
+    now = memory.local_now()
+    # Handle legacy naive datetimes stored before timezone fix
+    if due.tzinfo is None:
+        due = due.replace(tzinfo=now.tzinfo)
     today_end = now.replace(hour=23, minute=59, second=59)
     week_end = now + timedelta(days=(6 - now.weekday()))
     week_end = week_end.replace(hour=23, minute=59, second=59)
@@ -357,7 +360,7 @@ def check_due_reminders():
     Returns a list of newly-triggered reminders.
     """
     data = load_reminders()
-    now = datetime.now()
+    now = memory.local_now()
     triggered = []
     for r in data["reminders"]:
         if r["triggered"]:
@@ -366,6 +369,9 @@ def check_due_reminders():
             remind_at = datetime.fromisoformat(r["remind_at"])
         except (ValueError, TypeError):
             continue
+        # Handle legacy naive datetimes stored before timezone fix
+        if remind_at.tzinfo is None:
+            remind_at = remind_at.replace(tzinfo=now.tzinfo)
         if remind_at <= now:
             r["triggered"] = True
             triggered.append(r)
@@ -380,11 +386,11 @@ def get_daily_summary():
     Returns (summary_text, should_send). should_send is False if already sent today.
     """
     data = load_reminders()
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = memory.local_now().strftime("%Y-%m-%d")
     if data.get("last_daily_notify") == today_str:
         return "", False
 
-    now = datetime.now()
+    now = memory.local_now()
     today_end = now.replace(hour=23, minute=59, second=59)
     all_overdue = []
     all_today = []
@@ -414,6 +420,8 @@ def get_daily_summary():
                     due = datetime.fromisoformat(task["due_date"])
                 except (ValueError, TypeError):
                     continue
+                if due.tzinfo is None:
+                    due = due.replace(tzinfo=now.tzinfo)
                 label = f"[{project_name}] #{task['id']} {task['description']}"
                 if due < now:
                     all_overdue.append(label)

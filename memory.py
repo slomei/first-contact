@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import webbrowser
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 # --- Optional semantic search ---
 SEMANTIC_AVAILABLE = False
@@ -67,6 +68,27 @@ CALENDAR_SCOPES = [
 ]
 CALENDAR_CREDENTIALS = os.path.join(BASE_DIR, "calendar_credentials.json")
 
+
+def get_timezone():
+    """Return the user's timezone from config, defaulting to America/New_York."""
+    try:
+        config = load_config()
+        tz_name = config.get("briefing", {}).get("timezone", "America/New_York")
+        return ZoneInfo(tz_name)
+    except Exception:
+        return ZoneInfo("America/New_York")
+
+
+def local_now():
+    """Return the current datetime in the user's local timezone.
+
+    Every module should use this instead of datetime.now() for user-facing
+    timestamps, schedule checks, and date display. Only use bare datetime.now()
+    for internal duration tracking where timezone doesn't matter.
+    """
+    return datetime.now(get_timezone())
+
+
 # Default system prompt template — {name} is substituted at build time
 _SYSTEM_PROMPT_TEMPLATE = (
     "{today_line}\n\n"
@@ -101,7 +123,6 @@ _CHALLENGE_ADDENDUM_TEMPLATE = (
 
 def _build_base_prompt():
     """Build the system prompt with the user's name from config."""
-    from datetime import datetime as _dt
     profile = get_user_profile()
     name = profile.get("first_name") or profile.get("name", "the user")
 
@@ -113,8 +134,8 @@ def _build_base_prompt():
         bio_parts.append(f"{name} is a {profile['title']}.")
     bio_line = " ".join(bio_parts) if bio_parts else ""
 
-    # Dynamic date and time — computed fresh each time the prompt is built
-    today_line = _dt.now().strftime("Today is %A, %B %d, %Y. Current time: %-I:%M %p.")
+    # Dynamic date and time in user's local timezone
+    today_line = local_now().strftime("Today is %A, %B %d, %Y. Current time: %-I:%M %p.")
 
     return _SYSTEM_PROMPT_TEMPLATE.format(
         name=name,
@@ -415,7 +436,7 @@ def _save_memory_file(path, texts, cache):
                 cache[text]["embedding"] = embedding
 
         if created is None:
-            created = datetime.now().strftime("%Y-%m-%d %H:%M")
+            created = local_now().strftime("%Y-%m-%d %H:%M")
             if text in cache:
                 cache[text]["created"] = created
 
@@ -847,7 +868,7 @@ def init_job_folder(job):
             "title": job["title"],
             "url": job["url"],
             "description": job["body"],
-            "saved_at": job.get("saved_at", datetime.now().strftime("%Y-%m-%d")),
+            "saved_at": job.get("saved_at", local_now().strftime("%Y-%m-%d")),
             "status": job.get("status"),
         }, f, indent=2)
 

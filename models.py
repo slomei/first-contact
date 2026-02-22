@@ -341,7 +341,7 @@ def save_conversation(history):
 
     title = generate_title(history)
     slug = memory.slugify(title)
-    date_str = datetime.now().strftime("%Y-%m-%d")
+    date_str = memory.local_now().strftime("%Y-%m-%d")
     filename = f"{date_str}_{slug}.txt"
 
     conversations_dir = memory.get_conversations_dir()

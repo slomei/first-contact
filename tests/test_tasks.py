@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+import memory
 import tasks
 
 
@@ -43,14 +44,14 @@ def test_parse_natural_date_tomorrow():
     result = tasks.parse_natural_date("tomorrow")
     assert result is not None
     assert isinstance(result, datetime)
-    assert result > datetime.now()
+    assert result > memory.local_now()
 
 
 def test_parse_natural_date_in_n_days():
     result = tasks.parse_natural_date("in 3 days")
     assert result is not None
     assert isinstance(result, datetime)
-    assert result > datetime.now()
+    assert result > memory.local_now()
 
 
 def test_parse_natural_date_empty():

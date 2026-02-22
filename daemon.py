@@ -288,7 +288,7 @@ def run():
         log.warning("ANTHROPIC_API_KEY not set — API-dependent tasks (briefing, scan) disabled")
 
     while running:
-        now = datetime.now()
+        now = memory.local_now()
 
         # Daily briefing — run once per day at the configured time
         if api_available:

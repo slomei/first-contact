@@ -73,7 +73,7 @@ def _gather_email():
 def _gather_tasks():
     """Check tasks from ALL projects. Returns overdue and due-today lists."""
     try:
-        now = datetime.now()
+        now = memory.local_now()
         today_end = now.replace(hour=23, minute=59, second=59)
         overdue = []
         today = []
@@ -114,6 +114,8 @@ def _gather_tasks():
                     due_dt = datetime.fromisoformat(due)
                 except (ValueError, TypeError):
                     continue
+                if due_dt.tzinfo is None:
+                    due_dt = due_dt.replace(tzinfo=now.tzinfo)
 
                 due_str = due_dt.strftime("%b %d")
                 if due_dt < now:
@@ -166,7 +168,7 @@ def _gather_jobs():
 def _gather_reminders():
     """Check reminders due in the next 24 hours."""
     try:
-        now = datetime.now()
+        now = memory.local_now()
         cutoff = now + timedelta(hours=24)
         pending = tasks.get_pending_reminders()
         upcoming = []
@@ -175,6 +177,8 @@ def _gather_reminders():
                 remind_at = datetime.fromisoformat(r["remind_at"])
             except (ValueError, TypeError):
                 continue
+            if remind_at.tzinfo is None:
+                remind_at = remind_at.replace(tzinfo=now.tzinfo)
             if remind_at <= cutoff:
                 time_str = remind_at.strftime("%I:%M%p").lstrip("0").lower()
                 if remind_at.date() == now.date():
@@ -264,7 +268,10 @@ def _gather_scan():
         scan_time = last.get("scan_time", "")
         try:
             scan_dt = datetime.fromisoformat(scan_time)
-            if (datetime.now() - scan_dt) > timedelta(hours=24):
+            now_naive = memory.local_now().replace(tzinfo=None)
+            if scan_dt.tzinfo:
+                scan_dt = scan_dt.replace(tzinfo=None)
+            if (now_naive - scan_dt) > timedelta(hours=24):
                 return {"ok": True, "has_results": False}
         except (ValueError, TypeError):
             pass
@@ -301,7 +308,7 @@ def format_briefing_ansi(email_data, tasks_data, jobs_data, reminders_data, watc
     YEL = memory.YELLOW
     BOLD = memory.BOLD
 
-    now = datetime.now()
+    now = memory.local_now()
     date_str = now.strftime("%a %b %d")
     lines = [f"\n{C}{'━' * 3} DAILY BRIEFING — {date_str} {'━' * 3}{R}"]
 
@@ -424,7 +431,7 @@ def format_briefing_ansi(email_data, tasks_data, jobs_data, reminders_data, watc
 
 def format_briefing_discord(email_data, tasks_data, jobs_data, reminders_data, watchlist_data, cost, calendar_data=None, scan_data=None):
     """Format the briefing for Discord (markdown, no ANSI)."""
-    now = datetime.now()
+    now = memory.local_now()
     date_str = now.strftime("%a %b %d")
     lines = [f"**━━━ DAILY BRIEFING — {date_str} ━━━**"]
 

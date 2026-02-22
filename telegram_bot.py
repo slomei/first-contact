@@ -411,7 +411,7 @@ async def run_digest(state, channel):
         digest = f"Summarization failed: {e}\n\n{combined}"
 
     # Save to workspace
-    date_str = datetime.now().strftime("%Y-%m-%d")
+    date_str = memory.local_now().strftime("%Y-%m-%d")
     filename = f"digest-{date_str}.md"
     workspace = memory.get_workspace_dir()
     filepath = os.path.join(workspace, filename)
@@ -479,23 +479,17 @@ async def reminder_job(context: ContextTypes.DEFAULT_TYPE):
                     notifications.send_email_notification("Reminder", r['description'])
 
         # Auto-briefing check
-        now = datetime.now()
+        now = memory.local_now()
         config = memory.load_config()
         briefing_cfg = config.get("briefing", {})
         if briefing_cfg.get("enabled", True):
             today_str = now.strftime("%Y-%m-%d")
             if briefing_cfg.get("last_sent") != today_str:
-                tz_name = briefing_cfg.get("timezone", "America/New_York")
-                try:
-                    from zoneinfo import ZoneInfo
-                    local_now = datetime.now(ZoneInfo(tz_name))
-                except Exception:
-                    local_now = now
                 target_time = briefing_cfg.get("time", "08:00")
                 target_parts = target_time.split(":")
                 target_hour = int(target_parts[0])
                 target_minute = int(target_parts[1]) if len(target_parts) > 1 else 0
-                if local_now.hour > target_hour or (local_now.hour == target_hour and local_now.minute >= target_minute):
+                if now.hour > target_hour or (now.hour == target_hour and now.minute >= target_minute):
                     config["briefing"]["last_sent"] = today_str
                     memory.save_config(config)
                     try:
@@ -523,7 +517,7 @@ async def reminder_job(context: ContextTypes.DEFAULT_TYPE):
 
 # Buffer for medium-priority emails waiting to be batched
 _medium_batch = []
-_last_batch_sent = datetime.now()
+_last_batch_sent = memory.local_now()
 
 
 async def email_job(context: ContextTypes.DEFAULT_TYPE):
@@ -563,7 +557,7 @@ async def email_job(context: ContextTypes.DEFAULT_TYPE):
 
             # Check if it's time to send the batch
             batch_interval = config.get("batch_interval_minutes", 30) * 60
-            if _medium_batch and (datetime.now() - _last_batch_sent).total_seconds() >= batch_interval:
+            if _medium_batch and (memory.local_now() - _last_batch_sent).total_seconds() >= batch_interval:
                 if notifications.check_rate_limit():
                     msg = notifications.format_batch_discord(_medium_batch)
                     if msg:
@@ -571,7 +565,7 @@ async def email_job(context: ContextTypes.DEFAULT_TYPE):
                     for e in _medium_batch:
                         notifications.log_notification(e, "medium", "sent")
                 _medium_batch = []
-                _last_batch_sent = datetime.now()
+                _last_batch_sent = memory.local_now()
 
         # Low priority -> log only (always)
         for email_data, priority in result.get("low", []):
@@ -590,25 +584,19 @@ async def scan_job(context: ContextTypes.DEFAULT_TYPE):
         if not config.get("enabled", True):
             return
 
-        now = datetime.now()
-        try:
-            from zoneinfo import ZoneInfo
-            tz_name = memory.load_config().get("briefing", {}).get("timezone", "America/New_York")
-            local_now = datetime.now(ZoneInfo(tz_name))
-        except Exception:
-            local_now = now
+        now = memory.local_now()
 
         # Skip weekends
-        if config.get("skip_weekends", True) and local_now.weekday() >= 5:
+        if config.get("skip_weekends", True) and now.weekday() >= 5:
             return
 
         # Check if already scanned today
-        today_str = local_now.strftime("%Y-%m-%d")
+        today_str = now.strftime("%Y-%m-%d")
         if config.get("last_auto_scan") == today_str:
             return
 
         # Determine target time (Monday gets earlier time)
-        if local_now.weekday() == 0:  # Monday
+        if now.weekday() == 0:  # Monday
             target_time = config.get("monday_time", "06:00")
         else:
             target_time = config.get("auto_time", "07:00")
@@ -617,7 +605,7 @@ async def scan_job(context: ContextTypes.DEFAULT_TYPE):
         target_hour = int(target_parts[0])
         target_minute = int(target_parts[1]) if len(target_parts) > 1 else 0
 
-        if local_now.hour < target_hour or (local_now.hour == target_hour and local_now.minute < target_minute):
+        if now.hour < target_hour or (now.hour == target_hour and now.minute < target_minute):
             return
 
         # Time to scan
@@ -952,7 +940,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f_cl.write(f"# Cover Letter \u2014 {job['title']}\n\n")
                 f_cl.write(f"**Position:** {job['title']}\n")
                 f_cl.write(f"**URL:** {job['url']}\n")
-                f_cl.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n---\n\n")
+                f_cl.write(f"**Generated:** {memory.local_now().strftime('%Y-%m-%d %H:%M')}\n\n---\n\n")
                 f_cl.write(letter_text + "\n")
 
             listing_path = os.path.join(folder, "listing.json")
@@ -963,7 +951,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "description": job["body"],
                     "saved_at": job.get("saved_at"),
                     "status": job.get("status"),
-                    "cover_letter_generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "cover_letter_generated": memory.local_now().strftime("%Y-%m-%d %H:%M"),
                 }, f_ls, indent=2)
 
             memory.save_jobs(jobs)
@@ -996,7 +984,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         title = pdf_arg or "Document"
         slug = re.sub(r'[^\w]+', '_', title).strip('_') or "document"
-        date_str = datetime.now().strftime("%Y%m%d_%H%M")
+        date_str = memory.local_now().strftime("%Y%m%d_%H%M")
         filename = f"{slug}_{date_str}.pdf"
         sync_state(state)
         workspace = memory.get_workspace_dir()
@@ -1137,8 +1125,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await send_reply(chat_id, "Google Calendar not authenticated. Run /cal setup first.", bot)
                 return
             await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
-            tz = tools._get_user_timezone()
-            now = datetime.now(tz)
+            now = memory.local_now()
             end_str = (now + timedelta(days=7)).strftime("%Y-%m-%d")
             events = await asyncio.to_thread(tools.calendar_get_events, "today", end_str)
             if events is None:
@@ -1216,7 +1203,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         '- If no end time given but a duration is mentioned, calculate the end time\n'
                         "- If no time at all, set all_day to true\n"
                         "- If no end time and not all-day, default to 1 hour after start\n"
-                        f"- Today is {datetime.now().strftime('%A, %B %d, %Y')}\n\n"
+                        f"- Today is {memory.local_now().strftime('%A, %B %d, %Y')}\n\n"
                         f"Text: {desc}"}],
                 )
                 parse_text = parse_response.content[0].text.strip()
@@ -1917,7 +1904,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "title": r["title"],
                         "url": r["url"],
                         "body": r["body"],
-                        "saved_at": datetime.now().strftime("%Y-%m-%d"),
+                        "saved_at": memory.local_now().strftime("%Y-%m-%d"),
                         "status": None,
                         "folder": None,
                     }
@@ -2001,7 +1988,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f.write(f"# Cover Letter \u2014 {job['title']}\n\n")
                     f.write(f"**Position:** {job['title']}\n")
                     f.write(f"**URL:** {job['url']}\n")
-                    f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n---\n\n")
+                    f.write(f"**Generated:** {memory.local_now().strftime('%Y-%m-%d %H:%M')}\n\n---\n\n")
                     f.write(letter + "\n")
 
                 # Update listing.json
@@ -2013,7 +2000,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "description": job["body"],
                         "saved_at": job.get("saved_at"),
                         "status": job.get("status"),
-                        "cover_letter_generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "cover_letter_generated": memory.local_now().strftime("%Y-%m-%d %H:%M"),
                     }, f, indent=2)
 
                 memory.save_jobs(jobs)
@@ -2343,7 +2330,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if note_text:
             sync_state(state)
             await asyncio.to_thread(tools.save_note, note_text)
-            date_str = datetime.now().strftime("%Y-%m-%d")
+            date_str = memory.local_now().strftime("%Y-%m-%d")
             await send_reply(chat_id, f"Note saved to {state.active_project}/notes/{date_str}.md", bot)
         else:
             await send_reply(chat_id, "Usage: /note <text>", bot)

@@ -47,9 +47,9 @@ def save_note(text):
     """Append a timestamped note to the daily notes file. Returns the filepath."""
     notes_dir = os.path.join(memory.get_project_dir(), "notes")
     os.makedirs(notes_dir, exist_ok=True)
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = memory.local_now().strftime("%Y-%m-%d")
     filepath = os.path.join(notes_dir, f"{today}.md")
-    time_str = datetime.now().strftime("%H:%M")
+    time_str = memory.local_now().strftime("%H:%M")
     entry = f"## {time_str}\n{text}\n\n---\n\n"
     with open(filepath, "a") as f:
         f.write(entry)
@@ -62,7 +62,7 @@ def list_recent_notes(days=7):
     if not os.path.isdir(notes_dir):
         return []
     results = []
-    cutoff = datetime.now() - timedelta(days=days)
+    cutoff = memory.local_now().replace(tzinfo=None) - timedelta(days=days)
     for filepath in sorted(_glob(os.path.join(notes_dir, "*.md")), reverse=True):
         basename = os.path.basename(filepath).removesuffix(".md")
         try:
@@ -1063,7 +1063,7 @@ def _log_draft(recipient, subject, draft_id, command):
     """Append an entry to the draft audit log."""
     log_dir = os.path.dirname(DRAFT_AUDIT_LOG)
     os.makedirs(log_dir, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = memory.local_now().strftime("%Y-%m-%d %H:%M:%S")
     entry = f"[{timestamp}] command={command} to={recipient} subject={subject} draft_id={draft_id}\n"
     with open(DRAFT_AUDIT_LOG, "a") as f:
         f.write(entry)
@@ -1206,12 +1206,7 @@ def calendar_setup():
 
 def _get_user_timezone():
     """Get timezone from config, defaulting to America/New_York."""
-    config = memory.load_config()
-    tz_name = config.get("briefing", {}).get("timezone", "America/New_York")
-    try:
-        return ZoneInfo(tz_name)
-    except Exception:
-        return ZoneInfo("America/New_York")
+    return memory.get_timezone()
 
 
 def _parse_date_to_aware(text):
@@ -1224,7 +1219,7 @@ def _parse_date_to_aware(text):
     if dateutil_parser is None:
         return None
     tz = _get_user_timezone()
-    now = datetime.now(tz)
+    now = memory.local_now()
     base = now.replace(hour=0, minute=0, second=0, microsecond=0)
     text_lower = text.lower().strip()
 
@@ -1467,7 +1462,7 @@ def format_events_ansi(events, date_label=""):
     if not events:
         return f"{memory.DIM}  No events{' ' + date_label if date_label else ''}.{memory.RESET}"
 
-    now = datetime.now(_get_user_timezone())
+    now = memory.local_now()
     lines = []
     for ev in events:
         if ev["all_day"]:
@@ -1685,7 +1680,7 @@ def execute_tool(name, tool_input, confirm_fn=None):
     elif name == "save_note":
         text = tool_input["text"]
         filepath = save_note(text)
-        date_str = datetime.now().strftime("%Y-%m-%d")
+        date_str = memory.local_now().strftime("%Y-%m-%d")
         return f"Note saved to {memory.active_project}/notes/{date_str}.md", False
 
     elif name == "run_python":
@@ -1921,7 +1916,7 @@ def execute_tool(name, tool_input, confirm_fn=None):
                     f.write(f"# Cover Letter \u2014 {job['title']}\n\n")
                     f.write(f"**Position:** {job['title']}\n")
                     f.write(f"**URL:** {job['url']}\n")
-                    f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n---\n\n")
+                    f.write(f"**Generated:** {memory.local_now().strftime('%Y-%m-%d %H:%M')}\n\n---\n\n")
                     f.write(letter_text + "\n")
                 memory.save_jobs(jobs)
 
@@ -1956,7 +1951,7 @@ def execute_tool(name, tool_input, confirm_fn=None):
                 return "No body text provided for the PDF.", True
 
             slug = re.sub(r'[^\w]+', '_', title).strip('_') or "document"
-            date_str = datetime.now().strftime("%Y%m%d_%H%M")
+            date_str = memory.local_now().strftime("%Y%m%d_%H%M")
             filename = f"{slug}_{date_str}.pdf"
             workspace = memory.get_workspace_dir()
             filepath = os.path.join(workspace, filename)
@@ -2021,7 +2016,7 @@ def run_digest(progress_fn=None):
     except Exception:
         digest = combined
 
-    date_str = datetime.now().strftime("%Y-%m-%d")
+    date_str = memory.local_now().strftime("%Y-%m-%d")
     filename = f"digest-{date_str}.md"
     workspace = memory.get_workspace_dir()
     filepath = os.path.join(workspace, filename)

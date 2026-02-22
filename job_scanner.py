@@ -114,7 +114,7 @@ def load_seen_jobs():
     if not isinstance(data, dict):
         return {}
     # Prune old entries
-    cutoff = (datetime.now() - timedelta(days=30)).isoformat()
+    cutoff = (memory.local_now() - timedelta(days=30)).isoformat()
     pruned = {k: v for k, v in data.items() if isinstance(v, dict) and v.get("seen_at", "") > cutoff}
     return pruned
 
@@ -138,7 +138,7 @@ def mark_job_seen(seen, url, score=None):
     key = _job_key(url)
     seen[key] = {
         "url": url,
-        "seen_at": datetime.now().isoformat(),
+        "seen_at": memory.local_now().isoformat(),
         "score": score,
     }
 
@@ -175,7 +175,7 @@ def _count_scans_today(scan_type="manual"):
     """Count how many scans of the given type have run today."""
     if not os.path.exists(SCAN_LOG):
         return 0
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = memory.local_now().strftime("%Y-%m-%d")
     count = 0
     try:
         with open(SCAN_LOG, "r") as f:
@@ -205,7 +205,7 @@ def log_scan(scan_type, query_count, new_count, total_assessed, cost):
     """Log a scan event to the audit log."""
     log_dir = os.path.dirname(SCAN_LOG)
     os.makedirs(log_dir, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = memory.local_now().strftime("%Y-%m-%d %H:%M:%S")
     entry = (
         f"[{timestamp}] type={scan_type} queries={query_count} "
         f"new={new_count} assessed={total_assessed} cost=${cost:.4f}\n"
@@ -247,7 +247,7 @@ def run_scan(queries=None, progress_fn=None, scan_type="manual"):
             "error": f"Scan rate limit reached ({count}/{limit} {scan_type} scans today).",
             "high": [], "medium": [], "low": [],
             "total_searched": 0, "total_new": 0, "total_assessed": 0,
-            "cost": 0.0, "scan_time": datetime.now().isoformat(),
+            "cost": 0.0, "scan_time": memory.local_now().isoformat(),
         }
 
     # Load config for queries
@@ -265,7 +265,7 @@ def run_scan(queries=None, progress_fn=None, scan_type="manual"):
             "error": "No search queries configured. Use /scan query add <query>.",
             "high": [], "medium": [], "low": [],
             "total_searched": 0, "total_new": 0, "total_assessed": 0,
-            "cost": 0.0, "scan_time": datetime.now().isoformat(),
+            "cost": 0.0, "scan_time": memory.local_now().isoformat(),
         }
 
     seen = load_seen_jobs()
@@ -369,7 +369,7 @@ def run_scan(queries=None, progress_fn=None, scan_type="manual"):
 
     # Save results
     scan_data = {
-        "scan_time": datetime.now().isoformat(),
+        "scan_time": memory.local_now().isoformat(),
         "scan_type": scan_type,
         "queries": queries,
         "high": high,
@@ -398,7 +398,7 @@ def run_scan(queries=None, progress_fn=None, scan_type="manual"):
         "total_new": len(all_results),
         "total_assessed": len(assessed_results),
         "cost": total_cost,
-        "scan_time": datetime.now().isoformat(),
+        "scan_time": memory.local_now().isoformat(),
     }
 
 

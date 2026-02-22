@@ -33,7 +33,7 @@ def load_seen():
     if not isinstance(data, dict):
         return {}
     # Prune old entries (older than 7 days)
-    cutoff = (datetime.now() - timedelta(days=7)).isoformat()
+    cutoff = (memory.local_now() - timedelta(days=7)).isoformat()
     pruned = {k: v for k, v in data.items() if v > cutoff}
     return pruned
 
@@ -48,7 +48,7 @@ def save_seen(seen):
 
 def mark_seen(seen, message_id):
     """Mark a message as seen."""
-    seen[message_id] = datetime.now().isoformat()
+    seen[message_id] = memory.local_now().isoformat()
 
 
 # --- Classification ---
@@ -116,7 +116,7 @@ def _load_rate_log():
     """Load notification timestamps from last hour for rate limiting."""
     if not os.path.exists(NOTIFICATION_LOG):
         return []
-    cutoff = (datetime.now() - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+    cutoff = (memory.local_now() - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
     timestamps = []
     try:
         with open(NOTIFICATION_LOG, "r") as f:
@@ -152,7 +152,7 @@ def log_notification(email_data, priority, action):
     """
     log_dir = os.path.dirname(NOTIFICATION_LOG)
     os.makedirs(log_dir, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = memory.local_now().strftime("%Y-%m-%d %H:%M:%S")
     sender = email_data.get("sender", "Unknown")
     subject = email_data.get("subject", "(no subject)")
     entry = (
@@ -249,7 +249,7 @@ def check_new_emails():
 
     # Update last_checked timestamp
     config_full = memory.load_config()
-    config_full["email_notifications"]["last_checked"] = datetime.now().isoformat()
+    config_full["email_notifications"]["last_checked"] = memory.local_now().isoformat()
     memory.save_config(config_full)
 
     return classified

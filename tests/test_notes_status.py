@@ -17,7 +17,7 @@ def test_save_note_creates_file(isolated_env):
     )
     assert os.path.isdir(notes_dir)
     # Check today's file was created
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = memory.local_now().strftime("%Y-%m-%d")
     note_file = os.path.join(notes_dir, f"{today}.md")
     assert os.path.exists(note_file)
     with open(note_file) as f:

@@ -461,7 +461,7 @@ if __name__ == "__main__":
             # Parse date from filename (format: YYYY-MM-DD_HHMMSS_*.txt)
             date_part = last_file[:10]
             last_date = datetime.strptime(date_part, "%Y-%m-%d")
-            days_ago = (datetime.now() - last_date).days
+            days_ago = (memory.local_now().replace(tzinfo=None) - last_date).days
             if days_ago >= 7:
                 print(f"{memory.DIM}Welcome back! Last conversation was {days_ago} days ago.{memory.RESET}")
     except Exception:
@@ -755,7 +755,7 @@ if __name__ == "__main__":
             note_text = command[6:].strip()
             if note_text:
                 filepath = tools.save_note(note_text)
-                date_str = datetime.now().strftime("%Y-%m-%d")
+                date_str = memory.local_now().strftime("%Y-%m-%d")
                 print(f"{memory.DIM}Note saved to {memory.active_project}/notes/{date_str}.md{memory.RESET}\n")
             else:
                 print(f"{memory.DIM}Usage: /note <text>{memory.RESET}\n")
@@ -1345,7 +1345,7 @@ if __name__ == "__main__":
                     f.write(f"# Cover Letter \u2014 {job['title']}\n\n")
                     f.write(f"**Position:** {job['title']}\n")
                     f.write(f"**URL:** {job['url']}\n")
-                    f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n---\n\n")
+                    f.write(f"**Generated:** {memory.local_now().strftime('%Y-%m-%d %H:%M')}\n\n---\n\n")
                     f.write(letter_text + "\n")
 
                 # Update listing.json
@@ -1357,7 +1357,7 @@ if __name__ == "__main__":
                         "description": job["body"],
                         "saved_at": job.get("saved_at"),
                         "status": job.get("status"),
-                        "cover_letter_generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "cover_letter_generated": memory.local_now().strftime("%Y-%m-%d %H:%M"),
                     }, f, indent=2)
 
                 memory.save_jobs(jobs)
@@ -1397,7 +1397,7 @@ if __name__ == "__main__":
 
             title = pdf_arg or "Document"
             slug = re.sub(r'[^\w]+', '_', title).strip('_') or "document"
-            date_str = datetime.now().strftime("%Y%m%d_%H%M")
+            date_str = memory.local_now().strftime("%Y%m%d_%H%M")
             filename = f"{slug}_{date_str}.pdf"
             workspace = memory.get_workspace_dir()
             filepath = os.path.join(workspace, filename)
@@ -1450,7 +1450,7 @@ if __name__ == "__main__":
                 print(f"{memory.DIM}Checking calendar...{memory.RESET}")
                 from datetime import timedelta as _td
                 tz = tools._get_user_timezone()
-                now = datetime.now(tz)
+                now = memory.local_now()
                 events = tools.calendar_get_events("today", (now + _td(days=7)).strftime("%Y-%m-%d"))
                 if events is None:
                     print(f"{memory.YELLOW}Google Calendar not authenticated.{memory.RESET} Run /cal setup to connect your account.\n")
@@ -1527,7 +1527,7 @@ if __name__ == "__main__":
                             '- If no end time given but a duration is mentioned, calculate the end time\n'
                             "- If no time at all, set all_day to true\n"
                             "- If no end time and not all-day, default to 1 hour after start\n"
-                            f"- Today is {datetime.now().strftime('%A, %B %d, %Y')}\n\n"
+                            f"- Today is {memory.local_now().strftime('%A, %B %d, %Y')}\n\n"
                             f"Text: {desc}"}],
                     )
                     _models.track_usage(
@@ -2248,7 +2248,7 @@ if __name__ == "__main__":
                             "title": r["title"],
                             "url": r["url"],
                             "body": r["body"],
-                            "saved_at": datetime.now().strftime("%Y-%m-%d"),
+                            "saved_at": memory.local_now().strftime("%Y-%m-%d"),
                             "status": None,
                             "folder": None,
                         }
@@ -2348,7 +2348,7 @@ if __name__ == "__main__":
                         f.write(f"# Cover Letter \u2014 {job['title']}\n\n")
                         f.write(f"**Position:** {job['title']}\n")
                         f.write(f"**URL:** {job['url']}\n")
-                        f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n---\n\n")
+                        f.write(f"**Generated:** {memory.local_now().strftime('%Y-%m-%d %H:%M')}\n\n---\n\n")
                         f.write(letter + "\n")
 
                     listing_path = os.path.join(folder, "listing.json")
@@ -2359,7 +2359,7 @@ if __name__ == "__main__":
                             "description": job["body"],
                             "saved_at": job.get("saved_at"),
                             "status": job.get("status"),
-                            "cover_letter_generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                            "cover_letter_generated": memory.local_now().strftime("%Y-%m-%d %H:%M"),
                         }, f, indent=2)
 
                     memory.save_jobs(jobs)

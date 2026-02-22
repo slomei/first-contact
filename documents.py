@@ -140,7 +140,7 @@ def _build_cover_story(recipient_name, company_name, job_title, paragraphs,
     ))
 
     # Date
-    date_str = datetime.now().strftime("%B %d, %Y")
+    date_str = memory.local_now().strftime("%B %d, %Y")
     story.append(Paragraph(date_str, styles["date"]))
     story.append(Spacer(1, 12))
 
@@ -354,7 +354,7 @@ def generate_pdf(title, body_text, output_path):
     ))
 
     # Date
-    date_str = datetime.now().strftime("%B %d, %Y")
+    date_str = memory.local_now().strftime("%B %d, %Y")
     story.append(Paragraph(date_str, styles["date"]))
     story.append(Spacer(1, 12))
 

@@ -216,7 +216,7 @@ def handle_command(command, state):
         if note_text:
             sync_state(state)
             tools.save_note(note_text)
-            date_str = datetime.now().strftime("%Y-%m-%d")
+            date_str = memory.local_now().strftime("%Y-%m-%d")
             return f"Note saved to {state.active_project}/notes/{date_str}.md"
         return "Usage: `/note <text>`"
 
@@ -478,8 +478,7 @@ def handle_command(command, state):
 
         if cal_arg_lower == "week":
             from datetime import timedelta
-            tz = tools._get_user_timezone()
-            now = datetime.now(tz)
+            now = memory.local_now()
             end_str = (now + timedelta(days=7)).strftime("%Y-%m-%d")
             events = tools.calendar_get_events("today", end_str)
             if events is None:
@@ -505,7 +504,7 @@ def handle_command(command, state):
                         '- If no end time given but a duration is mentioned, calculate the end time\n'
                         "- If no time at all, set all_day to true\n"
                         "- If no end time and not all-day, default to 1 hour after start\n"
-                        f"- Today is {datetime.now().strftime('%A, %B %d, %Y')}\n\n"
+                        f"- Today is {memory.local_now().strftime('%A, %B %d, %Y')}\n\n"
                         f"Text: {desc}"}],
                 )
                 models.track_usage(
@@ -1289,7 +1288,7 @@ def handle_command(command, state):
             return "No Claude response to save yet."
         title = pdf_arg or "Document"
         slug = re.sub(r'[^\w]+', '_', title).strip('_') or "document"
-        date_str = datetime.now().strftime("%Y%m%d_%H%M")
+        date_str = memory.local_now().strftime("%Y%m%d_%H%M")
         filename = f"{slug}_{date_str}.pdf"
         sync_state(state)
         workspace = memory.get_workspace_dir()
@@ -1432,7 +1431,7 @@ def handle_command(command, state):
                 if r["url"] not in existing_urls:
                     job_entry = {
                         "title": r["title"], "url": r["url"], "body": r["body"],
-                        "saved_at": datetime.now().strftime("%Y-%m-%d"),
+                        "saved_at": memory.local_now().strftime("%Y-%m-%d"),
                         "status": None, "folder": None,
                     }
                     memory.init_job_folder(job_entry)
@@ -1499,7 +1498,7 @@ def handle_command(command, state):
                     f.write(f"# Cover Letter — {job['title']}\n\n")
                     f.write(f"**Position:** {job['title']}\n")
                     f.write(f"**URL:** {job['url']}\n")
-                    f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n---\n\n")
+                    f.write(f"**Generated:** {memory.local_now().strftime('%Y-%m-%d %H:%M')}\n\n---\n\n")
                     f.write(letter + "\n")
 
                 listing_path = os.path.join(folder, "listing.json")
@@ -1510,7 +1509,7 @@ def handle_command(command, state):
                         "description": job["body"],
                         "saved_at": job.get("saved_at"),
                         "status": job.get("status"),
-                        "cover_letter_generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "cover_letter_generated": memory.local_now().strftime("%Y-%m-%d %H:%M"),
                     }, f, indent=2)
 
                 memory.save_jobs(jobs)
@@ -1654,7 +1653,7 @@ def handle_command(command, state):
                 f.write(f"# Cover Letter — {job_title}\n\n")
                 f.write(f"**Position:** {job_title}\n")
                 f.write(f"**URL:** {job.get('url', '')}\n")
-                f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n---\n\n")
+                f.write(f"**Generated:** {memory.local_now().strftime('%Y-%m-%d %H:%M')}\n\n---\n\n")
                 f.write(letter_text + "\n")
 
             listing_path = os.path.join(folder, "listing.json")
@@ -1665,7 +1664,7 @@ def handle_command(command, state):
                     "description": job.get("body", ""),
                     "saved_at": job.get("saved_at"),
                     "status": job.get("status"),
-                    "cover_letter_generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "cover_letter_generated": memory.local_now().strftime("%Y-%m-%d %H:%M"),
                 }, f, indent=2)
 
             memory.save_jobs(jobs)
