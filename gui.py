@@ -1818,7 +1818,7 @@ def bot_response(history, state):
             for text in stream.text_stream:
                 response_text += text
                 history[-1]["content"] = response_text
-                yield history, state, format_cost(state), format_memories()
+                yield history, state, format_cost(state)
 
             final = stream.get_final_message()
 
@@ -1853,7 +1853,7 @@ def bot_response(history, state):
                     status = tools.tool_status_text(block.name, block.input)
                     # Show tool status as italic text in the current assistant message
                     history[-1]["content"] = response_text + f"\n\n*{status}...*"
-                    yield history, state, format_cost(state), format_memories()
+                    yield history, state, format_cost(state)
 
                     result, is_error = execute_tool_gui(block.name, block.input)
                     tool_result = {
@@ -1872,22 +1872,22 @@ def bot_response(history, state):
         else:
             # Final text response
             state.conversation_history.append({"role": "assistant", "content": response_text})
-            yield history, state, format_cost(state), format_memories()
+            yield history, state, format_cost(state)
             return
 
     # Safety: if we hit 10 tool loops, yield what we have
-    yield history, state, format_cost(state), format_memories()
+    yield history, state, format_cost(state)
 
 
 def process_message(history, state):
     """Route commands or delegate to Claude streaming."""
     if not history:
-        yield history, state, format_cost(state), format_memories()
+        yield history, state, format_cost(state)
         return
 
     last_msg = history[-1]
     if last_msg["role"] != "user":
-        yield history, state, format_cost(state), format_memories()
+        yield history, state, format_cost(state)
         return
 
     raw = last_msg["content"]
@@ -1919,7 +1919,7 @@ def process_message(history, state):
         if state.conversation_history and state.conversation_history[-1].get("content") == user_text:
             state.conversation_history.pop()
 
-        yield history, state, format_cost(state), format_memories()
+        yield history, state, format_cost(state)
         return
 
     # Regular message — stream from Claude
@@ -2013,7 +2013,7 @@ _CUSTOM_CSS = """
 }
 footer { display: none !important; }
 
-/* --- Header --- */
+/* --- Header: accent-colored --- */
 #fc-header {
     text-align: center;
     padding: 10px 0 6px 0;
@@ -2021,22 +2021,22 @@ footer { display: none !important; }
     margin: 0 0 4px 0;
 }
 #fc-header h2 {
-    color: #ffffff !important;
+    color: var(--fc-accent, #2d6a4f) !important;
     font-size: 1.15em !important;
     font-weight: 600 !important;
     margin: 0 !important;
     letter-spacing: 0.05em;
 }
 #fc-header p {
-    color: #555555 !important;
+    color: var(--fc-accent-muted, #2d6a4f99) !important;
     font-size: 0.75em !important;
     margin: 1px 0 0 0 !important;
 }
 
 /* --- Chat area --- */
 #fc-chatbot {
-    height: calc(100vh - 280px) !important;
-    max-height: calc(100vh - 280px) !important;
+    height: calc(100vh - 250px) !important;
+    max-height: calc(100vh - 250px) !important;
     min-height: 250px !important;
     border: 1px solid #2a2a2a !important;
     border-radius: 6px !important;
@@ -2047,7 +2047,7 @@ footer { display: none !important; }
 #fc-chatbot .bot { background: #1e1e1e !important; }
 #fc-chatbot .user { background: #1a2e1a !important; }
 
-/* --- Input --- */
+/* --- Input: placeholder uses accent --- */
 #fc-input textarea {
     background: #141414 !important;
     border: 1px solid #2a2a2a !important;
@@ -2055,6 +2055,9 @@ footer { display: none !important; }
     border-radius: 6px !important;
     font-size: 0.95em !important;
     padding: 10px 14px !important;
+}
+#fc-input textarea::placeholder {
+    color: var(--fc-accent-muted, #2d6a4f99) !important;
 }
 #fc-input textarea:focus {
     border-color: var(--fc-accent, #2d6a4f) !important;
@@ -2070,32 +2073,40 @@ footer { display: none !important; }
     flex-wrap: nowrap !important;
 }
 
-/* Model dropdown — functional, not cramped */
+/* Model dropdown */
 #fc-model-select {
-    min-width: 130px !important;
-    max-width: 160px !important;
+    min-width: 140px !important;
+    max-width: 180px !important;
 }
 #fc-model-select label { display: none !important; }
+#fc-model-select .wrap {
+    color: var(--fc-accent, #2d6a4f) !important;
+}
 
-/* New Chat button */
+/* New Chat button: accent-colored text */
 #fc-new-chat {
     max-width: 110px !important;
     min-height: 36px !important;
     font-size: 0.85em !important;
+    color: var(--fc-accent, #2d6a4f) !important;
+    border-color: var(--fc-accent-40, #2d6a4f40) !important;
+}
+#fc-new-chat:hover {
+    border-color: var(--fc-accent, #2d6a4f) !important;
 }
 
-/* Cost text */
+/* Cost/token text: accent-colored */
 #fc-cost-col .prose {
-    color: #b0b0b0 !important;
+    color: var(--fc-accent-muted, #2d6a4f99) !important;
     font-size: 0.8em !important;
     line-height: 1.4 !important;
 }
 
-/* Color picker — visible and clickable */
+/* Color picker */
 #fc-accent-picker label { display: none !important; }
 #fc-accent-picker input[type="color"] {
-    height: 36px !important;
-    width: 36px !important;
+    height: 42px !important;
+    width: 42px !important;
     border: 1px solid #2a2a2a !important;
     border-radius: 6px !important;
     cursor: pointer;
@@ -2103,38 +2114,32 @@ footer { display: none !important; }
     padding: 2px !important;
 }
 
-/* --- Memories --- */
-#fc-memories .label-wrap {
-    background: #1e1e1e !important;
-    border-color: #2a2a2a !important;
-    padding: 6px 12px !important;
-}
-#fc-memories .label-wrap span { color: #808080 !important; font-size: 0.8em !important; }
-#fc-memories .prose { color: #808080 !important; font-size: 0.8em !important; }
-
-/* --- Accent color for primary buttons (dynamic via CSS var) --- */
+/* --- Primary buttons: accent-colored --- */
 button.primary { background: var(--fc-accent, #2d6a4f) !important; }
 button.primary:hover { background: var(--fc-accent-hover, #347a5b) !important; }
 """
 
 _ACCENT_JS = """
 () => {
-    // Restore accent from localStorage
-    const saved = localStorage.getItem('fc-accent-color');
-    if (saved) {
-        document.documentElement.style.setProperty('--fc-accent', saved);
-        document.documentElement.style.setProperty('--fc-accent-40', saved + '40');
-        // Lighten for hover
-        const r = parseInt(saved.slice(1,3),16), g = parseInt(saved.slice(3,5),16), b = parseInt(saved.slice(5,7),16);
+    function applyAccent(color) {
+        const s = document.documentElement.style;
+        s.setProperty('--fc-accent', color);
+        s.setProperty('--fc-accent-40', color + '40');
+        s.setProperty('--fc-accent-muted', color + '99');
+        const r = parseInt(color.slice(1,3),16), g = parseInt(color.slice(3,5),16), b = parseInt(color.slice(5,7),16);
         const hover = '#' + Math.min(255,r+20).toString(16).padStart(2,'0')
                           + Math.min(255,g+20).toString(16).padStart(2,'0')
                           + Math.min(255,b+20).toString(16).padStart(2,'0');
-        document.documentElement.style.setProperty('--fc-accent-hover', hover);
-        // Update picker element
+        s.setProperty('--fc-accent-hover', hover);
+    }
+    const saved = localStorage.getItem('fc-accent-color');
+    if (saved) {
+        applyAccent(saved);
         const picker = document.querySelector('#fc-accent-picker input[type="color"]');
         if (picker) picker.value = saved;
         return saved;
     }
+    applyAccent('#2d6a4f');
     return '#2d6a4f';
 }
 """
@@ -2178,7 +2183,7 @@ def build_ui():
                 show_label=False,
                 interactive=True,
                 elem_id="fc-model-select",
-                min_width=130,
+                min_width=150,
                 scale=0,
             )
             new_chat_btn = gr.Button(
@@ -2196,13 +2201,9 @@ def build_ui():
                 show_label=False,
                 interactive=True,
                 elem_id="fc-accent-picker",
-                min_width=50,
+                min_width=60,
                 scale=0,
             )
-
-        # --- Memories accordion (collapsed) ---
-        with gr.Accordion("Memories", open=False, elem_id="fc-memories"):
-            memories_display = gr.Markdown(value=format_memories())
 
         # --- Event wiring ---
         msg_input.submit(
@@ -2212,7 +2213,7 @@ def build_ui():
         ).then(
             fn=process_message,
             inputs=[chatbot, state],
-            outputs=[chatbot, state, cost_display, memories_display],
+            outputs=[chatbot, state, cost_display],
         )
 
         model_dropdown.change(
@@ -2234,13 +2235,15 @@ def build_ui():
             outputs=[accent_picker],
             js="""
             (color) => {
-                document.documentElement.style.setProperty('--fc-accent', color);
-                document.documentElement.style.setProperty('--fc-accent-40', color + '40');
+                const s = document.documentElement.style;
+                s.setProperty('--fc-accent', color);
+                s.setProperty('--fc-accent-40', color + '40');
+                s.setProperty('--fc-accent-muted', color + '99');
                 const r = parseInt(color.slice(1,3),16), g = parseInt(color.slice(3,5),16), b = parseInt(color.slice(5,7),16);
                 const hover = '#' + Math.min(255,r+20).toString(16).padStart(2,'0')
                                   + Math.min(255,g+20).toString(16).padStart(2,'0')
                                   + Math.min(255,b+20).toString(16).padStart(2,'0');
-                document.documentElement.style.setProperty('--fc-accent-hover', hover);
+                s.setProperty('--fc-accent-hover', hover);
                 localStorage.setItem('fc-accent-color', color);
                 return color;
             }
