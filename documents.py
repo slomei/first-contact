@@ -424,9 +424,3 @@ def _escape_xml(text):
     text = text.replace("<", "&lt;")
     text = text.replace(">", "&gt;")
     return text
-
-
-def slugify_job(company, title):
-    """Create a filename slug from company and title."""
-    raw = f"{company}_{title}"
-    return re.sub(r'[^\w]+', '_', raw).strip('_')

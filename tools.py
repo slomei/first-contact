@@ -11,7 +11,6 @@ import re
 import subprocess
 import tempfile
 import base64
-import email as email_lib
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 try:

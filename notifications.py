@@ -208,18 +208,6 @@ def format_batch_discord(emails):
     return "\n".join(lines)
 
 
-def format_notification_ansi(email_data, priority):
-    """Format an email notification for terminal display."""
-    sender = _format_sender(email_data.get("sender", "Unknown"))
-    subject = email_data.get("subject", "(no subject)")
-
-    if priority == "high":
-        return f"{memory.RED}[HIGH] {sender}: {subject}{memory.RESET}"
-    elif priority == "medium":
-        return f"{memory.YELLOW}{sender}: {subject}{memory.RESET}"
-    return f"{memory.DIM}{sender}: {subject}{memory.RESET}"
-
-
 # --- Main check function ---
 
 def check_new_emails():

@@ -43,12 +43,6 @@ def _extract_version(filename, pattern):
     return None
 
 
-def _scan_source(source_glob):
-    """Scan a glob pattern and return list of (filepath, version, mtime) tuples."""
-    files = glob.glob(source_glob)
-    return files
-
-
 def get_latest(key, prompt_fn=None):
     """Get the latest version of a synced file.
 
@@ -189,50 +183,6 @@ def sync_file(key, filepath):
     shutil.copy2(filepath, dest_path)
 
     return (dest_path, True)
-
-
-def sync_status(key):
-    """Check sync status for a key without syncing.
-
-    Returns a dict with source info, or None if key not found.
-    """
-    sources = load_sources()
-    if key not in sources:
-        return None
-
-    config = sources[key]
-    source_glob = config["source"]
-    destination = os.path.join(memory.BASE_DIR, config["destination"])
-    pattern = config["pattern"]
-
-    source_files = glob.glob(source_glob)
-    candidates = []
-    for filepath in source_files:
-        filename = os.path.basename(filepath)
-        version = _extract_version(filename, pattern)
-        if version is not None:
-            mtime = os.path.getmtime(filepath)
-            candidates.append({
-                "version": version,
-                "date": datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M"),
-                "filename": filename,
-            })
-
-    # Check what's currently in destination
-    dest_pattern = pattern.replace("{version}", "*")
-    current_files = glob.glob(os.path.join(destination, dest_pattern))
-    current = None
-    if current_files:
-        current_name = os.path.basename(current_files[0])
-        current_version = _extract_version(current_name, pattern)
-        current = {"filename": current_name, "version": current_version}
-
-    return {
-        "key": key,
-        "source_count": len(candidates),
-        "candidates": sorted(candidates, key=lambda c: c["version"], reverse=True),
-        "current": current,
-    }
 
 
 def sync_all(prompt_fn=None, progress_fn=None):
