@@ -37,6 +37,18 @@
     "monday_time": "06:00",
     "last_auto_scan": null
   },
+  "daemon": {
+    "enabled": true,
+    "briefing_time": "07:00",
+    "email_check_interval_minutes": 30,
+    "scan_interval_hours": 12,
+    "reminder_check_interval_minutes": 5,
+    "heartbeat_interval_minutes": 30,
+    "notify_channel": "discord"
+  },
+  "email_accounts": [],
+  "notification_channels": [],
+  "discord_prefix": "!fc",
   "user_profile": {
     "name": "Your Name",
     "first_name": "You",

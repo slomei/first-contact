@@ -253,11 +253,7 @@ def run_scan(queries=None, progress_fn=None, scan_type="manual"):
     # Load config for queries
     config = memory.load_config().get("job_scan", {})
     if queries is None:
-        queries = config.get("queries", [
-            "assistant editor animation",
-            "video editor post production",
-            "editorial animation studio",
-        ])
+        queries = config.get("queries", [])
 
     if not queries:
         return {

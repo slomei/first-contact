@@ -6,6 +6,7 @@ duckduckgo-search>=9.0.0
 pdfplumber>=0.11.0
 python-dateutil>=2.9.0
 requests>=2.32.0
+websockets>=14.0
 beautifulsoup4>=4.12.0
 lxml>=5.0.0
 reportlab>=4.4.0
@@ -18,3 +19,6 @@ pytest-mock>=3.12.0
 
 # Optional: enables smart memory retrieval (GPU recommended but not required)
 # sentence-transformers>=3.0.0
+
+# Optional: enables YAML front matter parsing in skill files
+# pyyaml>=6.0

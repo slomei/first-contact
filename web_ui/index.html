@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>First Contact</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <div class="title-group">
+                <h1>First Contact</h1>
+                <span class="subtitle">Personal AI Agent</span>
+            </div>
+            <span class="connection-dot" id="connectionDot" title="Disconnected"></span>
+        </div>
+    </header>
+
+    <main id="chatArea">
+        <div class="welcome-message">
+            <p>Connected to First Contact. Type a message to begin.</p>
+        </div>
+    </main>
+
+    <div class="reconnecting-banner" id="reconnectBanner">
+        Reconnecting to server...
+    </div>
+
+    <footer>
+        <div class="input-row">
+            <textarea
+                id="messageInput"
+                placeholder="Type a message..."
+                rows="1"
+                autofocus
+            ></textarea>
+            <button id="sendBtn" title="Send message">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+            </button>
+        </div>
+        <div class="controls-row">
+            <select id="modelSelect" title="Select model">
+                <option value="claude-sonnet-4-6">Sonnet</option>
+                <option value="claude-haiku-4-5">Haiku</option>
+                <option value="claude-opus-4-6">Opus</option>
+            </select>
+            <button id="newChatBtn" title="New conversation">New Chat</button>
+            <span class="token-display" id="tokenDisplay"></span>
+            <div class="color-picker-wrapper">
+                <label for="accentPicker" title="Accent color">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                        <circle cx="12" cy="12" r="10"/>
+                    </svg>
+                </label>
+                <input type="color" id="accentPicker" value="#2d6a4f">
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

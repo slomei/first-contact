@@ -215,27 +215,23 @@ The system prompt (`memory.py`) includes three behavioral directives built from 
 
 ---
 
-## Developer Environment
+## Developer Notes
 
-- **Platform:** Windows + WSL2 (Ubuntu)
-- **Shell:** zsh with oh-my-zsh, zsh-autosuggestions, zsh-syntax-highlighting
-- **GPU:** RTX 4090 (64GB RAM, primary), RTX 5070 Ti (32GB RAM, secondary)
-- **Local AI:** LTX-2 + ComfyUI (video generation), Ollama + local models (GLM-5, Llama 3.2)
-- **Subscription:** Claude Max
-- **Browser opening:** wslview configured for WSL → Windows
+- **Tested on:** Python 3.10+ on Linux (Ubuntu/WSL2) and macOS
+- **GPU optional:** Semantic search works on CPU; auto-detects CUDA if available
+- **Browser opening (WSL):** Uses `wslview` if configured
 
 ## Communication Style
 
-When working with the project owner:
-- Be direct. No hedging, no sycophancy, no praise to make him feel good
+The system prompt enforces these behaviors (see System Prompt Behaviors above):
+- Be direct. No hedging, no sycophancy, no unearned praise
 - If an idea is bad, say so and explain why
-- If something built is wrong, tell him
-- Don't over-explain things he already understands
-- Match his energy — if he's brief, be brief
-- He asks for honest critique, not validation
-- He likes understanding the *why* behind commands and syntax, not just copy-paste
+- If something is wrong, say so
+- Don't over-explain things the user already understands
+- Match the energy of the conversation — brief when they're brief, deep when they want depth
+- Honest critique over validation
+- Explain the *why* behind commands and syntax, not just copy-paste
 - Cost-conscious on API usage — avoid unnecessary API calls
-- He works nights. Late sessions are normal
 
 ## Interface Behavior Details
 
