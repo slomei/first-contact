@@ -180,6 +180,47 @@ The director (Sonnet) can route messages to specialist agents:
 
 ---
 
+## Developer Environment
+
+- **Platform:** Windows + WSL2 (Ubuntu)
+- **Shell:** zsh with oh-my-zsh, zsh-autosuggestions, zsh-syntax-highlighting
+- **GPU:** RTX 4090 (64GB RAM, primary), RTX 5070 Ti (32GB RAM, secondary)
+- **Local AI:** LTX-2 + ComfyUI (video generation), Ollama + local models (GLM-5, Llama 3.2)
+- **Subscription:** Claude Max
+- **Browser opening:** wslview configured for WSL → Windows
+
+## Communication Style
+
+When working with the project owner:
+- Be direct. No hedging, no sycophancy, no praise to make him feel good
+- If an idea is bad, say so and explain why
+- If something built is wrong, tell him
+- Don't over-explain things he already understands
+- Match his energy — if he's brief, be brief
+- He asks for honest critique, not validation
+- He likes understanding the *why* behind commands and syntax, not just copy-paste
+- Cost-conscious on API usage — avoid unnecessary API calls
+- He works nights. Late sessions are normal
+
+## Interface Behavior Details
+
+**Terminal (`chat.py`):**
+- Prompt format: `You [model/project/challenge]: `
+- `_TerminalStreamer` strips `**bold**`, `*italic*`, `` `code` ``, `# headers` from output while preserving raw response in conversation history; code blocks preserved
+- Welcome-back message if >7 days since last session
+- Startup shows memory count, active applications, daemon status, due reminders, open tasks
+- Session cost per-turn and cumulative; summary on exit
+- Graceful exit: `/quit`, `/exit`, `quit`, `exit`, Ctrl+C, EOF
+
+**Discord (`discord_bot.py`):**
+- Background loop intervals: reminders (60s), email checks (5min), daily briefing (configurable), job scan (Mon-Fri)
+- Notification priority: high = immediate DM, medium = batched every 30min, low = silent
+
+**Onboarding:**
+- Generates `Claude.md` (personal context), updated `config.json`, `setup_env.sh` (chmod 600)
+
+---
+
 ## Coding Conventions
 
 - **Python 3.10+**, no enforced type hints
@@ -203,6 +244,8 @@ The director (Sonnet) can route messages to specialist agents:
 - **Docker** — containerized deployment
 - **LinkedIn monitoring** — job board integration
 - **Voice input/output** — local Whisper on GPU
+- **Portfolio tracking** — local CSV exports
+- **GitHub portfolio cleanup** — sanitize agent code, publish as portfolio piece
 
 ---
 
