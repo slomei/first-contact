@@ -18,6 +18,8 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 
 **Smart model routing.** Every request is routed to the right Claude model for the job. Haiku handles research and summaries. Sonnet handles conversation and code. Opus handles cover letters, deep analysis, and creative writing. A director model evaluates each message and can delegate to specialist agents (researcher, writer, coder, analyst) when the task calls for it.
 
+**Extensible skills system.** Specialists can be augmented with skills — markdown files with YAML front matter that get injected into specialist system prompts when keyword-matched. Ships with 5 built-in skills (cover letters, research, code review, email drafting, job analysis). Drop a `.md` file into `skills/` to create your own.
+
 **18 integrated tools:**
 
 - **Web search** — DuckDuckGo-powered, with page fetching and content extraction
@@ -76,7 +78,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
          └────────┘ └────────┘ └───┘ └────────┘ └────────┘
 ```
 
-**17 Python modules:**
+**18 Python modules:**
 
 | File | Purpose |
 |------|---------|
@@ -96,6 +98,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 | `onboarding.py` | Interactive setup wizard (20 steps, multi-interface) |
 | `help_data.py` | Shared help categories and per-interface formatters |
 | `creative.py` | Creative project tools (world bible, characters, locations) |
+| `skills_loader.py` | Extensible skills system (keyword matching, specialist prompt injection) |
 | `sync.py` | File sync with version conflict resolution |
 
 The four interfaces are thin layers. All logic lives in the shared core — model routing, tool execution, memory, notifications. Adding a new interface means writing the I/O adapter; all tools and capabilities come for free.
@@ -209,7 +212,7 @@ First Contact responds to natural conversation and also supports direct commands
 | **Scanning** | `/scan`, `/scan results`, `/scan status`, `/scan queries`, `/scan query add\|remove`, `/scan on\|off` |
 | **Tasks** | `/task add`, `/tasks`, `/task done`, `/task remove`, `/task edit`, `/task note`, `/tasks done`, `/remind`, `/reminders`, `/remind cancel` |
 | **Web** | `/web`, `/fetch`, `/read`, `/write`, `/run`, `/pdf` |
-| **System** | `/help`, `/status`, `/briefing`, `/notify`, `/project`, `/watch`, `/digest`, `/tokens`, `/billing`, `/delegates`, `/setup`, `/update`, `/reset`, `/characters`, `/locations` |
+| **System** | `/help`, `/status`, `/briefing`, `/notify`, `/project`, `/watch`, `/digest`, `/tokens`, `/billing`, `/delegates`, `/skills`, `/setup`, `/update`, `/reset`, `/characters`, `/locations` |
 
 Claude also uses tools autonomously when they'd help — searching the web mid-conversation, saving facts to memory, checking your calendar when you ask about availability.
 

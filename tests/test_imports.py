@@ -59,5 +59,10 @@ def test_import_sync():
     import sync
 
 
+def test_import_skills_loader():
+    import skills_loader
+    assert hasattr(skills_loader, "list_skills")
+
+
 def test_import_daemon():
     import daemon

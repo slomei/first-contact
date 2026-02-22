@@ -892,6 +892,26 @@ if __name__ == "__main__":
             print(f"\n{memory.DIM}The director (Sonnet) routes tasks to specialists automatically.{memory.RESET}\n")
             continue
 
+        if command_lower == "/skills" or command_lower.startswith("/skills "):
+            import skills_loader
+            skills_arg = command[7:].strip().lower() if len(command) > 7 else ""
+            if skills_arg == "reload":
+                skills_loader.reload_skills()
+                count = len(skills_loader.list_skills())
+                print(f"{memory.DIM}Skills reloaded. {count} skill{'s' if count != 1 else ''} loaded.{memory.RESET}\n")
+            else:
+                skills = skills_loader.list_skills()
+                if not skills:
+                    print(f"{memory.DIM}No skills loaded. Drop .md files into skills/ to add them.{memory.RESET}\n")
+                else:
+                    print(f"\n{memory.CYAN}Loaded skills:{memory.RESET}")
+                    for s in skills:
+                        tag = "built-in" if s['is_builtin'] else "user"
+                        print(f"  {memory.CYAN}{s['name']:<16}{memory.RESET} {s['description']}")
+                        print(f"  {memory.DIM}{'':16} specialist: {s['specialist']}  [{tag}]{memory.RESET}")
+                    print(f"\n{memory.DIM}Use /skills reload to re-scan the skills/ directory.{memory.RESET}\n")
+            continue
+
         if command_lower == "/email" or command_lower.startswith("/email "):
             email_arg = command[6:].strip() if len(command) > 6 else ""
             email_arg_lower = email_arg.lower()
@@ -2824,7 +2844,10 @@ if __name__ == "__main__":
             task = routing.get("task", user_input)
             spec = models.SPECIALISTS.get(specialist_name)
             if spec:
-                print(f"\n{memory.DIM}\u25c7 Delegating to {specialist_name} ({spec['label']})...{memory.RESET}")
+                import skills_loader
+                matched = skills_loader.match_skill(task, specialist_name)
+                skill_note = f" + {matched['name']}" if matched else ""
+                print(f"\n{memory.DIM}\u25c7 Delegating to {specialist_name} ({spec['label']}{skill_note})...{memory.RESET}")
                 specialist_result, s_in, s_out, s_cost = models.delegate_to_specialist(specialist_name, task)
                 print(f"{memory.DIM}  \u21b3 {specialist_name} finished [{s_in} in / {s_out} out \u2014 ${s_cost:.4f}]{memory.RESET}")
 

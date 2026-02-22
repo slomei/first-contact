@@ -356,6 +356,20 @@ def build_delegates_text():
     return "\n".join(lines)
 
 
+def build_skills_text():
+    """Build skills list display."""
+    import skills_loader
+    skills = skills_loader.list_skills()
+    if not skills:
+        return "No skills loaded. Drop .md files into skills/ to add them."
+    lines = ["Loaded skills:"]
+    for s in skills:
+        tag = "built-in" if s['is_builtin'] else "user"
+        lines.append(f"  {s['name']} — {s['description']} (specialist: {s['specialist']}) [{tag}]")
+    lines.append("\nUse /skills reload to re-scan the skills/ directory.")
+    return "\n".join(lines)
+
+
 def build_watchlist_text(state):
     """Build watched topics list."""
     sync_state(state)
@@ -1559,6 +1573,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- Delegates ---
     if content_lower == "/delegates":
         await send_reply(chat_id, build_delegates_text(), bot)
+        return
+
+    # --- Skills ---
+    if content_lower == "/skills" or content_lower.startswith("/skills "):
+        import skills_loader
+        skills_arg = content[7:].strip().lower() if len(content) > 7 else ""
+        if skills_arg == "reload":
+            skills_loader.reload_skills()
+            count = len(skills_loader.list_skills())
+            await send_reply(chat_id, f"Skills reloaded. {count} skill{'s' if count != 1 else ''} loaded.", bot)
+        else:
+            await send_reply(chat_id, build_skills_text(), bot)
         return
 
     # --- Conversations ---

@@ -991,6 +991,24 @@ def handle_command(command, state):
         lines.append("\n*The director (Sonnet) routes tasks to specialists automatically.*")
         return "\n".join(lines)
 
+    # --- Skills ---
+    if cmd_lower == "/skills" or cmd_lower.startswith("/skills "):
+        import skills_loader
+        skills_arg = cmd[7:].strip().lower() if len(cmd) > 7 else ""
+        if skills_arg == "reload":
+            skills_loader.reload_skills()
+            count = len(skills_loader.list_skills())
+            return f"Skills reloaded. {count} skill{'s' if count != 1 else ''} loaded."
+        skills = skills_loader.list_skills()
+        if not skills:
+            return "No skills loaded. Drop `.md` files into `skills/` to add them."
+        lines = ["### Loaded Skills", "", "| Skill | Description | Specialist | Type |", "|-------|-------------|------------|------|"]
+        for s in skills:
+            tag = "built-in" if s['is_builtin'] else "user"
+            lines.append(f"| `{s['name']}` | {s['description']} | {s['specialist']} | {tag} |")
+        lines.append("\n*Use `/skills reload` to re-scan the skills/ directory.*")
+        return "\n".join(lines)
+
     # --- Briefing ---
     if cmd_lower == "/briefing" or cmd_lower.startswith("/briefing "):
         briefing_arg = cmd[9:].strip().lower() if len(cmd) > 9 else ""

@@ -118,6 +118,14 @@ HELP_CATEGORIES = {
         ],
         "tip": "Claude also searches the web autonomously when it would help.",
     },
+    "skills": {
+        "desc": "Extensible specialist skills",
+        "commands": [
+            ("/skills", "List all loaded skills"),
+            ("/skills reload", "Re-scan skills/ directory"),
+        ],
+        "tip": "Drop .md files with YAML front matter into skills/ to create custom skills.",
+    },
     "system": {
         "desc": "Status, briefing, notifications, projects",
         "commands": [

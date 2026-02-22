@@ -337,6 +337,20 @@ def build_delegates_text():
     return "\n".join(lines)
 
 
+def build_skills_text():
+    """Build skills list display."""
+    import skills_loader
+    skills = skills_loader.list_skills()
+    if not skills:
+        return "No skills loaded. Drop `.md` files into `skills/` to add them."
+    lines = ["**Loaded skills:**"]
+    for s in skills:
+        tag = "built-in" if s['is_builtin'] else "user"
+        lines.append(f"`{s['name']}` — {s['description']} (specialist: {s['specialist']}) [{tag}]")
+    lines.append("\n*Use `!skills reload` to re-scan the skills/ directory.*")
+    return "\n".join(lines)
+
+
 def build_watchlist_text(state):
     """Build watched topics list."""
     sync_state(state)
@@ -1626,6 +1640,18 @@ async def on_message(message):
     # --- Delegates ---
     if command_lower == "!delegates":
         await send_reply(dm, build_delegates_text())
+        return
+
+    # --- Skills ---
+    if command_lower == "!skills" or command_lower.startswith("!skills "):
+        import skills_loader
+        skills_arg = command[7:].strip().lower() if len(command) > 7 else ""
+        if skills_arg == "reload":
+            skills_loader.reload_skills()
+            count = len(skills_loader.list_skills())
+            await send_reply(dm, f"Skills reloaded. {count} skill{'s' if count != 1 else ''} loaded.")
+        else:
+            await send_reply(dm, build_skills_text())
         return
 
     # --- Conversations ---

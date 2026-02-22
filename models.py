@@ -463,13 +463,24 @@ def delegate_to_specialist(specialist_name, task):
 
     Returns (text, input_tokens, output_tokens, cost).
     """
+    import skills_loader
     spec = SPECIALISTS[specialist_name]
     model = spec["model"]
+
+    system_prompt = spec["system_prompt"]
+    matched_skill = skills_loader.match_skill(task, specialist_name)
+    if matched_skill:
+        skill_block = (
+            f"=== SKILL: {matched_skill['name']} ===\n"
+            f"{matched_skill['content']}\n"
+            f"=== END SKILL ===\n\n"
+        )
+        system_prompt = skill_block + system_prompt
 
     response = get_client().messages.create(
         model=model,
         max_tokens=4096,
-        system=spec["system_prompt"],
+        system=system_prompt,
         messages=[{"role": "user", "content": task}],
     )
 

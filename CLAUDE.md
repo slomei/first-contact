@@ -39,6 +39,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `onboarding.py` | 20-step interactive setup wizard. Covers profile, communication style, integrations (Discord, Telegram, Gmail, Calendar), notification preferences, and Haiku-driven personality calibration. Works across all interfaces. |
 | `help_data.py` | Single source of truth for all help text. `HELP_CATEGORIES` dict with per-interface formatters (terminal ANSI box-drawing, Discord markdown, Telegram plain text, GUI Gradio markdown). Fuzzy prefix matching. |
 | `creative.py` | Creative project tools — world bible PDF parsing via pdfplumber, character/location JSON lookup. Used for the First Light screenplay project. |
+| `skills_loader.py` | Extensible skills system — loads `.md` skill files from `skills/` directory, keyword matching, injects matched skill content into specialist system prompts during delegation. |
 | `sync.py` | File sync system — reads `sync_sources.json` for source/destination mappings, glob-scans Windows paths, resolves version conflicts, copies latest file. |
 
 ### Tests
@@ -110,6 +111,10 @@ The director (Sonnet) can route messages to specialist agents:
 - **coder** (Sonnet) — code generation and debugging
 - **analyst** (Sonnet) — problem analysis, finding flaws, critical thinking
 
+### Extensible Skills
+
+Specialists can be augmented with skills — `.md` files in the `skills/` directory with YAML front matter defining `name`, `description`, `specialist`, `model_preference`, and `trigger_keywords`. When a message is delegated, `skills_loader.match_skill()` finds the best keyword match and prepends the skill content to the specialist's system prompt. Ships with 5 built-in skills (cover_letter, research, code_review, email_draft, job_analysis). Users can add custom skills by dropping `.md` files into `skills/`.
+
 ### 18 Integrated Tools
 
 `web_search`, `read_file`, `write_file`, `remember`, `forget`, `list_memories`, `save_note`, `run_python`, `job_search`, `check_email`, `read_email`, `search_email`, `create_task`, `create_reminder`, `web_fetch`, `generate_pdf`, `get_calendar_events`, `create_calendar_event`
@@ -174,7 +179,7 @@ The director (Sonnet) can route messages to specialist agents:
 
 **Watchlist:** `/watch <topic>`, `/watch list`, `/watch remove <topic>`, `/digest`
 
-**System:** `/help [category]`, `/status`, `/tokens`, `/billing`, `/delegates`, `/setup`, `/update`, `/reset`
+**System:** `/help [category]`, `/status`, `/tokens`, `/billing`, `/delegates`, `/skills`, `/skills reload`, `/setup`, `/update`, `/reset`
 
 **Creative:** `/characters`, `/character <name>`, `/locations`, `/location <name>`
 
