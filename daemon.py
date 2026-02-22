@@ -11,7 +11,6 @@ Usage:
 Stops gracefully on SIGTERM/SIGINT.
 """
 
-import json
 import logging
 import os
 import signal

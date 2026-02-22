@@ -9,7 +9,6 @@ design: each call to advance(user_input) processes one answer and returns the
 next prompt.
 """
 
-import json
 import os
 import stat
 
