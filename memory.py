@@ -113,8 +113,8 @@ def _build_base_prompt():
         bio_parts.append(f"{name} is a {profile['title']}.")
     bio_line = " ".join(bio_parts) if bio_parts else ""
 
-    # Dynamic date — computed fresh each time the prompt is built
-    today_line = _dt.now().strftime("Today is %A, %B %d, %Y.")
+    # Dynamic date and time — computed fresh each time the prompt is built
+    today_line = _dt.now().strftime("Today is %A, %B %d, %Y. Current time: %-I:%M %p.")
 
     return _SYSTEM_PROMPT_TEMPLATE.format(
         name=name,
