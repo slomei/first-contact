@@ -1890,7 +1890,8 @@ def process_message(history, state):
         yield history, state, format_cost(state), format_memories()
         return
 
-    user_text = last_msg["content"].strip()
+    raw = last_msg["content"]
+    user_text = (raw if isinstance(raw, str) else raw[0].get("text", "") if raw else "").strip()
 
     if user_text.startswith("/"):
         result = handle_command(user_text, state)
