@@ -799,7 +799,7 @@ def get_job_folder(job):
         os.makedirs(folder_path, exist_ok=True)
         return folder_path
 
-    base = slugify(job["title"]) or "untitled"
+    base = slugify(job.get("title", "")) or "untitled"
     folder_name = base
     if os.path.exists(os.path.join(jobs_dir, folder_name)):
         i = 2

@@ -1632,7 +1632,7 @@ def handle_command(command, state):
                 return "Invalid number. Use `/work list` to see listings."
 
             job = jobs[idx]
-            job_title = job["title"]
+            job_title = job.get("title", "(untitled)")
 
             # Extract company from title
             company_name = "Company"
@@ -1651,18 +1651,18 @@ def handle_command(command, state):
             folder = memory.get_job_folder(job)
             cl_md_path = os.path.join(folder, "cover-letter.md")
             with open(cl_md_path, "w") as f:
-                f.write(f"# Cover Letter — {job['title']}\n\n")
-                f.write(f"**Position:** {job['title']}\n")
-                f.write(f"**URL:** {job['url']}\n")
+                f.write(f"# Cover Letter — {job_title}\n\n")
+                f.write(f"**Position:** {job_title}\n")
+                f.write(f"**URL:** {job.get('url', '')}\n")
                 f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n---\n\n")
                 f.write(letter_text + "\n")
 
             listing_path = os.path.join(folder, "listing.json")
             with open(listing_path, "w") as f:
                 json.dump({
-                    "title": job["title"],
-                    "url": job["url"],
-                    "description": job["body"],
+                    "title": job_title,
+                    "url": job.get("url", ""),
+                    "description": job.get("body", ""),
                     "saved_at": job.get("saved_at"),
                     "status": job.get("status"),
                     "cover_letter_generated": datetime.now().strftime("%Y-%m-%d %H:%M"),

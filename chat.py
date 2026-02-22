@@ -2812,19 +2812,20 @@ if __name__ == "__main__":
         if routing.get("action") == "delegate":
             specialist_name = routing["specialist"]
             task = routing.get("task", user_input)
-            spec = models.SPECIALISTS[specialist_name]
-            print(f"\n{memory.DIM}\u25c7 Delegating to {specialist_name} ({spec['label']})...{memory.RESET}")
-            specialist_result, s_in, s_out, s_cost = models.delegate_to_specialist(specialist_name, task)
-            print(f"{memory.DIM}  \u21b3 {specialist_name} finished [{s_in} in / {s_out} out \u2014 ${s_cost:.4f}]{memory.RESET}")
+            spec = models.SPECIALISTS.get(specialist_name)
+            if spec:
+                print(f"\n{memory.DIM}\u25c7 Delegating to {specialist_name} ({spec['label']})...{memory.RESET}")
+                specialist_result, s_in, s_out, s_cost = models.delegate_to_specialist(specialist_name, task)
+                print(f"{memory.DIM}  \u21b3 {specialist_name} finished [{s_in} in / {s_out} out \u2014 ${s_cost:.4f}]{memory.RESET}")
 
-            models.conversation_history[-1]["content"] = (
-                f"{user_input}\n\n"
-                f"[Specialist result from {specialist_name}:]\n\n"
-                f"{specialist_result}\n\n"
-                f"[Synthesize this specialist output into your response. "
-                f"Present it naturally \u2014 add context or framing as needed, "
-                f"or present it as-is if it's already well-formatted.]"
-            )
+                models.conversation_history[-1]["content"] = (
+                    f"{user_input}\n\n"
+                    f"[Specialist result from {specialist_name}:]\n\n"
+                    f"{specialist_result}\n\n"
+                    f"[Synthesize this specialist output into your response. "
+                    f"Present it naturally \u2014 add context or framing as needed, "
+                    f"or present it as-is if it's already well-formatted.]"
+                )
 
         chat_turn()
         check_compression()

@@ -61,9 +61,12 @@ def get_latest(key, prompt_fn=None):
         return None
 
     config = sources[key]
-    source_glob = config["source"]
-    destination = os.path.join(memory.BASE_DIR, config["destination"])
-    pattern = config["pattern"]
+    source_glob = config.get("source")
+    dest_rel = config.get("destination")
+    pattern = config.get("pattern")
+    if not source_glob or not dest_rel or not pattern:
+        return None
+    destination = os.path.join(memory.BASE_DIR, dest_rel)
 
     # Scan source files
     source_files = glob.glob(source_glob)
@@ -168,8 +171,11 @@ def sync_file(key, filepath):
         return None
 
     config = sources[key]
-    destination = os.path.join(memory.BASE_DIR, config["destination"])
-    pattern = config["pattern"]
+    dest_rel = config.get("destination")
+    pattern = config.get("pattern")
+    if not dest_rel or not pattern:
+        return None
+    destination = os.path.join(memory.BASE_DIR, dest_rel)
     filename = os.path.basename(filepath)
 
     os.makedirs(destination, exist_ok=True)
