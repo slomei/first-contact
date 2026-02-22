@@ -757,8 +757,11 @@ def load_watchlist():
     """Load watchlist from the active project's watchlist.json."""
     path = get_watchlist_file()
     if os.path.exists(path):
-        with open(path, "r") as f:
-            data = json.load(f)
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return []
         return data if isinstance(data, list) else []
     return []
 
@@ -776,8 +779,11 @@ def load_jobs():
     """Load saved jobs from the job-search project."""
     path = get_jobs_file()
     if os.path.exists(path):
-        with open(path, "r") as f:
-            data = json.load(f)
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return []
         return data if isinstance(data, list) else []
     return []
 

@@ -209,7 +209,7 @@ First Contact responds to natural conversation and also supports direct commands
 | **Scanning** | `/scan`, `/scan results`, `/scan status`, `/scan queries`, `/scan query add\|remove`, `/scan on\|off` |
 | **Tasks** | `/task add`, `/tasks`, `/task done`, `/task remove`, `/task edit`, `/task note`, `/tasks done`, `/remind`, `/reminders`, `/remind cancel` |
 | **Web** | `/web`, `/fetch`, `/read`, `/write`, `/run`, `/pdf` |
-| **System** | `/help`, `/status`, `/briefing`, `/notify`, `/project`, `/watch`, `/digest`, `/tokens`, `/delegates`, `/setup` |
+| **System** | `/help`, `/status`, `/briefing`, `/notify`, `/project`, `/watch`, `/digest`, `/tokens`, `/billing`, `/delegates`, `/setup`, `/update`, `/reset`, `/characters`, `/locations` |
 
 Claude also uses tools autonomously when they'd help — searching the web mid-conversation, saving facts to memory, checking your calendar when you ask about availability.
 

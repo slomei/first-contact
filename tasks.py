@@ -139,8 +139,11 @@ def load_tasks():
     """Load tasks from the active project's tasks.json."""
     path = memory.get_tasks_file()
     if os.path.exists(path):
-        with open(path, "r") as f:
-            data = json.load(f)
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return {"next_id": 1, "tasks": []}
         if not isinstance(data, dict):
             data = {"next_id": 1, "tasks": []}
         data["tasks"] = _extract_tasks_list(data)
@@ -287,8 +290,11 @@ def load_reminders():
     default = {"next_id": 1, "last_daily_notify": None, "reminders": []}
     path = memory.get_reminders_file()
     if os.path.exists(path):
-        with open(path, "r") as f:
-            data = json.load(f)
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return default
         if not isinstance(data, dict):
             return default
         if not isinstance(data.get("reminders"), list):
