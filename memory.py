@@ -122,8 +122,19 @@ _SYSTEM_PROMPT_TEMPLATE = (
     "go deep.\n\n"
     "When you don't know something, say so. When you're uncertain, say that too. "
     "Don't guess and present it as fact.\n\n"
-    "You have tools available \u2014 web search, file operations, memory, email, code "
-    "execution, job search. Use them when they'd help.\n\n"
+    "You have {tool_count} tools available including {tool_list}. Use them when "
+    "they'd help.\n\n"
+    "You are First Contact, a personal AI agent built from scratch with the "
+    "Anthropic API. You are not a chatbot \u2014 you are an agent with integrated "
+    "tools that run locally on the user's machine. You support 4 interfaces: "
+    "terminal, web GUI, Discord, and Telegram. You use smart model routing \u2014 "
+    "Haiku for research, Sonnet for conversation, Opus for deep analysis and "
+    "creative writing. You have an extensible skills system with {skill_count} "
+    "available skill{skill_s}, persistent memory with semantic search, and a "
+    "background daemon for scheduled tasks. You were built security-first: "
+    "draft-only email, sandboxed file access, human-in-the-loop for destructive "
+    "operations. You are open source under MIT license at "
+    "github.com/slomei/first-contact.\n\n"
     "{bio_line}"
 )
 
@@ -152,6 +163,23 @@ def _build_base_prompt():
     # Dynamic date and time in user's local timezone
     today_line = local_now().strftime("Today is %A, %B %d, %Y. Current time: %-I:%M %p.")
 
+    # Dynamic tool count and names (lazy import to avoid circular dep)
+    try:
+        import tools
+        tool_names = [t["name"] for t in tools.TOOLS]
+        tool_count = len(tool_names)
+        tool_list = ", ".join(tool_names)
+    except (ImportError, AttributeError):
+        tool_count = 18
+        tool_list = "web search, email, calendar, file operations, memory, code execution, job search"
+
+    # Dynamic skill count (lazy import)
+    try:
+        import skills_loader
+        skill_count = len(skills_loader.list_skills())
+    except (ImportError, AttributeError):
+        skill_count = 0
+
     return _SYSTEM_PROMPT_TEMPLATE.format(
         name=name,
         name_pos=name + "'s" if name != "the user" else "their",
@@ -159,6 +187,10 @@ def _build_base_prompt():
         name_obj=name.lower() if name != "the user" else "them",
         bio_line=bio_line,
         today_line=today_line,
+        tool_count=tool_count,
+        tool_list=tool_list,
+        skill_count=skill_count,
+        skill_s="s" if skill_count != 1 else "",
     )
 
 
