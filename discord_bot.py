@@ -1211,7 +1211,11 @@ async def on_message(message):
                 await send_reply(dm, "*Starting Calendar OAuth flow (check terminal)...*")
                 success = await asyncio.to_thread(tools.calendar_setup)
                 if success:
-                    await send_reply(dm, "*Google Calendar authenticated successfully.*")
+                    service = tools.get_calendar_service()
+                    if service:
+                        await send_reply(dm, "*Google Calendar connected and verified.*")
+                    else:
+                        await send_reply(dm, "*Token saved but verification failed. Try again later.*")
                 else:
                     await send_reply(dm, "*Calendar setup failed.*")
 

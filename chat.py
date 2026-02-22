@@ -909,7 +909,12 @@ if __name__ == "__main__":
                     if not tools._check_scopes():
                         print(f"{memory.DIM}Scopes changed — re-authorizing Gmail...{memory.RESET}")
                     if tools.gmail_setup():
-                        print(f"{memory.DIM}Gmail authenticated successfully. Token saved to {memory.GMAIL_CREDENTIALS}{memory.RESET}\n")
+                        # Verify credentials work in current session
+                        service = tools.get_gmail_service()
+                        if service:
+                            print(f"{memory.DIM}Gmail connected and verified. /email commands work now.{memory.RESET}\n")
+                        else:
+                            print(f"{memory.DIM}Token saved but verification failed. Try /email check to test.{memory.RESET}\n")
                     else:
                         print(f"{memory.YELLOW}Gmail setup failed.{memory.RESET} Check your client_secret file and try /email setup again.\n")
 
@@ -1487,7 +1492,12 @@ if __name__ == "__main__":
                     if not tools._check_calendar_scopes():
                         print(f"{memory.DIM}Authorizing Google Calendar...{memory.RESET}")
                     if tools.calendar_setup():
-                        print(f"{memory.DIM}Google Calendar authenticated. Token saved to {memory.CALENDAR_CREDENTIALS}{memory.RESET}\n")
+                        # Verify credentials work in current session
+                        service = tools.get_calendar_service()
+                        if service:
+                            print(f"{memory.DIM}Google Calendar connected and verified. /cal commands work now.{memory.RESET}\n")
+                        else:
+                            print(f"{memory.DIM}Token saved but verification failed. Try /cal to check.{memory.RESET}\n")
                     else:
                         print(f"{memory.DIM}Calendar setup failed.{memory.RESET}\n")
 

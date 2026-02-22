@@ -1181,7 +1181,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await send_reply(chat_id, "Starting Calendar OAuth flow (check terminal)...", bot)
                 success = await asyncio.to_thread(tools.calendar_setup)
                 if success:
-                    await send_reply(chat_id, "Google Calendar authenticated successfully.", bot)
+                    service = tools.get_calendar_service()
+                    if service:
+                        await send_reply(chat_id, "Google Calendar connected and verified.", bot)
+                    else:
+                        await send_reply(chat_id, "Token saved but verification failed. Try again later.", bot)
                 else:
                     await send_reply(chat_id, "Calendar setup failed.", bot)
 

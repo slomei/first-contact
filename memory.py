@@ -716,6 +716,15 @@ def build_system_prompt(mems, creative_context="", query=None):
         if summary:
             base += f"\n\nOther projects:\n{summary}"
 
+    # Integration status (dynamic, rebuilt each turn so Claude sees changes after setup)
+    connected = []
+    if os.path.exists(GMAIL_CREDENTIALS):
+        connected.append("Gmail")
+    if os.path.exists(CALENDAR_CREDENTIALS):
+        connected.append("Google Calendar")
+    if connected:
+        base += f"\n\nConnected integrations: {', '.join(connected)}"
+
     if creative_context:
         base += (
             "\n\nYou are working on the First Light sci-fi project. Here is the world bible "

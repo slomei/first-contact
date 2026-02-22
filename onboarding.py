@@ -491,20 +491,26 @@ class OnboardingWizard:
                 )
             success = tools.gmail_setup(label=label)
             if success:
-                # Track additional accounts
-                extra = self.data.get("gmail_extra_accounts", [])
-                extra.append(label)
-                self.data["gmail_extra_accounts"] = extra
-                gmail_count = 1 + len(extra)
-                if gmail_count < 4:
-                    # Allow up to 3 additional accounts
-                    self.sub_step = 1
-                    return (f"Gmail account '{label}' connected! Add another Gmail account? (yes/skip)", False)
+                # Verify credentials work
+                cred_path = os.path.join(memory.BASE_DIR, f"gmail_credentials_{label}.json")
+                service = tools.get_gmail_service(credentials_path=cred_path)
+                if service:
+                    # Track additional accounts
+                    extra = self.data.get("gmail_extra_accounts", [])
+                    extra.append(label)
+                    self.data["gmail_extra_accounts"] = extra
+                    gmail_count = 1 + len(extra)
+                    if gmail_count < 4:
+                        self.sub_step = 1
+                        return (f"Gmail account '{label}' connected and verified! Add another? (yes/skip)", False)
+                    else:
+                        self.sub_step = 0
+                        self.step += 1
+                        next_prompt, done = self._next_prompt()
+                        return (f"Gmail account '{label}' connected and verified! (max accounts reached)\n\n{next_prompt}", done)
                 else:
-                    self.sub_step = 0
-                    self.step += 1
-                    next_prompt, done = self._next_prompt()
-                    return (f"Gmail account '{label}' connected! (max accounts reached)\n\n{next_prompt}", done)
+                    self.sub_step = 1
+                    return (f"Gmail '{label}' token saved but verification failed. Add another? (yes/skip)", False)
             else:
                 self.sub_step = 1
                 return (f"Gmail setup for '{label}' failed. Add another Gmail account? (yes/skip)", False)
@@ -528,11 +534,18 @@ class OnboardingWizard:
                             done,
                         )
                     success = tools.gmail_setup()
-                    self.data[key] = "connected" if success else "failed"
                     if success:
-                        self.sub_step = 1
-                        return ("Gmail connected! Add another Gmail account? (yes/skip)", False)
+                        # Verify credentials work immediately
+                        service = tools.get_gmail_service()
+                        if service:
+                            self.data[key] = "connected"
+                            self.sub_step = 1
+                            return ("Gmail connected and verified! Add another Gmail account? (yes/skip)", False)
+                        else:
+                            self.data[key] = "failed"
+                            msg = "Gmail token saved but verification failed — try /email setup later."
                     else:
+                        self.data[key] = "failed"
                         msg = "Gmail setup failed — you can try again later with /email setup."
                         self.step += 1
                         next_prompt, done = self._next_prompt()
@@ -548,8 +561,13 @@ class OnboardingWizard:
                             done,
                         )
                     success = tools.calendar_setup()
-                    self.data[key] = "connected" if success else "failed"
-                    msg = "Google Calendar connected!" if success else "Calendar setup failed — you can try again later with /cal setup."
+                    if success:
+                        service = tools.get_calendar_service()
+                        self.data[key] = "connected" if service else "failed"
+                        msg = "Google Calendar connected and verified!" if service else "Calendar token saved but verification failed — try /cal setup later."
+                    else:
+                        self.data[key] = "failed"
+                        msg = "Calendar setup failed — you can try again later with /cal setup."
 
                 self.step += 1
                 next_prompt, done = self._next_prompt()
