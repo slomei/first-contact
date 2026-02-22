@@ -62,7 +62,7 @@ MODEL_DISPLAY_NAMES = {
 
 def format_memories():
     """Format current memories for sidebar display."""
-    mems = memory.load_memories()
+    mems = memory.load_all_memories()
     if not mems:
         return "*No memories stored.*"
     return "\n".join(f"- {m}" for m in mems)
@@ -1951,39 +1951,261 @@ def new_chat(state):
     return [], state, format_cost(state)
 
 
+def _build_theme():
+    """Build the custom dark grey theme for the GUI."""
+    return gr.themes.Base(
+        primary_hue=gr.themes.Color(
+            c50="#e8f5e9", c100="#c8e6c9", c200="#a5d6a7", c300="#81c784",
+            c400="#66bb6a", c500="#2d6a4f", c600="#265d45", c700="#1b4332",
+            c800="#143328", c900="#0d261d", c950="#081a13",
+        ),
+        neutral_hue=gr.themes.Color(
+            c50="#f0f0f0", c100="#e0e0e0", c200="#c0c0c0", c300="#a0a0a0",
+            c400="#808080", c500="#555555", c600="#3a3a3a", c700="#2a2a2a",
+            c800="#1e1e1e", c900="#1a1a1a", c950="#141414",
+        ),
+        font=("Inter", "system-ui", "sans-serif"),
+        font_mono=("JetBrains Mono", "Consolas", "monospace"),
+    ).set(
+        body_background_fill="#1a1a1a",
+        body_background_fill_dark="#1a1a1a",
+        body_text_color="#e0e0e0",
+        body_text_color_dark="#e0e0e0",
+        block_background_fill="#1e1e1e",
+        block_background_fill_dark="#1e1e1e",
+        block_border_color="#2a2a2a",
+        block_border_color_dark="#2a2a2a",
+        block_label_text_color="#808080",
+        block_label_text_color_dark="#808080",
+        block_title_text_color="#e0e0e0",
+        block_title_text_color_dark="#e0e0e0",
+        input_background_fill="#141414",
+        input_background_fill_dark="#141414",
+        input_border_color="#2a2a2a",
+        input_border_color_dark="#2a2a2a",
+        input_placeholder_color="#555555",
+        input_placeholder_color_dark="#555555",
+        button_primary_background_fill="#2d6a4f",
+        button_primary_background_fill_dark="#2d6a4f",
+        button_primary_background_fill_hover="#347a5b",
+        button_primary_background_fill_hover_dark="#347a5b",
+        button_primary_text_color="#ffffff",
+        button_primary_text_color_dark="#ffffff",
+        button_secondary_background_fill="#2a2a2a",
+        button_secondary_background_fill_dark="#2a2a2a",
+        button_secondary_background_fill_hover="#333333",
+        button_secondary_background_fill_hover_dark="#333333",
+        button_secondary_text_color="#e0e0e0",
+        button_secondary_text_color_dark="#e0e0e0",
+        border_color_primary="#2d6a4f",
+        border_color_primary_dark="#2d6a4f",
+        color_accent_soft="#2d6a4f20",
+        color_accent_soft_dark="#2d6a4f20",
+    )
+
+
+_CUSTOM_CSS = """
+/* --- Page --- */
+.gradio-container {
+    max-width: 100% !important;
+    padding: 0 12px !important;
+    background: #1a1a1a !important;
+}
+footer { display: none !important; }
+
+/* --- Header --- */
+#fc-header {
+    text-align: center;
+    padding: 10px 0 6px 0;
+    border-bottom: 1px solid #2a2a2a;
+    margin: 0 0 4px 0;
+}
+#fc-header h2 {
+    color: #ffffff !important;
+    font-size: 1.15em !important;
+    font-weight: 600 !important;
+    margin: 0 !important;
+    letter-spacing: 0.05em;
+}
+#fc-header p {
+    color: #555555 !important;
+    font-size: 0.75em !important;
+    margin: 1px 0 0 0 !important;
+}
+
+/* --- Chat area --- */
+#fc-chatbot {
+    height: calc(100vh - 280px) !important;
+    max-height: calc(100vh - 280px) !important;
+    min-height: 250px !important;
+    border: 1px solid #2a2a2a !important;
+    border-radius: 6px !important;
+    background: #141414 !important;
+}
+#fc-chatbot .bot .message-content { color: #ffffff !important; }
+#fc-chatbot .user .message-content { color: #ffffff !important; }
+#fc-chatbot .bot { background: #1e1e1e !important; }
+#fc-chatbot .user { background: #1a2e1a !important; }
+
+/* --- Input --- */
+#fc-input textarea {
+    background: #141414 !important;
+    border: 1px solid #2a2a2a !important;
+    color: #ffffff !important;
+    border-radius: 6px !important;
+    font-size: 0.95em !important;
+    padding: 10px 14px !important;
+}
+#fc-input textarea:focus {
+    border-color: var(--fc-accent, #2d6a4f) !important;
+    box-shadow: 0 0 0 1px var(--fc-accent-40, #2d6a4f40) !important;
+}
+
+/* --- Toolbar --- */
+#fc-toolbar {
+    padding: 6px 0 !important;
+    gap: 10px !important;
+    align-items: center !important;
+    border-top: 1px solid #2a2a2a;
+    flex-wrap: nowrap !important;
+}
+
+/* Model dropdown — functional, not cramped */
+#fc-model-select {
+    min-width: 130px !important;
+    max-width: 160px !important;
+}
+#fc-model-select label { display: none !important; }
+
+/* New Chat button */
+#fc-new-chat {
+    max-width: 110px !important;
+    min-height: 36px !important;
+    font-size: 0.85em !important;
+}
+
+/* Cost text */
+#fc-cost-col .prose {
+    color: #b0b0b0 !important;
+    font-size: 0.8em !important;
+    line-height: 1.4 !important;
+}
+
+/* Color picker — visible and clickable */
+#fc-accent-picker label { display: none !important; }
+#fc-accent-picker input[type="color"] {
+    height: 36px !important;
+    width: 36px !important;
+    border: 1px solid #2a2a2a !important;
+    border-radius: 6px !important;
+    cursor: pointer;
+    background: #1e1e1e !important;
+    padding: 2px !important;
+}
+
+/* --- Memories --- */
+#fc-memories .label-wrap {
+    background: #1e1e1e !important;
+    border-color: #2a2a2a !important;
+    padding: 6px 12px !important;
+}
+#fc-memories .label-wrap span { color: #808080 !important; font-size: 0.8em !important; }
+#fc-memories .prose { color: #808080 !important; font-size: 0.8em !important; }
+
+/* --- Accent color for primary buttons (dynamic via CSS var) --- */
+button.primary { background: var(--fc-accent, #2d6a4f) !important; }
+button.primary:hover { background: var(--fc-accent-hover, #347a5b) !important; }
+"""
+
+_ACCENT_JS = """
+() => {
+    // Restore accent from localStorage
+    const saved = localStorage.getItem('fc-accent-color');
+    if (saved) {
+        document.documentElement.style.setProperty('--fc-accent', saved);
+        document.documentElement.style.setProperty('--fc-accent-40', saved + '40');
+        // Lighten for hover
+        const r = parseInt(saved.slice(1,3),16), g = parseInt(saved.slice(3,5),16), b = parseInt(saved.slice(5,7),16);
+        const hover = '#' + Math.min(255,r+20).toString(16).padStart(2,'0')
+                          + Math.min(255,g+20).toString(16).padStart(2,'0')
+                          + Math.min(255,b+20).toString(16).padStart(2,'0');
+        document.documentElement.style.setProperty('--fc-accent-hover', hover);
+        // Update picker element
+        const picker = document.querySelector('#fc-accent-picker input[type="color"]');
+        if (picker) picker.value = saved;
+        return saved;
+    }
+    return '#2d6a4f';
+}
+"""
+
+
+def _apply_accent_color(color):
+    """Return JS to apply accent color and save to localStorage."""
+    # This is called server-side but we use the returned value in JS
+    return color
+
+
 def build_ui():
     """Build and return the Gradio Blocks app."""
-    with gr.Blocks(title="Claude Chatbot") as app:
+    with gr.Blocks(title="First Contact", fill_height=True) as app:
         state = gr.State(SessionState())
 
-        with gr.Row():
-            # --- Sidebar ---
-            with gr.Column(scale=1, min_width=220):
-                gr.Markdown("### Settings")
-                model_dropdown = gr.Dropdown(
-                    choices=get_model_choices(),
-                    value="Sonnet",
-                    label="Model",
-                    interactive=True,
-                )
-                new_chat_btn = gr.Button("New Chat")
-                cost_display = gr.Markdown(value=format_cost(SessionState()), label="Usage")
-                gr.Markdown("### Memories")
-                memories_display = gr.Markdown(value=format_memories())
+        # --- Header ---
+        gr.Markdown("## First Contact\nPersonal AI Agent", elem_id="fc-header")
 
-            # --- Main chat area ---
-            with gr.Column(scale=4):
-                chatbot = gr.Chatbot(
-                    height=600,
-                )
-                msg_input = gr.Textbox(
-                    placeholder="Type a message or /help for commands...",
-                    show_label=False,
-                    container=False,
-                )
+        # --- Chat area (fills viewport) ---
+        chatbot = gr.Chatbot(
+            show_label=False,
+            elem_id="fc-chatbot",
+            placeholder="Start a conversation or type /help for commands...",
+        )
+
+        # --- Input ---
+        msg_input = gr.Textbox(
+            placeholder="Message First Contact...",
+            show_label=False,
+            container=False,
+            elem_id="fc-input",
+        )
+
+        # --- Toolbar ---
+        with gr.Row(elem_id="fc-toolbar"):
+            model_dropdown = gr.Dropdown(
+                choices=get_model_choices(),
+                value="Sonnet",
+                label="Model",
+                show_label=False,
+                interactive=True,
+                elem_id="fc-model-select",
+                min_width=130,
+                scale=0,
+            )
+            new_chat_btn = gr.Button(
+                "New Chat",
+                variant="secondary",
+                elem_id="fc-new-chat",
+                min_width=100,
+                scale=0,
+            )
+            with gr.Column(scale=1, elem_id="fc-cost-col", min_width=200):
+                cost_display = gr.Markdown(value=format_cost(SessionState()))
+            accent_picker = gr.ColorPicker(
+                value="#2d6a4f",
+                label="Accent",
+                show_label=False,
+                interactive=True,
+                elem_id="fc-accent-picker",
+                min_width=50,
+                scale=0,
+            )
+
+        # --- Memories accordion (collapsed) ---
+        with gr.Accordion("Memories", open=False, elem_id="fc-memories"):
+            memories_display = gr.Markdown(value=format_memories())
 
         # --- Event wiring ---
-        msg_submit = msg_input.submit(
+        msg_input.submit(
             fn=user_message,
             inputs=[msg_input, chatbot, state],
             outputs=[msg_input, chatbot, state],
@@ -2005,6 +2227,29 @@ def build_ui():
             outputs=[chatbot, state, cost_display],
         )
 
+        # Accent color: apply via JS on change, persist to localStorage
+        accent_picker.change(
+            fn=_apply_accent_color,
+            inputs=[accent_picker],
+            outputs=[accent_picker],
+            js="""
+            (color) => {
+                document.documentElement.style.setProperty('--fc-accent', color);
+                document.documentElement.style.setProperty('--fc-accent-40', color + '40');
+                const r = parseInt(color.slice(1,3),16), g = parseInt(color.slice(3,5),16), b = parseInt(color.slice(5,7),16);
+                const hover = '#' + Math.min(255,r+20).toString(16).padStart(2,'0')
+                                  + Math.min(255,g+20).toString(16).padStart(2,'0')
+                                  + Math.min(255,b+20).toString(16).padStart(2,'0');
+                document.documentElement.style.setProperty('--fc-accent-hover', hover);
+                localStorage.setItem('fc-accent-color', color);
+                return color;
+            }
+            """,
+        )
+
+        # Restore accent on page load
+        app.load(fn=None, inputs=None, outputs=[accent_picker], js=_ACCENT_JS)
+
     return app
 
 
@@ -2013,4 +2258,4 @@ if __name__ == "__main__":
         print("Error: ANTHROPIC_API_KEY not set. Add it to your .env file and try again.")
         raise SystemExit(1)
     app = build_ui()
-    app.launch(theme=gr.themes.Soft())
+    app.launch(theme=_build_theme(), css=_CUSTOM_CSS)
