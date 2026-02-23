@@ -203,7 +203,7 @@ The system prompt (`memory.py`) includes three behavioral directives built from 
 4. File sandbox — `read_file` restricted to project directory, no dotfiles, no system paths
 5. Credential lockdown — `.env` + `chmod 600` on tokens
 6. Rate limits — 10 drafts/session, 10 fetches/session, 20 notifications/hour, 3 scans/day
-7. Human-in-the-loop — confirmation required for calendar events, file overwrites
+7. Human-in-the-loop — confirmation required for calendar events and code execution on all interfaces (terminal `input()`, web UI WebSocket confirm dialog, Discord yes/no DM, Telegram inline keyboard). Gradio auto-approves (known limitation). `tools.clean_confirm_prompt()` strips terminal `[y/N]:` suffixes for non-terminal interfaces
 8. User-gated messaging — Discord/Telegram bots respond only to configured user ID
 9. Anti-injection on drafts — external email content marked as untrusted data
 
@@ -280,11 +280,18 @@ The system prompt enforces these behaviors (see System Prompt Behaviors above):
 - Prompt caching via `build_system_prompt_cached()` and `get_cached_tools()`
 - Specific Anthropic API error handling (rate limit, auth, context overflow, connection)
 - Designed as foundation for eventual Tauri desktop app
-- `confirm_fn=None` (auto-approve, same as gui.py/discord)
+- Confirmation flow: `make_web_confirm_fn()` sends `{"type": "confirm"}` over WebSocket, client shows Approve/Deny buttons, user response sent back as `{"type": "confirm_response"}`. Server-side uses `threading.Event` to block the executor thread (60s timeout). `handle_message` runs via `asyncio.create_task()` so the dispatch loop continues processing `confirm_response` frames during tool execution
 
 **Discord (`discord_bot.py`):**
 - Background loop intervals: reminders (60s), email checks (5min), daily briefing (configurable), job scan (Mon-Fri)
 - Notification priority: high = immediate DM, medium = batched every 30min, low = silent
+- Confirmation flow: `make_discord_confirm_fn()` sends a bold prompt to the DM channel, blocks the worker thread on `threading.Event` (60s timeout). `on_message` intercepts yes/y/no/n replies via `state._pending_confirm` before command routing. Discord.py processes events concurrently so callbacks fire while tool execution is awaiting
+
+**Telegram (`telegram_bot.py`):**
+- Confirmation flow: `make_telegram_confirm_fn()` sends `InlineKeyboardMarkup` with Confirm/Cancel buttons, blocks worker thread on `threading.Event` (60s timeout). `CallbackQueryHandler` (registered before `MessageHandler`) handles button presses. Text yes/no fallback via `_pending_confirms` interception in `handle_message`. Requires `concurrent_updates=True` on the Application builder so callback queries are processed while the message handler awaits tool execution
+
+**Gradio GUI (`gui.py`):**
+- Confirmation: auto-approves all tools (`confirm_fn=None`). Gradio's generator-based streaming cannot receive user input mid-generation. Status note appended for `create_calendar_event` and `run_python` calls. Known limitation
 
 **Onboarding:**
 - Generates `Claude.md` (personal context), updated `config.json`, `setup_env.sh` (chmod 600)
