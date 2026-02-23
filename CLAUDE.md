@@ -245,6 +245,7 @@ The system prompt (`memory.py`) includes three behavioral directives built from 
 - **Tested on:** Python 3.10+ on Linux (Ubuntu/WSL2) and macOS
 - **GPU optional:** Semantic search works on CPU; auto-detects CUDA if available
 - **Browser opening (WSL):** Uses `wslview` if configured
+- **Commercial-potential work** (Tauri desktop app, Flutter mobile app, hosted service) belongs in separate private repos, never in this public repo.
 
 ## Communication Style
 
