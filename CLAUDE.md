@@ -8,7 +8,7 @@
 
 First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Four interfaces (terminal, web UI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
 
-**Status:** Shipped. All 203 tests passing. Live on GitHub.
+**Status:** Shipped. All 218 tests passing. Live on GitHub.
 
 ---
 
@@ -44,6 +44,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `creative.py` | Creative project tools — world bible PDF parsing via pdfplumber, character/location JSON lookup. Used for the First Light screenplay project. |
 | `skills_loader.py` | Extensible skills system — loads `.md` skill files from `skills/` directory, keyword matching, default base skills per specialist, injects matched skill content into specialist system prompts during delegation. |
 | `files.py` | Project file management — import, list, remove files. Validation, large-file detection, conversation injection formatting. Used by all interfaces and web UI drag-and-drop. |
+| `service_registry.py` | Centralized integration status — registers check functions for 6 built-in services (Discord, Telegram, Gmail, Calendar, web search, job search), caches status (unconfigured/configured/healthy/error), `check_all()` / `is_available()` API. |
 | `sync.py` | File sync system — reads `sync_sources.json` for source/destination mappings, glob-scans Windows paths, resolves version conflicts, copies latest file. |
 
 ### Tests
@@ -51,7 +52,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | File | Description |
 |------|-------------|
 | `tests/conftest.py` | Pytest fixtures — isolated temp dirs, test config, monkeypatched paths. |
-| `tests/test_imports.py` | Smoke tests — all 16 core modules import without errors. |
+| `tests/test_imports.py` | Smoke tests — all 17 core modules import without errors. |
 | `tests/test_conversation.py` | Conversation turn loop — non-streaming, streaming, tool loops, multi-turn, max turns, caching, cost calculation, confirm passthrough, KeyboardInterrupt handling. |
 | `tests/test_memory.py` | Memory system — config, profiles, memories, semantic search, cross-project, system prompt, custom prompt, cached prompt blocks. |
 | `tests/test_models.py` | Model routing — MODELS dict, pricing, short names, token estimation, usage tracking, cache tokens, batch discount. |
@@ -65,6 +66,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `tests/test_daemon_caching.py` | Daemon caching — prompt caching in job scanner, briefing watchlist, digest; track_usage cache token accounting. |
 | `tests/test_batch_api.py` | Batch API — module loads, functions exist. |
 | `tests/test_adapters.py` | Interface adapters — subclass validation, interface names, formatting support, confirm defaults. |
+| `tests/test_service_registry.py` | Service registry — built-in registration, status checks for all 6 services, is_available, custom registration, error handling. |
 
 ### Config & Data Files
 
@@ -326,7 +328,7 @@ All four interfaces share these features via the shared core:
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 203 tests across 15 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 218 tests across 16 test files.
 
 ---
 

@@ -28,30 +28,32 @@ def needs_onboarding() -> bool:
 def get_suggested_workflows():
     """Return a list of suggested workflow strings based on config and env vars.
 
-    Reads config.json and environment variables to detect which integrations
-    are set up, then returns personalized suggestions. Always returns at least
-    the fallback set.
+    Uses the service registry for credential/integration checks and reads
+    config.json for user preference checks. Always returns at least the
+    fallback set.
     """
+    import service_registry
+    service_registry.check_all()
+
     config = memory.load_config()
     suggestions = []
 
     # Gmail
-    if config.get("email_accounts"):
+    if service_registry.is_available("gmail"):
         suggestions.append("/email check — triage your inbox")
 
     # Calendar
-    cal_creds = os.path.join(memory.BASE_DIR, "calendar_credentials.json")
-    if os.path.exists(cal_creds):
+    if service_registry.is_available("calendar"):
         suggestions.append("/cal — check your schedule")
 
-    # Job search
+    # Job search (user preference, not a credential check)
     profile = config.get("user_profile", {})
     job_scan = config.get("job_scan", {})
     if profile.get("target_roles") or job_scan.get("queries"):
         suggestions.append("/scan — find jobs matching your profile")
 
     # Discord / Telegram notifications
-    if os.environ.get("DISCORD_BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN"):
+    if service_registry.is_available("discord") or service_registry.is_available("telegram"):
         suggestions.append("python daemon.py — enable background notifications")
 
     # Fallback: if nothing detected, suggest universal features

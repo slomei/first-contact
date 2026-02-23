@@ -390,7 +390,9 @@ if __name__ == "__main__":
         else:
             print(help_data.format_terminal_overview(_help_colors))
 
-    # Silently warm up OAuth tokens
+    # Warm up OAuth tokens and check integration status
+    import service_registry
+    service_registry.check_all()
     tools.get_gmail_service()
     tools.get_calendar_service()
 
@@ -2700,11 +2702,17 @@ if __name__ == "__main__":
             _st_global = memory.load_global_memories()
             _st_proj = memory.memories
 
+            import service_registry
+            service_registry.check_all()
+            _avail = [n for n, s in service_registry.get_all_status().items()
+                      if s in ("configured", "healthy")]
+
             _lines = [
                 f"Project: {memory.active_project}",
                 f"Model: {_st_model}",
                 f"Context: {_st_pct}% used | {models.session_compressions} compression{'s' if models.session_compressions != 1 else ''}",
                 f"Session cost: ${models.session_cost:.4f}",
+                f"Integrations: {', '.join(_avail) if _avail else 'none'}",
                 f"Daemon: {_daemon_status}",
                 f"Last briefing: {_last_briefing_str}",
                 f"Last scan: {_last_scan_str}{_scan_matches}",

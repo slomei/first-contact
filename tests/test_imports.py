@@ -140,3 +140,9 @@ def test_import_batch_api():
     assert hasattr(batch_api, "submit_batch")
     assert hasattr(batch_api, "poll_until_done")
     assert hasattr(batch_api, "retrieve_results")
+
+
+def test_import_service_registry():
+    import service_registry
+    assert hasattr(service_registry, "check_all")
+    assert hasattr(service_registry, "is_available")

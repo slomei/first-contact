@@ -809,11 +809,12 @@ def _build_stable_prompt():
         if summary:
             base += f"\n\nOther projects:\n{summary}"
 
-    # Integration status
+    # Integration status (reads cached status from startup — no re-check)
+    import service_registry
     connected = []
-    if os.path.exists(GMAIL_CREDENTIALS):
+    if service_registry.is_available("gmail"):
         connected.append("Gmail")
-    if os.path.exists(CALENDAR_CREDENTIALS):
+    if service_registry.is_available("calendar"):
         connected.append("Google Calendar")
     if connected:
         base += f"\n\nConnected integrations: {', '.join(connected)}"
@@ -920,11 +921,12 @@ def build_system_prompt(mems, creative_context="", query=None):
         if summary:
             base += f"\n\nOther projects:\n{summary}"
 
-    # Integration status (dynamic, rebuilt each turn so Claude sees changes after setup)
+    # Integration status (reads cached status from startup — no re-check)
+    import service_registry
     connected = []
-    if os.path.exists(GMAIL_CREDENTIALS):
+    if service_registry.is_available("gmail"):
         connected.append("Gmail")
-    if os.path.exists(CALENDAR_CREDENTIALS):
+    if service_registry.is_available("calendar"):
         connected.append("Google Calendar")
     if connected:
         base += f"\n\nConnected integrations: {', '.join(connected)}"

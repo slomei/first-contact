@@ -99,6 +99,8 @@ def _remove_pid():
 
 def _build_service_list(cfg):
     """Build list of services the daemon can auto-start."""
+    import service_registry
+    service_registry.check_all()
     return [
         {
             "name": "web_ui",
@@ -112,14 +114,14 @@ def _build_service_list(cfg):
             "cmd": [sys.executable, os.path.join(BASE_DIR, "discord_bot.py")],
             "process": None,
             "enabled": cfg.get("auto_start_discord", True),
-            "available": bool(os.environ.get("DISCORD_BOT_TOKEN")),
+            "available": service_registry.is_available("discord"),
         },
         {
             "name": "telegram",
             "cmd": [sys.executable, os.path.join(BASE_DIR, "telegram_bot.py")],
             "process": None,
             "enabled": cfg.get("auto_start_telegram", True),
-            "available": bool(os.environ.get("TELEGRAM_BOT_TOKEN")),
+            "available": service_registry.is_available("telegram"),
         },
     ]
 
