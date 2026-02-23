@@ -64,6 +64,24 @@ async def handle_message(ws, conn, data):
         if resolved in models.MODELS.values():
             conn.active_model = resolved
 
+    # --- Slash command handling ---
+    if user_msg.startswith("/prompt"):
+        arg = user_msg[7:].strip()
+        if not arg:
+            current = memory.get_custom_prompt()
+            if current:
+                msg = f"Current custom prompt:\n{current}"
+            else:
+                msg = "No custom prompt set. Send /prompt <text> to add one."
+        elif arg.lower() == "clear":
+            memory.set_custom_prompt("")
+            msg = "Custom prompt cleared."
+        else:
+            memory.set_custom_prompt(arg)
+            msg = "Custom prompt set."
+        await ws.send(json.dumps({"type": "status", "content": msg}))
+        return
+
     conn.history.append({"role": "user", "content": user_msg})
 
     system_prompt = memory.build_system_prompt_cached(
