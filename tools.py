@@ -109,11 +109,10 @@ TOOLS = [
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "The search query",
                 },
                 "max_results": {
                     "type": "integer",
-                    "description": "Maximum number of results (default: 5)",
+                    "description": "Default: 5",
                 },
             },
             "required": ["query"],
@@ -127,7 +126,6 @@ TOOLS = [
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "The file path to read",
                 },
             },
             "required": ["path"],
@@ -141,11 +139,10 @@ TOOLS = [
             "properties": {
                 "filename": {
                     "type": "string",
-                    "description": "Filename relative to workspace/. Can include subdirectories.",
+                    "description": "Relative to workspace/. Subdirectories allowed.",
                 },
                 "content": {
                     "type": "string",
-                    "description": "The content to write to the file",
                 },
             },
             "required": ["filename", "content"],
@@ -153,17 +150,16 @@ TOOLS = [
     },
     {
         "name": "remember",
-        "description": "Save a fact to persistent memory. Global by default; set project_specific=true for project-only.",
+        "description": "Save a fact to persistent memory.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "fact": {
                     "type": "string",
-                    "description": "The fact to remember",
                 },
                 "project_specific": {
                     "type": "boolean",
-                    "description": "If true, save to project memory instead of global. Default: false.",
+                    "description": "Save to project memory instead of global.",
                 },
             },
             "required": ["fact"],
@@ -177,7 +173,7 @@ TOOLS = [
             "properties": {
                 "fact": {
                     "type": "string",
-                    "description": "The exact fact to forget (must match a stored memory)",
+                    "description": "Must match a stored memory exactly.",
                 },
             },
             "required": ["fact"],
@@ -200,7 +196,6 @@ TOOLS = [
             "properties": {
                 "text": {
                     "type": "string",
-                    "description": "The note content to save",
                 },
             },
             "required": ["text"],
@@ -214,7 +209,6 @@ TOOLS = [
             "properties": {
                 "code": {
                     "type": "string",
-                    "description": "The Python code to execute",
                 },
             },
             "required": ["code"],
@@ -228,11 +222,10 @@ TOOLS = [
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Job search query (e.g. 'video editor NYC', 'remote python developer')",
                 },
                 "max_results": {
                     "type": "integer",
-                    "description": "Maximum number of results (default: 10)",
+                    "description": "Default: 10",
                 },
             },
             "required": ["query"],
@@ -246,7 +239,7 @@ TOOLS = [
             "properties": {
                 "max_results": {
                     "type": "integer",
-                    "description": "Maximum number of emails to return (default: 10)",
+                    "description": "Default: 10",
                 },
             },
             "required": [],
@@ -260,7 +253,7 @@ TOOLS = [
             "properties": {
                 "message_id": {
                     "type": "string",
-                    "description": "The Gmail message ID to read",
+                    "description": "Gmail message ID",
                 },
             },
             "required": ["message_id"],
@@ -274,11 +267,11 @@ TOOLS = [
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Gmail search query (e.g. 'from:example@gmail.com', 'subject:invoice')",
+                    "description": "Gmail search syntax (from:, subject:, etc.)",
                 },
                 "max_results": {
                     "type": "integer",
-                    "description": "Maximum number of results (default: 10)",
+                    "description": "Default: 10",
                 },
             },
             "required": ["query"],
@@ -292,16 +285,15 @@ TOOLS = [
             "properties": {
                 "description": {
                     "type": "string",
-                    "description": "What the task is",
                 },
                 "due_date": {
                     "type": "string",
-                    "description": "When it's due (natural language, e.g. 'tomorrow', 'Friday', 'in 3 days')",
+                    "description": "Natural language (e.g. 'tomorrow', 'Friday')",
                 },
                 "priority": {
                     "type": "string",
                     "enum": ["low", "normal", "high"],
-                    "description": "Task priority (default: normal)",
+                    "description": "Default: normal",
                 },
             },
             "required": ["description"],
@@ -315,11 +307,10 @@ TOOLS = [
             "properties": {
                 "description": {
                     "type": "string",
-                    "description": "What to remind the user about",
                 },
                 "remind_at": {
                     "type": "string",
-                    "description": "When to remind (natural language, e.g. 'tomorrow morning', 'in 2 hours', 'Friday at 3pm')",
+                    "description": "Natural language (e.g. 'in 2 hours', 'Friday at 3pm')",
                 },
             },
             "required": ["description", "remind_at"],
@@ -333,7 +324,6 @@ TOOLS = [
             "properties": {
                 "url": {
                     "type": "string",
-                    "description": "The URL to fetch",
                 },
             },
             "required": ["url"],
@@ -341,38 +331,37 @@ TOOLS = [
     },
     {
         "name": "generate_pdf",
-        "description": "Generate a PDF: cover_letter (from saved job or company+title) or document (from text).",
+        "description": "Generate a PDF document or cover letter.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "type": {
                     "type": "string",
                     "enum": ["cover_letter", "document"],
-                    "description": "PDF type: 'cover_letter' for job applications, 'document' for generic text",
                 },
                 "job_id": {
                     "type": "integer",
-                    "description": "For cover_letter: 1-based index of a saved job from job_search results",
+                    "description": "1-based saved job index",
                 },
                 "company": {
                     "type": "string",
-                    "description": "For cover_letter without job_id: company name",
+                    "description": "Company name (if no job_id)",
                 },
                 "job_title": {
                     "type": "string",
-                    "description": "For cover_letter without job_id: position title",
+                    "description": "Position title (if no job_id)",
                 },
                 "job_description": {
                     "type": "string",
-                    "description": "For cover_letter without job_id: job description text",
+                    "description": "Job description (if no job_id)",
                 },
                 "title": {
                     "type": "string",
-                    "description": "For document type: document title",
+                    "description": "For document type",
                 },
                 "body": {
                     "type": "string",
-                    "description": "For document type: body text to format as PDF",
+                    "description": "For document type",
                 },
             },
             "required": ["type"],
@@ -386,11 +375,11 @@ TOOLS = [
             "properties": {
                 "start_date": {
                     "type": "string",
-                    "description": "Start date (natural language: 'today', 'tomorrow', 'Monday', 'Feb 25')",
+                    "description": "Natural language (e.g. 'today', 'Monday')",
                 },
                 "end_date": {
                     "type": "string",
-                    "description": "End date (natural language, optional — defaults to same day as start_date)",
+                    "description": "Defaults to start_date",
                 },
             },
             "required": ["start_date"],
@@ -398,25 +387,23 @@ TOOLS = [
     },
     {
         "name": "create_calendar_event",
-        "description": "Create a Google Calendar event. Requires user confirmation.",
+        "description": "Create a Google Calendar event.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "title": {
                     "type": "string",
-                    "description": "Event title",
                 },
                 "start_datetime": {
                     "type": "string",
-                    "description": "Start date and time (natural language: 'Tuesday at 2pm', 'March 5 10:00 AM')",
+                    "description": "Natural language (e.g. 'Tuesday at 2pm')",
                 },
                 "end_datetime": {
                     "type": "string",
-                    "description": "End date and time (optional — defaults to 1 hour after start, or all-day if no time given)",
+                    "description": "Defaults to 1 hour after start",
                 },
                 "description": {
                     "type": "string",
-                    "description": "Event description (optional)",
                 },
             },
             "required": ["title", "start_datetime"],
