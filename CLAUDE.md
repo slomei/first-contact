@@ -8,7 +8,7 @@
 
 First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Five interfaces (terminal, web UI, Gradio GUI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
 
-**Status:** Pre-ship. All 150 tests passing. Ready for GitHub.
+**Status:** Shipped. All 162 tests passing. Live on GitHub.
 
 ---
 
@@ -23,7 +23,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `gui.py` | Web GUI via Gradio. Returns markdown strings from command handlers. |
 | `discord_bot.py` | Discord bot (prefix: `!fc`). Background loops for reminders, email, briefing, scans. Async with typing indicators. |
 | `telegram_bot.py` | Telegram bot. Same command set as Discord, adapted for Telegram's API. |
-| `interfaces/` | Base adapter pattern for new interfaces. `InterfaceAdapter` ABC in `base_adapter.py`, example implementation, README. Existing interfaces predate this and work independently. |
+| `interfaces/` | Interface adapter pattern. `InterfaceAdapter` ABC in `base_adapter.py`, adapters for all 4 interfaces (terminal, discord, telegram, web), example implementation, README. |
 
 ### Shared Core
 
@@ -42,7 +42,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `onboarding.py` | 20-step interactive setup wizard. Covers profile, communication style, integrations (Discord, Telegram, Gmail, Calendar), notification preferences, and Haiku-driven personality calibration. Works across all interfaces. |
 | `help_data.py` | Single source of truth for all help text. `HELP_CATEGORIES` dict with per-interface formatters (terminal ANSI box-drawing, Discord markdown, Telegram plain text, GUI Gradio markdown). Fuzzy prefix matching. |
 | `creative.py` | Creative project tools — world bible PDF parsing via pdfplumber, character/location JSON lookup. Used for the First Light screenplay project. |
-| `skills_loader.py` | Extensible skills system — loads `.md` skill files from `skills/` directory, keyword matching, injects matched skill content into specialist system prompts during delegation. |
+| `skills_loader.py` | Extensible skills system — loads `.md` skill files from `skills/` directory, keyword matching, default base skills per specialist, injects matched skill content into specialist system prompts during delegation. |
 | `files.py` | Project file management — import, list, remove files. Validation, large-file detection, conversation injection formatting. Used by all interfaces and web UI drag-and-drop. |
 | `sync.py` | File sync system — reads `sync_sources.json` for source/destination mappings, glob-scans Windows paths, resolves version conflicts, copies latest file. |
 
@@ -51,28 +51,30 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | File | Description |
 |------|-------------|
 | `tests/conftest.py` | Pytest fixtures — isolated temp dirs, test config, monkeypatched paths. |
-| `tests/test_imports.py` | Smoke tests — all 14 core modules import without errors. |
-| `tests/test_memory.py` | Memory system — config, profiles, memories, semantic search, cross-project, system prompt. |
-| `tests/test_models.py` | Model routing — MODELS dict, pricing, short names, token estimation, usage tracking. |
-| `tests/test_tools.py` | Tool system — TOOLS list, required fields, status text, file sandboxing. |
+| `tests/test_imports.py` | Smoke tests — all 15 core modules import without errors. |
+| `tests/test_memory.py` | Memory system — config, profiles, memories, semantic search, cross-project, system prompt, custom prompt. |
+| `tests/test_models.py` | Model routing — MODELS dict, pricing, short names, token estimation, usage tracking, cache tokens, batch discount. |
+| `tests/test_tools.py` | Tool system — TOOLS list, required fields, status text, file sandboxing, description conciseness. |
 | `tests/test_tasks.py` | Tasks — add/roundtrip, natural date parsing. |
 | `tests/test_onboarding.py` | Onboarding — calibration flow, step ordering, error handling. |
 | `tests/test_help_data.py` | Help system — categories, fuzzy matching, all 4 interface formatters. |
 | `tests/test_notes_status.py` | Notes, reminders, draft rate limits, daemon PID, config loading. |
-| `tests/test_skills.py` | Skills system — skill loading, keyword matching, specialist prompt injection. |
+| `tests/test_skills.py` | Skills system — skill loading, keyword matching, default skills, specialist prompt injection. |
 | `tests/test_files.py` | File management — extension validation, import/list/remove, large file detection, path resolution. |
 | `tests/test_batch_api.py` | Batch API — module loads, functions exist. |
+| `tests/test_adapters.py` | Interface adapters — subclass validation, interface names, formatting support, confirm defaults. |
 
 ### Config & Data Files
 
 | File | Description |
 |------|-------------|
 | `.env` / `.env.example` | API keys: `ANTHROPIC_API_KEY` (required), `DISCORD_BOT_TOKEN`, `DISCORD_USER_ID`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_USER_ID` (all optional). |
-| `config.json` / `config.example.json` | Generated by onboarding. Briefing schedule, email notification prefs, job scan queries, user profile, daemon settings. |
+| `config.json` / `config.example.json` | Generated by onboarding. Briefing schedule, email notification prefs, job scan queries, user profile, daemon settings, rate limits, custom prompt. |
 | `memory.json` | Global persistent memory store (objects with `text`, `embedding`, `created`). |
 | `reminders.json` | Global reminders (cross-project). |
 | `sync_sources.json` | File sync source/destination mappings. |
-| `requirements.txt` | Python dependencies. `sentence-transformers` is commented out (optional). |
+| `requirements.txt` | Python runtime dependencies. `sentence-transformers` is commented out (optional). |
+| `requirements-dev.txt` | Test dependencies (pytest, pytest-mock). Install with `pip install -r requirements-dev.txt`. |
 | `setup.sh` | Setup script — creates venv, installs deps, copies config templates. |
 
 ### Directory Structure
@@ -98,7 +100,11 @@ first-contact/
 │       └── workspace/
 ├── interfaces/
 │   ├── __init__.py         # Exports InterfaceAdapter
-│   ├── base_adapter.py     # Abstract base class for new interfaces
+│   ├── base_adapter.py     # Abstract base class for all interfaces
+│   ├── terminal_adapter.py # Terminal (chat.py) adapter
+│   ├── discord_adapter.py  # Discord adapter
+│   ├── telegram_adapter.py # Telegram adapter
+│   ├── web_adapter.py      # Web UI adapter
 │   ├── example_adapter.py  # Commented reference implementation
 │   └── README.md           # How to build a new interface
 ├── web_ui/
@@ -134,7 +140,7 @@ The director (Sonnet) can route messages to specialist agents:
 
 ### Extensible Skills
 
-Specialists can be augmented with skills — `.md` files in the `skills/` directory with YAML front matter defining `name`, `description`, `specialist`, `model_preference`, and `trigger_keywords`. When a message is delegated, `skills_loader.match_skill()` finds the best keyword match and prepends the skill content to the specialist's system prompt. Ships with 5 built-in skills (cover_letter, research, code_review, email_draft, job_analysis). Users can add custom skills by dropping `.md` files into `skills/`.
+Specialists can be augmented with skills — `.md` files in the `skills/` directory with YAML front matter defining `name`, `description`, `specialist`, `model_preference`, `default`, and `trigger_keywords`. When a message is delegated, `skills_loader.get_default_skill()` loads the base instructions for that specialist, then `match_skill()` finds the best keyword match and layers it on top. Ships with 9 built-in skills: 4 base specialist skills (researcher, writer, coder, analyst) + 5 task skills (cover_letter, research, code_review, email_draft, job_analysis). Users can customize specialist behavior by editing base skill files or add new skills by dropping `.md` files into `skills/`.
 
 ### 18 Integrated Tools
 
@@ -193,7 +199,7 @@ The system prompt (`memory.py`) includes three behavioral directives built from 
 
 ## All Commands
 
-**Chat:** `/opus`, `/sonnet`, `/haiku`, `/challenge on|off`, `/new`, `/load`, `/conversations`, `/delete`, `/clear`
+**Chat:** `/opus`, `/sonnet`, `/haiku`, `/challenge on|off`, `/prompt [text|clear]`, `/new`, `/load`, `/conversations`, `/delete`, `/clear`
 
 **Memory & Notes:** `/remember [-p] <fact>`, `/forget <fact>`, `/memories`, `/memories search <q>`, `/note <text>`, `/notes`, `/notes search <q>`
 
@@ -277,7 +283,7 @@ The system prompt enforces these behaviors (see System Prompt Behaviors above):
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 150 tests across 11 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 162 tests across 12 test files.
 
 ---
 
