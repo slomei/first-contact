@@ -292,7 +292,7 @@ def chat_turn():
                     max_tokens=4096,
                     system=memory.build_system_prompt_cached(memory.memories, creative_context=creative_ctx, query=last_user_query),
                     messages=models.conversation_history,
-                    tools=tools.TOOLS,
+                    tools=tools.get_cached_tools(),
                 ) as stream:
                     for text in stream.text_stream:
                         print(_streamer.feed(text), end="", flush=True)

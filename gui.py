@@ -1881,7 +1881,7 @@ def bot_response(history, state):
             max_tokens=4096,
             system=memory.build_system_prompt_cached(memory.memories),
             messages=state.conversation_history,
-            tools=tools.TOOLS,
+            tools=tools.get_cached_tools(),
         ) as stream:
             response_text = ""
             # Start a new assistant message for streaming

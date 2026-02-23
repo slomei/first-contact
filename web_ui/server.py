@@ -326,7 +326,7 @@ def _sync_stream(ws, conn, system_prompt, loop):
         max_tokens=4096,
         system=system_prompt,
         messages=conn.history,
-        tools=tools.TOOLS,
+        tools=tools.get_cached_tools(),
     ) as stream:
         for text in stream.text_stream:
             # Schedule the send on the event loop from this worker thread

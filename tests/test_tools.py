@@ -68,6 +68,20 @@ def test_read_file_blocked_traversal(isolated_env):
     assert "Access denied" in result
 
 
+def test_get_cached_tools():
+    """get_cached_tools adds cache_control to last tool without mutating TOOLS."""
+    cached = tools.get_cached_tools()
+    # Last tool has cache_control
+    assert "cache_control" in cached[-1]
+    assert cached[-1]["cache_control"] == {"type": "ephemeral"}
+    # Other tools don't
+    for t in cached[:-1]:
+        assert "cache_control" not in t
+    # Original TOOLS not mutated
+    for t in tools.TOOLS:
+        assert "cache_control" not in t
+
+
 def test_tool_descriptions_are_concise():
     """Tool descriptions should not contain behavioral guidance phrases."""
     for tool in tools.TOOLS:

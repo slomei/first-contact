@@ -89,9 +89,10 @@ def local_now():
     return datetime.now(get_timezone())
 
 
-# Default system prompt template — {name} is substituted at build time
-_SYSTEM_PROMPT_TEMPLATE = (
-    "{today_line}\n\n"
+# Default system prompt templates — {name} is substituted at build time
+# _STABLE_PROMPT_TEMPLATE contains everything except the dynamic date/time prefix.
+# _SYSTEM_PROMPT_TEMPLATE adds it back for callers that need a single string.
+_STABLE_PROMPT_TEMPLATE = (
     "Calibrate your honesty. When something is genuinely good, say so and explain "
     "why it's good. When something is bad or mediocre, say so and explain why. "
     "Never default to praise, encouragement, or enthusiasm \u2014 earn it by actually "
@@ -141,6 +142,8 @@ _SYSTEM_PROMPT_TEMPLATE = (
     "{bio_line}"
 )
 
+_SYSTEM_PROMPT_TEMPLATE = "{today_line}\n\n" + _STABLE_PROMPT_TEMPLATE
+
 # Challenge mode addendum template
 _CHALLENGE_ADDENDUM_TEMPLATE = (
     "\n\nCHALLENGE MODE IS ON. Actively look for flaws, gaps, and weak assumptions "
@@ -150,8 +153,8 @@ _CHALLENGE_ADDENDUM_TEMPLATE = (
 )
 
 
-def _build_base_prompt():
-    """Build the system prompt with the user's name from config."""
+def _get_prompt_vars():
+    """Get shared format variables for system prompt templates."""
     profile = get_user_profile()
     name = profile.get("first_name") or profile.get("name", "the user")
 
@@ -162,9 +165,6 @@ def _build_base_prompt():
     elif profile.get("title"):
         bio_parts.append(f"{name} is a {profile['title']}.")
     bio_line = " ".join(bio_parts) if bio_parts else ""
-
-    # Dynamic date and time in user's local timezone
-    today_line = local_now().strftime("Today is %A, %B %d, %Y. Current time: %-I:%M %p.")
 
     # Dynamic tool count and names (lazy import to avoid circular dep)
     try:
@@ -183,18 +183,24 @@ def _build_base_prompt():
     except (ImportError, AttributeError):
         skill_count = 0
 
-    return _SYSTEM_PROMPT_TEMPLATE.format(
-        name=name,
-        name_pos=name + "'s" if name != "the user" else "their",
-        name_subj=name.lower() if name != "the user" else "they",
-        name_obj=name.lower() if name != "the user" else "them",
-        bio_line=bio_line,
-        today_line=today_line,
-        tool_count=tool_count,
-        tool_list=tool_list,
-        skill_count=skill_count,
-        skill_s="s" if skill_count != 1 else "",
-    )
+    return {
+        "name": name,
+        "name_pos": name + "'s" if name != "the user" else "their",
+        "name_subj": name.lower() if name != "the user" else "they",
+        "name_obj": name.lower() if name != "the user" else "them",
+        "bio_line": bio_line,
+        "tool_count": tool_count,
+        "tool_list": tool_list,
+        "skill_count": skill_count,
+        "skill_s": "s" if skill_count != 1 else "",
+    }
+
+
+def _build_base_prompt():
+    """Build the system prompt with the user's name from config."""
+    fmt = _get_prompt_vars()
+    fmt["today_line"] = local_now().strftime("Today is %A, %B %d, %Y. Current time: %-I:%M %p.")
+    return _SYSTEM_PROMPT_TEMPLATE.format(**fmt)
 
 
 def _build_challenge_addendum():
@@ -754,6 +760,98 @@ def get_detailed_project_summaries():
     return "\n".join(lines)
 
 
+def _build_stable_prompt():
+    """Build the cacheable (session-stable) portion of the system prompt.
+
+    Includes behavioral instructions, identity, challenge mode, custom prompt,
+    resume reference, cross-project summary, and integration status.
+    These change only on explicit user action, not per-turn.
+    """
+    base = _STABLE_PROMPT_TEMPLATE.format(**_get_prompt_vars())
+
+    if challenge_mode:
+        base += _build_challenge_addendum()
+
+    custom = get_custom_prompt()
+    if custom:
+        base += f"\n\nCustom instructions from the user:\n{custom}"
+
+    # Resume reference
+    resume_path = get_resume_path()
+    if os.path.exists(resume_path):
+        base += (
+            "\n\nResume is available at: "
+            f"{resume_path} — use read_file to access it when needed for "
+            "cover letters, applications, or professional context."
+        )
+
+    # Cross-project summary
+    if active_project == "general":
+        detailed = get_detailed_project_summaries()
+        if detailed:
+            base += f"\n\nOther projects:\n{detailed}"
+    else:
+        summary = get_cross_project_summary()
+        if summary:
+            base += f"\n\nOther projects:\n{summary}"
+
+    # Integration status
+    connected = []
+    if os.path.exists(GMAIL_CREDENTIALS):
+        connected.append("Gmail")
+    if os.path.exists(CALENDAR_CREDENTIALS):
+        connected.append("Google Calendar")
+    if connected:
+        base += f"\n\nConnected integrations: {', '.join(connected)}"
+
+    return base
+
+
+def _build_dynamic_prompt(mems, creative_context="", query=None):
+    """Build the per-turn dynamic portion of the system prompt.
+
+    Includes date/time, memories (semantic or all), and creative context.
+    """
+    parts = []
+
+    # Date/time
+    today_line = local_now().strftime("Today is %A, %B %d, %Y. Current time: %-I:%M %p.")
+    parts.append(today_line)
+
+    # Memories
+    if query and SEMANTIC_AVAILABLE:
+        relevant = retrieve_relevant_memories(query, top_k=15)
+        global_set = set(load_global_memories())
+        relevant_global = [m for m in relevant if m in global_set]
+        relevant_project = [m for m in relevant if m not in global_set]
+
+        if relevant_global:
+            block = "\n".join(f"- {m}" for m in relevant_global)
+            parts.append(f"Core facts (most relevant):\n{block}")
+        if relevant_project:
+            project_block = "\n".join(f"- {m}" for m in relevant_project)
+            parts.append(f"Project memories ({active_project}, most relevant):\n{project_block}")
+    else:
+        global_mems = load_global_memories()
+        if global_mems:
+            block = "\n".join(f"- {m}" for m in global_mems)
+            parts.append(f"Core facts (always available):\n{block}")
+
+        if mems:
+            project_block = "\n".join(f"- {m}" for m in mems)
+            parts.append(f"Project memories ({active_project}):\n{project_block}")
+
+    if creative_context:
+        parts.append(
+            "You are working on the First Light sci-fi project. Here is the world bible "
+            "reference material. Use this to write in-universe — maintain consistent characterization, "
+            "locations, and tone. Route dialogue and scene work through your best creative writing.\n\n"
+            + creative_context
+        )
+
+    return "\n\n".join(parts)
+
+
 def build_system_prompt(mems, creative_context="", query=None):
     """Build the system prompt with global memories, project memories, resume ref, and cross-project summary."""
     base = _build_base_prompt()
@@ -828,9 +926,18 @@ def build_system_prompt(mems, creative_context="", query=None):
 
 
 def build_system_prompt_cached(mems, creative_context="", query=None):
-    """Build system prompt as content blocks with cache_control for prompt caching."""
-    text = build_system_prompt(mems, creative_context=creative_context, query=query)
-    return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
+    """Build system prompt as content blocks with cache_control for prompt caching.
+
+    Returns two blocks: a stable block (cached) and a dynamic block (per-turn).
+    The stable block contains behavioral instructions, identity, and session config.
+    The dynamic block contains date/time, memories, and creative context.
+    """
+    stable_text = _build_stable_prompt()
+    dynamic_text = _build_dynamic_prompt(mems, creative_context=creative_context, query=query)
+    return [
+        {"type": "text", "text": stable_text, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": dynamic_text},
+    ]
 
 
 memories = load_memories()

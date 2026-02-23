@@ -424,6 +424,17 @@ TOOLS = [
     },
 ]
 
+
+def get_cached_tools():
+    """Return TOOLS with cache_control on the last tool for prompt caching."""
+    return _CACHED_TOOLS
+
+
+import copy
+_CACHED_TOOLS = copy.deepcopy(TOOLS)
+if _CACHED_TOOLS:
+    _CACHED_TOOLS[-1]["cache_control"] = {"type": "ephemeral"}
+
 # --- Mutable globals ---
 last_job_results = []
 

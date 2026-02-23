@@ -233,16 +233,22 @@ def test_build_system_prompt_with_query(isolated_env):
 
 
 def test_build_system_prompt_cached_returns_list(isolated_env):
-    """build_system_prompt_cached returns a list with cache_control."""
+    """build_system_prompt_cached returns two blocks: stable (cached) and dynamic."""
     result = memory.build_system_prompt_cached([])
     assert isinstance(result, list)
-    assert len(result) == 1
-    block = result[0]
-    assert block["type"] == "text"
-    assert "cache_control" in block
-    assert block["cache_control"] == {"type": "ephemeral"}
-    assert isinstance(block["text"], str)
-    assert len(block["text"]) > 0
+    assert len(result) == 2
+    # Block 0: stable, has cache_control
+    stable = result[0]
+    assert stable["type"] == "text"
+    assert "cache_control" in stable
+    assert stable["cache_control"] == {"type": "ephemeral"}
+    assert "Calibrate your honesty" in stable["text"]
+    assert "Current time:" not in stable["text"]
+    # Block 1: dynamic, no cache_control
+    dynamic = result[1]
+    assert dynamic["type"] == "text"
+    assert "cache_control" not in dynamic
+    assert "Current time:" in dynamic["text"]
 
 
 def test_custom_prompt_roundtrip(isolated_env):
