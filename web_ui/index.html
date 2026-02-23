@@ -40,7 +40,7 @@ body {
 /* Scrollbar */
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--text-dim); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
 
 /* ═══ LAYOUT ═══ */
@@ -137,6 +137,8 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   position: relative;
 }
 
@@ -319,6 +321,12 @@ body {
   padding: 11px 15px;
   color: var(--text-secondary);
 }
+
+.message-body ul, .message-body ol {
+  margin: 6px 0;
+  padding-left: 1.5em;
+}
+.message-body li { margin-bottom: 2px; }
 
 .message-body code {
   font-family: 'JetBrains Mono', monospace;
