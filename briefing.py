@@ -231,22 +231,29 @@ def _gather_watchlist():
 
         combined = "\n\n".join(search_results)
 
-        # Summarize with Haiku
+        # Summarize with Haiku — stable instruction as cached system prompt
         import models
         try:
             response = models.get_client().messages.create(
                 model="claude-haiku-4-5",
                 max_tokens=500,
-                messages=[{"role": "user", "content":
-                    "Summarize these web search results into 2-4 bullet points. "
-                    "Focus on what's new or notable. Be very concise — one line per bullet.\n\n"
-                    + combined}],
+                system=[{
+                    "type": "text",
+                    "text": (
+                        "Summarize these web search results into 2-4 bullet points. "
+                        "Focus on what's new or notable. Be very concise — one line per bullet."
+                    ),
+                    "cache_control": {"type": "ephemeral"},
+                }],
+                messages=[{"role": "user", "content": combined}],
             )
             summary = response.content[0].text
             cost = models.track_usage(
                 response.usage.input_tokens,
                 response.usage.output_tokens,
                 "claude-haiku-4-5",
+                cache_creation_input_tokens=getattr(response.usage, 'cache_creation_input_tokens', 0) or 0,
+                cache_read_input_tokens=getattr(response.usage, 'cache_read_input_tokens', 0) or 0,
             )
         except Exception:
             summary = "Could not summarize watchlist results."

@@ -420,6 +420,14 @@ def _assess_fit_batch(jobs, progress_fn=None):
     total_cost = 0.0
     fit_prompt = _build_fit_prompt()
 
+    # Cache the fit prompt as a system message — stable across all jobs in
+    # a scan, so Anthropic's prompt caching reuses it after the first call.
+    fit_system = [{
+        "type": "text",
+        "text": fit_prompt,
+        "cache_control": {"type": "ephemeral"},
+    }]
+
     # Batch jobs into groups of 5 for efficiency
     batch_size = 5
     for i in range(0, len(jobs), batch_size):
@@ -433,13 +441,16 @@ def _assess_fit_batch(jobs, progress_fn=None):
                 response = models.get_client().messages.create(
                     model="claude-haiku-4-5",
                     max_tokens=200,
-                    messages=[{"role": "user", "content": fit_prompt + text}],
+                    system=fit_system,
+                    messages=[{"role": "user", "content": text}],
                 )
                 result_text = response.content[0].text.strip()
                 cost = models.track_usage(
                     response.usage.input_tokens,
                     response.usage.output_tokens,
                     "claude-haiku-4-5",
+                    cache_creation_input_tokens=getattr(response.usage, 'cache_creation_input_tokens', 0) or 0,
+                    cache_read_input_tokens=getattr(response.usage, 'cache_read_input_tokens', 0) or 0,
                 )
                 total_cost += cost
 
@@ -488,7 +499,7 @@ def _assess_fit_batch_api(jobs, progress_fn=None):
     assessed = []
     total_cost = 0.0
 
-    # Build batch requests
+    # Build batch requests — fit prompt as system message for consistency
     requests = []
     for i, job in enumerate(jobs):
         text = f"Title: {job['title']}\nURL: {job['url']}\n\n{job['body'][:1500]}"
@@ -496,7 +507,8 @@ def _assess_fit_batch_api(jobs, progress_fn=None):
             "custom_id": f"job_{i}",
             "model": "claude-haiku-4-5",
             "max_tokens": 200,
-            "messages": [{"role": "user", "content": fit_prompt + text}],
+            "system": fit_prompt,
+            "messages": [{"role": "user", "content": text}],
         })
 
     if progress_fn:

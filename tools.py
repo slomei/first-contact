@@ -1962,15 +1962,23 @@ def run_digest(progress_fn=None):
         response = models.get_client().messages.create(
             model="claude-haiku-4-5",
             max_tokens=1500,
-            messages=[{"role": "user", "content":
-                "You are a research digest writer. Summarize the following web search results "
-                "into a clear, organized digest. Group by topic, highlight key developments, "
-                "and note anything particularly notable. Be concise but thorough.\n\n" + combined}],
+            system=[{
+                "type": "text",
+                "text": (
+                    "You are a research digest writer. Summarize the following web search results "
+                    "into a clear, organized digest. Group by topic, highlight key developments, "
+                    "and note anything particularly notable. Be concise but thorough."
+                ),
+                "cache_control": {"type": "ephemeral"},
+            }],
+            messages=[{"role": "user", "content": combined}],
         )
         digest = response.content[0].text
         cost = models.track_usage(response.usage.input_tokens,
                                   response.usage.output_tokens,
-                                  "claude-haiku-4-5")
+                                  "claude-haiku-4-5",
+                                  cache_creation_input_tokens=getattr(response.usage, 'cache_creation_input_tokens', 0) or 0,
+                                  cache_read_input_tokens=getattr(response.usage, 'cache_read_input_tokens', 0) or 0)
         cost_str = f"${cost:.4f}"
     except Exception:
         digest = combined
