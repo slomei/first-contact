@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
 import threading
 
@@ -47,6 +48,7 @@ class Connection:
     def __init__(self):
         self.history = []
         self.active_model = "claude-sonnet-4-6"
+        self.active_project = "general"
         self.session_input_tokens = 0
         self.session_output_tokens = 0
         self.session_cost = 0.0
@@ -100,6 +102,10 @@ async def handle_message(ws, conn, data):
     user_msg = data.get("content", "").strip()
     if not user_msg:
         return
+
+    # Sync project state so system prompt uses the right project's memories
+    memory.active_project = conn.active_project
+    memory.memories = memory.load_memories()
 
     # Override model if client sent one (accept short names or full IDs)
     if data.get("model"):
@@ -397,6 +403,30 @@ async def handler(ws):
                     await ws.send(json.dumps({
                         "type": "error",
                         "content": f"Unknown model: {model_id}",
+                    }))
+
+            elif msg_type == "set_project":
+                name = data.get("project", "")
+                name = re.sub(r'[^\w-]', '-', name.lower()).strip('-')
+                if not name:
+                    # No name: return project list
+                    projects = memory.list_projects()
+                    active = conn.active_project
+                    lines = [f"  {p} {'<<' if p == active else ''}" for p in projects]
+                    await ws.send(json.dumps({
+                        "type": "status",
+                        "content": f"Projects:\n" + "\n".join(lines),
+                    }))
+                else:
+                    conn.active_project = name
+                    memory.active_project = name
+                    memory.switch_project(name)
+                    mems = memory.load_memories()
+                    memory.memories = mems
+                    mem_note = f" Loaded {len(mems)} memor{'y' if len(mems) == 1 else 'ies'}." if mems else ""
+                    await ws.send(json.dumps({
+                        "type": "status",
+                        "content": f"Switched to project: {name}.{mem_note}",
                     }))
 
             else:

@@ -65,6 +65,8 @@ class UserState:
         self.input_tokens = 0
         self.output_tokens = 0
         self.cost = 0.0
+        self.cache_creation_tokens = 0
+        self.cache_read_tokens = 0
         self.onboarding_wizard = None
 
 
@@ -200,6 +202,8 @@ async def get_response(state, channel):
     state.input_tokens += result["input_tokens"]
     state.output_tokens += result["output_tokens"]
     state.cost += result["cost"]
+    state.cache_creation_tokens += result["cache_creation_tokens"]
+    state.cache_read_tokens += result["cache_read_tokens"]
 
     response_text = result["text"] or "*(Stopped after 10 tool rounds.)*"
     cost_line = format_cost(result["input_tokens"], result["output_tokens"], result["cost"], state)
@@ -740,10 +744,18 @@ async def on_message(message):
         return
 
     if command_lower == "!new":
+        if len(state.conversation_history) >= 2:
+            try:
+                sync_state(state)
+                models.save_conversation(state.conversation_history)
+            except Exception:
+                pass
         state.conversation_history = []
         state.input_tokens = 0
         state.output_tokens = 0
         state.cost = 0.0
+        state.cache_creation_tokens = 0
+        state.cache_read_tokens = 0
         await send_reply(dm, "*Conversation reset.*")
         return
 
