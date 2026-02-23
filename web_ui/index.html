@@ -1135,7 +1135,10 @@ function respondConfirm(approved) {
   dialog.id = '';
 
   if (ws && ws.readyState === WebSocket.OPEN) {
+    console.log('[FC] Sending confirm_response:', approved);
     ws.send(JSON.stringify({ type: 'confirm_response', approved }));
+  } else {
+    console.warn('[FC] Cannot send confirm_response — WebSocket not open, state:', ws?.readyState);
   }
 }
 

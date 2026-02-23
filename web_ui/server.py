@@ -426,7 +426,10 @@ async def handler(ws):
             msg_type = data.get("type", "")
 
             if msg_type == "message":
-                await handle_message(ws, conn, data)
+                # Run as task so the dispatch loop continues to process
+                # confirm_response messages while handle_message is awaiting
+                # tool execution in the thread pool.
+                asyncio.create_task(handle_message(ws, conn, data))
 
             elif msg_type == "new_chat":
                 _save_conversation(conn)
@@ -450,8 +453,10 @@ async def handler(ws):
                 await handle_file_upload(ws, conn, data)
 
             elif msg_type == "confirm_response":
+                approved = data.get("approved", False)
+                print(f"[confirm] Received confirm_response: approved={approved}, pending={conn._pending_confirm is not None}")
                 if conn._pending_confirm:
-                    conn._pending_confirm["holder"]["approved"] = data.get("approved", False)
+                    conn._pending_confirm["holder"]["approved"] = approved
                     conn._pending_confirm["event"].set()
 
             elif msg_type == "set_model":
