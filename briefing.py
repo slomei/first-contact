@@ -307,6 +307,7 @@ def format_briefing_ansi(email_data, tasks_data, jobs_data, reminders_data, watc
     RED = memory.RED
     YEL = memory.YELLOW
     BOLD = memory.BOLD
+    GREEN = memory.GREEN
 
     now = memory.local_now()
     date_str = now.strftime("%a %b %d")

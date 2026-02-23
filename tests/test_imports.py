@@ -68,6 +68,29 @@ def test_import_daemon():
     import daemon
 
 
+def test_daemon_functions_exist():
+    """Daemon task functions exist and are callable."""
+    import daemon
+    assert callable(daemon.run)
+    assert callable(daemon._run_briefing)
+    assert callable(daemon._run_email_check)
+    assert callable(daemon._run_job_scan)
+    assert callable(daemon._run_reminder_check)
+    assert callable(daemon._get_config)
+    assert callable(daemon._send_notification)
+
+
+def test_daemon_config_loads():
+    """Daemon config loads with defaults for missing keys."""
+    import daemon
+    cfg = daemon._get_config()
+    assert isinstance(cfg, dict)
+    assert "enabled" in cfg
+    assert "briefing_time" in cfg
+    assert "email_check_interval_minutes" in cfg
+    assert "notify_channel" in cfg
+
+
 def test_import_batch_api():
     import batch_api
     assert hasattr(batch_api, "submit_batch")

@@ -277,11 +277,12 @@ def run():
     reminder_interval = timedelta(minutes=cfg.get("reminder_check_interval_minutes", 5))
     heartbeat_interval = timedelta(minutes=cfg.get("heartbeat_interval_minutes", 30))
 
-    # Track last run times
-    last_email = datetime.min
-    last_scan = datetime.min
-    last_reminder = datetime.min
-    last_heartbeat = datetime.min
+    # Track last run times (use timezone-aware epoch to avoid naive vs aware comparison)
+    _epoch = datetime(2000, 1, 1, tzinfo=memory.get_timezone())
+    last_email = _epoch
+    last_scan = _epoch
+    last_reminder = _epoch
+    last_heartbeat = _epoch
     last_briefing_date = None
 
     # Check for API key early
