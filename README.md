@@ -44,7 +44,11 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 
 **Semantic memory search.** Optionally install `sentence-transformers` for meaning-based memory retrieval. Instead of loading every memory into context, the agent retrieves the top 15 most relevant to each query using 384-dimensional embeddings. Falls back gracefully to loading all memories when the package isn't installed. Works on CPU; auto-detects and uses GPU when available.
 
-**Context window management.** Automatic conversation compression when context gets large — summarizes older exchanges with Haiku, keeps recent ones intact. You never hit a wall mid-conversation. The `/status` command shows context usage percentage and compression count.
+**Context window management.** Automatic conversation compression on all four interfaces when context gets large — summarizes older exchanges with Haiku, keeps recent ones intact. You never hit a wall mid-conversation. The `/status` command shows context usage percentage and compression count.
+
+**Prompt caching.** The system prompt is split into stable and dynamic blocks with `cache_control` breakpoints. Stable content (behavioral directives, identity, tool parameter guidance, custom prompt) is cached across turns; only the dynamic portion (date/time, memories) is re-sent. Tool definitions are also cached. Daemon tasks (job scanning, briefings, digests) use the same pattern. Typical input token savings: 40–60%.
+
+**User-customizable system prompt.** The `/prompt` command lets you add persistent behavioral instructions that layer on top of the core template — "always respond in bullet points", "use British spelling", etc. Stored in `config.json`, survives restarts, configurable during onboarding. `/prompt clear` removes it.
 
 **Project system.** Separate workspaces with their own memories, tasks, conversations, and files. Switch between work, creative projects, and job searching without context bleed.
 
@@ -72,10 +76,11 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
                            │
                     ┌──────▼──────────────┐
                     │      Shared Core        │
+                    │  conversation.py        │
                     │  memory.py · models.py  │
                     │  tools.py · tasks.py    │
                     │  briefing · documents   │
-                    │  notifications · sync   │
+                    │  notifications · files  │
                     │  help_data · creative   │
                     │  job_scanner · daemon   │
                     └────────────┬────────────┘
@@ -88,7 +93,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
          └────────┘ └────────┘ └───┘ └────────┘ └────────┘
 ```
 
-**18 Python modules:**
+**21 Python modules:**
 
 | File | Purpose |
 |------|---------|
@@ -96,6 +101,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 | `web_ui/server.py` | WebSocket server — standalone web frontend (vanilla HTML/CSS/JS client) |
 | `discord_bot.py` | Discord bot with background monitoring loops |
 | `telegram_bot.py` | Telegram bot |
+| `conversation.py` | Shared conversation turn loop — all 4 interfaces delegate here |
 | `memory.py` | Persistent memory, semantic search, system prompt, projects |
 | `models.py` | Model routing, API calls, pricing, context compression, specialists |
 | `tools.py` | 18 tool definitions and execution engine |
@@ -104,11 +110,13 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 | `briefing.py` | Daily briefing aggregation (7 data sources) |
 | `notifications.py` | Email classification and notification routing |
 | `job_scanner.py` | Proactive multi-platform job scanning with AI fit assessment |
+| `batch_api.py` | Batch API wrapper for 50% cost job assessments |
 | `daemon.py` | Background scheduler for briefings, email, scans, reminders |
 | `onboarding.py` | Interactive setup wizard (20 steps, multi-interface) |
 | `help_data.py` | Shared help categories and per-interface formatters |
 | `creative.py` | Creative project tools (world bible, characters, locations) |
 | `skills_loader.py` | Extensible skills system (keyword matching, specialist prompt injection) |
+| `files.py` | Project file management (import, list, remove, validation) |
 | `sync.py` | File sync with version conflict resolution |
 
 The four interfaces are thin layers. All logic lives in the shared core — model routing, tool execution, memory, notifications. Adding a new interface means writing the I/O adapter; all tools and capabilities come for free.
@@ -224,7 +232,7 @@ First Contact responds to natural conversation and also supports direct commands
 
 | Category | Commands |
 |----------|----------|
-| **Chat** | `/opus`, `/sonnet`, `/haiku`, `/challenge on\|off`, `/new`, `/load`, `/conversations`, `/delete`, `/clear` |
+| **Chat** | `/opus`, `/sonnet`, `/haiku`, `/challenge on\|off`, `/prompt [text\|clear]`, `/new`, `/load`, `/conversations`, `/delete`, `/clear` |
 | **Memory** | `/remember`, `/remember -p`, `/forget`, `/memories`, `/memories search`, `/note`, `/notes`, `/notes search` |
 | **Email** | `/email check`, `/email read`, `/email search`, `/draft reply`, `/draft new`, `/draft work`, `/drafts`, `/email setup` |
 | **Calendar** | `/cal`, `/cal tomorrow`, `/cal week`, `/cal add`, `/cal setup` |
