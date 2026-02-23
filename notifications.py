@@ -16,7 +16,11 @@ import memory
 
 NOTIFICATION_LOG = os.path.join(memory.BASE_DIR, "logs", "notifications.log")
 SEEN_FILE = os.path.join(memory.BASE_DIR, "logs", "seen_emails.json")
-RATE_LIMIT_PER_HOUR = 20
+def _load_notification_rate_limit():
+    cfg = memory.load_config().get("rate_limits", {})
+    return cfg.get("notifications_per_hour", 20)
+
+RATE_LIMIT_PER_HOUR = _load_notification_rate_limit()
 
 
 # --- Seen message tracking ---

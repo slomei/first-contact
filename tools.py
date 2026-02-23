@@ -435,10 +435,15 @@ _email_content_loaded = False
 _last_email_results = []
 _last_read_email = None       # Full metadata of last /email read message
 _session_draft_count = 0      # Rate limit: max 10 drafts per session
-DRAFT_RATE_LIMIT = 10
 _web_content_loaded = False
 _session_fetch_count = 0      # Rate limit: max 10 fetches per session
-FETCH_RATE_LIMIT = 10
+
+# Rate limits — configurable via config.json "rate_limits" section
+def _load_rate_limits():
+    cfg = memory.load_config().get("rate_limits", {})
+    return cfg.get("drafts_per_session", 10), cfg.get("fetches_per_session", 10)
+
+DRAFT_RATE_LIMIT, FETCH_RATE_LIMIT = _load_rate_limits()
 
 # Job board domains for auto-detection
 JOB_BOARD_DOMAINS = [

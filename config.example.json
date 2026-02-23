@@ -46,6 +46,13 @@
     "heartbeat_interval_minutes": 30,
     "notify_channel": "discord"
   },
+  "rate_limits": {
+    "drafts_per_session": 10,
+    "fetches_per_session": 10,
+    "notifications_per_hour": 20,
+    "manual_scans_per_day": 3,
+    "auto_scans_per_day": 1
+  },
   "email_accounts": [],
   "notification_channels": [],
   "discord_prefix": "!fc",

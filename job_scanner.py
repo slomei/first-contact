@@ -28,8 +28,11 @@ SCAN_RESULTS_FILE = os.path.join(
 
 MAX_JOBS_PER_SCAN = 30
 FETCH_DELAY_SECONDS = 2
-MANUAL_SCANS_PER_DAY = 3
-AUTO_SCANS_PER_DAY = 1
+def _load_scan_rate_limits():
+    cfg = memory.load_config().get("rate_limits", {})
+    return cfg.get("manual_scans_per_day", 3), cfg.get("auto_scans_per_day", 1)
+
+MANUAL_SCANS_PER_DAY, AUTO_SCANS_PER_DAY = _load_scan_rate_limits()
 
 # Site-restricted DuckDuckGo queries for each platform
 JOB_PLATFORMS = [
