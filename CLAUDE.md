@@ -19,7 +19,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | File | Description |
 |------|-------------|
 | `chat.py` | Terminal chatbot — primary interface. Streaming output, markdown stripping, session cost tracking, startup diagnostics. |
-| `web_ui/` | WebSocket-based web frontend (server.py + vanilla HTML/CSS/JS). Per-connection state, streaming responses, tool loop, token tracking. Designed as Tauri desktop app foundation. |
+| `web_ui/` | WebSocket-based web frontend (server.py + vanilla HTML/CSS/JS). Per-connection state, streaming responses, tool loop, token tracking, context compression, conversation persistence. Designed as Tauri desktop app foundation. |
 | `gui.py` | Web GUI via Gradio. Returns markdown strings from command handlers. |
 | `discord_bot.py` | Discord bot (prefix: `!fc`). Background loops for reminders, email, briefing, scans. Async with typing indicators. |
 | `telegram_bot.py` | Telegram bot. Same command set as Discord, adapted for Telegram's API. |
@@ -261,7 +261,10 @@ The system prompt enforces these behaviors (see System Prompt Behaviors above):
 - WebSocket server on `ws://localhost:8765` (configurable port)
 - Per-connection isolation — each browser tab gets its own conversation history, model, and token counters
 - Vanilla HTML/CSS/JS frontend — no framework, no build step
-- Streaming responses, tool status indicators, model switching, accent color picker
+- Streaming responses, tool activity indicators, model switching, accent color picker
+- Context compression at 20K tokens (same threshold as terminal, via shared `models.compress_conversation()`)
+- Conversation auto-save on new chat and disconnect (via shared `models.save_conversation()`)
+- Specific Anthropic API error handling (rate limit, auth, context overflow, connection)
 - Designed as foundation for eventual Tauri desktop app
 - `confirm_fn=None` (auto-approve, same as gui.py/discord)
 
