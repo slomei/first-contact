@@ -1,14 +1,8 @@
 # Interface Adapters
 
-This directory contains the base class and scaffolding for building new First Contact interfaces.
+This directory contains the base class and adapter implementations for all First Contact interfaces.
 
-## Status
-
-The four existing interfaces (`chat.py`, `gui.py`, `discord_bot.py`, `telegram_bot.py`) predate this pattern and work independently as standalone modules in the project root. They are not subclasses of `InterfaceAdapter`. They may be migrated in a future update, but for now they work as-is.
-
-**New interfaces should use this pattern.** Future plans include a Tauri desktop app, a mobile app, and a voice interface — all good candidates for the adapter pattern.
-
-## How It Works
+## Architecture
 
 `InterfaceAdapter` (in `base_adapter.py`) is an abstract base class that defines the contract every interface must fulfill:
 
@@ -24,7 +18,18 @@ The four existing interfaces (`chat.py`, `gui.py`, `discord_bot.py`, `telegram_b
 | `on_startup()` | Optional setup hook |
 | `on_shutdown()` | Optional cleanup hook |
 
-All business logic — model routing, tool execution, memory, tasks, notifications — lives in the shared core modules. The adapter only handles I/O.
+All business logic — model routing, tool execution, memory, tasks, notifications — lives in the shared core modules. Adapters only handle I/O.
+
+## Existing Adapters
+
+| Adapter | Wraps | Notes |
+|---------|-------|-------|
+| `TerminalAdapter` | `chat.py` | Synchronous I/O via stdin/stdout |
+| `DiscordAdapter` | `discord_bot.py` | Requires discord.py client + DM channel |
+| `TelegramAdapter` | `telegram_bot.py` | Requires python-telegram-bot Bot + chat_id |
+| `WebAdapter` | `web_ui/server.py` | Requires active WebSocket connection |
+
+The standalone interface files (`chat.py`, `gui.py`, `discord_bot.py`, `telegram_bot.py`, `web_ui/server.py`) continue to work independently. The adapters provide a uniform API for systems that need to interact with interfaces generically — notification dispatch, daemon integration, and future shared logic.
 
 ## Creating a New Interface
 
@@ -42,20 +47,17 @@ from interfaces import InterfaceAdapter
 
 class VoiceAdapter(InterfaceAdapter):
     async def receive_input(self) -> str:
-        # Transcribe audio via Whisper
         return transcribed_text
 
     async def send_output(self, message: str) -> None:
-        # Synthesize speech and play it
-        pass
+        synthesize_and_play(message)
 
     async def send_file(self, filepath: str, description: str = "") -> None:
-        # Announce the file path via speech
-        pass
+        announce(f"File ready: {filepath}")
 
     async def send_notification(self, message: str, priority: str = "normal") -> None:
-        # Play a notification sound + speak the message
-        pass
+        play_notification_sound()
+        announce(message)
 
     def get_interface_name(self) -> str:
         return "voice"
@@ -64,6 +66,5 @@ class VoiceAdapter(InterfaceAdapter):
         return False
 
     def confirm(self, prompt: str) -> bool:
-        # Ask via speech, listen for "yes" or "no"
-        return False
+        return listen_for_yes_or_no()
 ```
