@@ -44,7 +44,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 - **Notification routing** — Background email monitoring with priority filtering, delivered to Discord, Telegram, email, or all three
 - **Markdown notes** — Capture timestamped thoughts, research, and links organized as daily markdown files. Searchable across your project
 
-**Background daemon.** A lightweight scheduler (`daemon.py`) that runs in the background and executes scheduled tasks — daily briefings, email monitoring, job scans, and reminder delivery — without keeping the chat open. Manages its own PID file, handles graceful shutdown, and routes notifications to Discord, Telegram, or email based on your config.
+**Background daemon.** A lightweight scheduler (`daemon.py`) that runs in the background and executes scheduled tasks — daily briefings, email monitoring, job scans, and reminder delivery — without keeping the chat open. Manages its own PID file, handles graceful shutdown, and routes notifications to Discord, Telegram, or email based on your config. Enable `--hot-reload` or set `"hot_reload": true` in your daemon config to auto-restart subprocesses when Python files change — useful for plugin development and iterating on core modules.
 
 **Semantic memory search.** Optionally install `sentence-transformers` for meaning-based memory retrieval. Instead of loading every memory into context, the agent retrieves the top 15 most relevant to each query using 384-dimensional embeddings. Falls back gracefully to loading all memories when the package isn't installed. Works on CPU; auto-detects and uses GPU when available.
 

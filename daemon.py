@@ -7,8 +7,10 @@ checks, job scans, reminders) and routes results to configured
 notification channels.
 
 Usage:
-    python daemon.py           # Run everything in foreground
-    python daemon.py --detach  # Run everything as background process
+    python daemon.py                      # Run everything in foreground
+    python daemon.py --detach             # Run everything as background process
+    python daemon.py --hot-reload         # Auto-restart services on file changes
+    python daemon.py --detach --hot-reload
 
 Stops gracefully on SIGTERM/SIGINT (terminates all child services).
 """
@@ -21,6 +23,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timedelta
 
@@ -43,6 +46,7 @@ DEFAULTS = {
     "auto_start_web_ui": True,
     "auto_start_discord": True,
     "auto_start_telegram": True,
+    "hot_reload": False,
 }
 
 
@@ -154,6 +158,21 @@ def _stop_services(services, log):
                 proc.wait()
 
 
+def _restart_service(svc, log, log_file):
+    """Stop and restart a single service subprocess."""
+    proc = svc["process"]
+    if proc and proc.poll() is None:
+        log.info("Stopping %s (PID %d) for restart...", svc["name"], proc.pid)
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            log.warning("Killing %s (PID %d)", svc["name"], proc.pid)
+            proc.kill()
+            proc.wait()
+    _start_service(svc, log, log_file)
+
+
 def _check_services(services, log, log_file, running):
     """Restart any service that has exited unexpectedly."""
     if not running:
@@ -167,6 +186,100 @@ def _check_services(services, log, log_file, running):
             log.warning("%s exited (code %d), restarting in 3s", svc["name"], rc)
             time.sleep(3)
             _start_service(svc, log, log_file)
+
+
+# --- Hot reload (optional watchdog-based file watching) ---
+
+try:
+    from watchdog.observers import Observer
+    from watchdog.events import FileSystemEventHandler
+except ImportError:
+    Observer = None
+    FileSystemEventHandler = object  # Allow class definition without watchdog
+
+# Directories to ignore when watching for changes
+_EXCLUDED_DIRS = {
+    "__pycache__", ".git", "tests", "venv", "conversations",
+    "projects", "logs", "workspace", "skills", "node_modules",
+}
+
+
+class FileChangeHandler(FileSystemEventHandler):
+    """Debounced file change handler that restarts affected daemon services."""
+
+    def __init__(self, services, log, log_file, base_dir):
+        super().__init__()
+        self.services = services
+        self.log = log
+        self.log_file = log_file
+        self.base_dir = base_dir
+        self._pending_files = set()
+        self._timer = None
+        self._lock = threading.Lock()
+
+    def _is_excluded(self, path):
+        """Check if path is in an excluded directory."""
+        rel = os.path.relpath(path, self.base_dir)
+        parts = rel.replace(os.sep, "/").split("/")
+        return any(p in _EXCLUDED_DIRS for p in parts)
+
+    def on_modified(self, event):
+        if event.is_directory:
+            return
+        if not event.src_path.endswith(".py"):
+            return
+        if self._is_excluded(event.src_path):
+            return
+        rel = os.path.relpath(event.src_path, self.base_dir)
+        with self._lock:
+            self._pending_files.add(rel.replace(os.sep, "/"))
+            if self._timer is not None:
+                self._timer.cancel()
+            self._timer = threading.Timer(2.0, self._do_restarts)
+            self._timer.daemon = True
+            self._timer.start()
+
+    on_created = on_modified
+
+    def _determine_restarts(self, changed_files):
+        """Map changed files to service names that need restarting."""
+        restart = set()
+        for f in changed_files:
+            if f == "daemon.py":
+                self.log.warning("daemon.py changed — manual restart required")
+                continue
+            if f.startswith("web_ui/"):
+                restart.add("web_ui")
+            elif f == "discord_bot.py":
+                restart.add("discord")
+            elif f == "telegram_bot.py":
+                restart.add("telegram")
+            elif f.startswith("plugins/"):
+                # Plugin change affects all services
+                for svc in self.services:
+                    restart.add(svc["name"])
+            else:
+                # Core module change — restart all
+                for svc in self.services:
+                    restart.add(svc["name"])
+        return restart
+
+    def _do_restarts(self):
+        """Debounce callback — restart affected services."""
+        with self._lock:
+            changed = set(self._pending_files)
+            self._pending_files.clear()
+            self._timer = None
+        if not changed:
+            return
+        self.log.info("File changes detected: %s", ", ".join(sorted(changed)))
+        restart_names = self._determine_restarts(changed)
+        for svc in self.services:
+            if svc["name"] in restart_names:
+                proc = svc["process"]
+                if proc and proc.poll() is None:
+                    self.log.info("Hot-reloading %s...", svc["name"])
+                    _restart_service(svc, self.log, self.log_file)
 
 
 # --- Notification delivery ---
@@ -334,7 +447,7 @@ def _next_occurrence(now, hour, minute):
     return candidate
 
 
-def run():
+def run(hot_reload=False):
     """Main daemon loop."""
     log = _setup_logging()
 
@@ -417,6 +530,19 @@ def run():
         elif svc["enabled"] and not svc["available"]:
             log.info("Skipping %s (credentials not configured)", svc["name"])
 
+    # Hot reload — watch for file changes and restart affected services
+    observer = None
+    enable_hot_reload = hot_reload or cfg.get("hot_reload", False)
+    if enable_hot_reload:
+        if Observer is not None:
+            handler = FileChangeHandler(services, log, log_fh, BASE_DIR)
+            observer = Observer()
+            observer.schedule(handler, BASE_DIR, recursive=True)
+            observer.start()
+            log.info("Hot reload enabled — watching for file changes")
+        else:
+            log.warning("Hot reload requested but watchdog not installed (pip install watchdog)")
+
     while running:
         now = memory.local_now()
 
@@ -456,6 +582,9 @@ def run():
             time.sleep(1)
 
     log.info("Daemon stopped.")
+    if observer is not None:
+        observer.stop()
+        observer.join()
     _stop_services(services, log)
     log_fh.close()
     _remove_pid()
@@ -474,4 +603,4 @@ if __name__ == "__main__":
         os.makedirs(LOG_DIR, exist_ok=True)
         sys.stdout = open(LOG_FILE, "a")
         sys.stderr = sys.stdout
-    run()
+    run(hot_reload="--hot-reload" in sys.argv)

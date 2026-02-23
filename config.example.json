@@ -49,7 +49,8 @@
     "notify_channel": "discord",
     "auto_start_web_ui": true,
     "auto_start_discord": true,
-    "auto_start_telegram": true
+    "auto_start_telegram": true,
+    "hot_reload": false
   },
   "rate_limits": {
     "drafts_per_session": 10,

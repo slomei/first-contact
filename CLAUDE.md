@@ -8,7 +8,7 @@
 
 First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Four interfaces (terminal, web UI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
 
-**Status:** Shipped. All 280 tests passing. Live on GitHub.
+**Status:** Shipped. All 291 tests passing. Live on GitHub.
 
 ---
 
@@ -39,7 +39,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `notifications.py` | Email classification (high/medium/low priority by sender domain + keywords), rate limiting (20/hour), seen-message dedup (7-day prune), audit logging, Discord/Telegram/email formatters. |
 | `job_scanner.py` | Proactive job scanning — multi-platform DuckDuckGo search, Haiku fit assessment against user profile, dedup via seen_jobs.json, rate limiting (3 manual scans/day). Batch API for >=5 jobs (50% cost). |
 | `batch_api.py` | Batch API wrapper — submit, poll, retrieve for Anthropic Messages Batches endpoint. Used by job_scanner for fit assessments at 50% cost. |
-| `daemon.py` | Single entry point for all services. Spawns and supervises web_ui, discord, and telegram as subprocesses (auto-restart on crash). Also runs scheduled tasks: daily briefings, email checks (30 min), job scans (12 hr), reminder checks (5 min). PID management, graceful SIGTERM/SIGINT, notification routing. Configurable via `auto_start_*` keys. |
+| `daemon.py` | Single entry point for all services. Spawns and supervises web_ui, discord, and telegram as subprocesses (auto-restart on crash). Also runs scheduled tasks: daily briefings, email checks (30 min), job scans (12 hr), reminder checks (5 min). PID management, graceful SIGTERM/SIGINT, notification routing. Hot reload via watchdog (opt-in, `--hot-reload` or `config.hot_reload`). Configurable via `auto_start_*` keys. |
 | `onboarding.py` | 20-step interactive setup wizard. Covers profile, communication style, integrations (Discord, Telegram, Gmail, Calendar), notification preferences, and Haiku-driven personality calibration. Works across all interfaces. `get_suggested_workflows()` returns config-aware suggestions for post-onboarding guidance. |
 | `help_data.py` | Single source of truth for all help text. `HELP_CATEGORIES` dict with per-interface formatters (terminal ANSI box-drawing, Discord markdown, Telegram plain text). Fuzzy prefix matching. |
 | `creative.py` | Creative project tools — world bible PDF parsing via pdfplumber, character/location JSON lookup. Used for the First Light screenplay project. |
@@ -72,6 +72,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `tests/test_plugins.py` | Plugin system — discovery, invalid plugin handling, tool merging, execution routing, read-only sandboxing, reload. |
 | `tests/test_providers.py` | Provider abstraction — ABC compliance, registry, compat types, OpenAI translation, tier system, config overrides, feature flags, cache multipliers. |
 | `tests/test_task_tools.py` | Task/reminder tools — list/complete/edit/remove/note tasks, list/cancel reminders, daemon-agent data parity. |
+| `tests/test_hot_reload.py` | Hot reload — file filtering, excluded dirs, debounce, file-to-subprocess mapping, daemon self-change detection. |
 
 ### Config & Data Files
 
@@ -82,7 +83,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `memory.json` | Global persistent memory store (objects with `text`, `embedding`, `created`). |
 | `reminders.json` | Global reminders (cross-project). |
 | `sync_sources.json` | File sync source/destination mappings. |
-| `requirements.txt` | Python runtime dependencies. `sentence-transformers` is commented out (optional). |
+| `requirements.txt` | Python runtime dependencies. `sentence-transformers` and `watchdog` are commented out (optional). |
 | `requirements-dev.txt` | Test dependencies (pytest, pytest-mock). Install with `pip install -r requirements-dev.txt`. |
 | `setup.sh` | Setup script — creates venv, installs deps, copies config templates. |
 
@@ -380,7 +381,7 @@ All four interfaces share these features via the shared core:
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 280 tests across 19 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 291 tests across 20 test files.
 
 ---
 
