@@ -8,7 +8,7 @@
 
 First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Four interfaces (terminal, web UI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
 
-**Status:** Shipped. All 196 tests passing. Live on GitHub.
+**Status:** Shipped. All 203 tests passing. Live on GitHub.
 
 ---
 
@@ -39,7 +39,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `job_scanner.py` | Proactive job scanning — multi-platform DuckDuckGo search, Haiku fit assessment against user profile, dedup via seen_jobs.json, rate limiting (3 manual scans/day). Batch API for >=5 jobs (50% cost). |
 | `batch_api.py` | Batch API wrapper — submit, poll, retrieve for Anthropic Messages Batches endpoint. Used by job_scanner for fit assessments at 50% cost. |
 | `daemon.py` | Single entry point for all services. Spawns and supervises web_ui, discord, and telegram as subprocesses (auto-restart on crash). Also runs scheduled tasks: daily briefings, email checks (30 min), job scans (12 hr), reminder checks (5 min). PID management, graceful SIGTERM/SIGINT, notification routing. Configurable via `auto_start_*` keys. |
-| `onboarding.py` | 20-step interactive setup wizard. Covers profile, communication style, integrations (Discord, Telegram, Gmail, Calendar), notification preferences, and Haiku-driven personality calibration. Works across all interfaces. |
+| `onboarding.py` | 20-step interactive setup wizard. Covers profile, communication style, integrations (Discord, Telegram, Gmail, Calendar), notification preferences, and Haiku-driven personality calibration. Works across all interfaces. `get_suggested_workflows()` returns config-aware suggestions for post-onboarding guidance. |
 | `help_data.py` | Single source of truth for all help text. `HELP_CATEGORIES` dict with per-interface formatters (terminal ANSI box-drawing, Discord markdown, Telegram plain text). Fuzzy prefix matching. |
 | `creative.py` | Creative project tools — world bible PDF parsing via pdfplumber, character/location JSON lookup. Used for the First Light screenplay project. |
 | `skills_loader.py` | Extensible skills system — loads `.md` skill files from `skills/` directory, keyword matching, default base skills per specialist, injects matched skill content into specialist system prompts during delegation. |
@@ -57,7 +57,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `tests/test_models.py` | Model routing — MODELS dict, pricing, short names, token estimation, usage tracking, cache tokens, batch discount. |
 | `tests/test_tools.py` | Tool system — TOOLS list, required fields, status text, file sandboxing, description conciseness, cached tools. |
 | `tests/test_tasks.py` | Tasks — add/roundtrip, natural date parsing. |
-| `tests/test_onboarding.py` | Onboarding — calibration flow, step ordering, error handling. |
+| `tests/test_onboarding.py` | Onboarding — calibration flow, step ordering, error handling, suggested workflows. |
 | `tests/test_help_data.py` | Help system — categories, fuzzy matching, all 3 interface formatters. |
 | `tests/test_notes_status.py` | Notes, reminders, draft rate limits, daemon PID, config loading. |
 | `tests/test_skills.py` | Skills system — skill loading, keyword matching, default skills, specialist prompt injection. |
@@ -190,6 +190,7 @@ The system prompt (`memory.py`) includes four behavioral directives built from a
 - **Typo tolerance** — Never ask if something is a typo unless it affects a concrete output like a calendar event, email draft, file name, or cover letter. If the intent is interpretable, just act on it.
 - **Self-knowledge** — Dynamic section describing First Contact's own identity, capabilities, tool count, skill count, and architecture. Rebuilt each turn so the agent can accurately answer "what are you?" questions.
 - **Tool parameter notes** — Consolidated guidance for tool usage (memory defaults, date/time parameter format, generate_pdf modes, calendar confirmation) in the stable block so the model has context without bloating tool schemas.
+- **Search restraint** — Explicit "when NOT to search" rules: don't search when the answer is in conversation/memories, when the user asks about their own data (use the right tool instead), or when following up on an already-discussed topic.
 
 ### Timezone Handling
 
@@ -308,7 +309,7 @@ The system prompt enforces these behaviors (see System Prompt Behaviors above):
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 196 tests across 15 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 203 tests across 15 test files.
 
 ---
 

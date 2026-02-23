@@ -704,6 +704,10 @@ async def on_message(message):
         await send_reply(dm, prompt)
         if done:
             state.onboarding_wizard = None
+            workflows = onboarding.get_suggested_workflows()
+            if workflows:
+                lines = "\n".join(f"  {i}. {s}" for i, s in enumerate(workflows, 1))
+                await send_reply(dm, f"**Based on your setup, try these first:**\n{lines}")
         return
 
     # --- Confirmation interception ---

@@ -354,6 +354,18 @@ if __name__ == "__main__":
         except (EOFError, KeyboardInterrupt):
             print(f"\n{memory.DIM}Setup interrupted. Run /setup to try again.{memory.RESET}\n")
 
+    # Show suggested workflows on first startup after onboarding
+    config = memory.load_config()
+    if not config.get("suggestions_shown"):
+        workflows = onboarding.get_suggested_workflows()
+        if workflows:
+            print(f"{memory.DIM}Based on your setup, try these first:{memory.RESET}")
+            for i, s in enumerate(workflows, 1):
+                print(f"{memory.DIM}  {i}. {s}{memory.RESET}")
+            print()
+            config["suggestions_shown"] = True
+            memory.save_config(config)
+
     # Show previous conversations if any exist
     existing = memory.list_conversations()
     if existing:

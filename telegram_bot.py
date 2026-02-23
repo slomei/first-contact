@@ -721,6 +721,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_reply(chat_id, prompt, bot)
         if done:
             state.onboarding_wizard = None
+            workflows = onboarding.get_suggested_workflows()
+            if workflows:
+                lines = "\n".join(f"  {i}. {s}" for i, s in enumerate(workflows, 1))
+                await send_reply(chat_id, f"Based on your setup, try these first:\n{lines}", bot)
         return
 
     # --- Tool confirmation interception ---

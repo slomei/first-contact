@@ -359,3 +359,83 @@ class TestGetCurrentPrompt:
         ]
         prompt = wiz.get_current_prompt()
         assert prompt == "Agent: What kind of cats?"
+
+
+# ---------------------------------------------------------------------------
+# get_suggested_workflows tests
+# ---------------------------------------------------------------------------
+
+class TestGetSuggestedWorkflows:
+    def test_returns_non_empty_list(self, tmp_path, monkeypatch):
+        """Always returns at least one suggestion."""
+        monkeypatch.setattr(onboarding.memory, "BASE_DIR", str(tmp_path))
+        monkeypatch.setattr(onboarding.memory, "load_config", lambda: {})
+        monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+        monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+        result = onboarding.get_suggested_workflows()
+        assert isinstance(result, list)
+        assert len(result) > 0
+
+    def test_fallback_when_nothing_configured(self, tmp_path, monkeypatch):
+        """With no integrations, returns universal fallback suggestions."""
+        monkeypatch.setattr(onboarding.memory, "BASE_DIR", str(tmp_path))
+        monkeypatch.setattr(onboarding.memory, "load_config", lambda: {})
+        monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+        monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+        result = onboarding.get_suggested_workflows()
+        texts = " ".join(result)
+        assert "/remember" in texts
+        assert "/web" in texts
+        assert "/task" in texts
+
+    def test_email_suggestion_when_accounts_set(self, tmp_path, monkeypatch):
+        """Email suggestion appears when email_accounts is configured."""
+        monkeypatch.setattr(onboarding.memory, "BASE_DIR", str(tmp_path))
+        monkeypatch.setattr(onboarding.memory, "load_config", lambda: {
+            "email_accounts": [{"label": "main", "credentials_file": "creds.json"}]
+        })
+        monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+        monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+        result = onboarding.get_suggested_workflows()
+        assert any("/email" in s for s in result)
+
+    def test_job_suggestion_when_target_roles_set(self, tmp_path, monkeypatch):
+        """Job suggestion appears when target_roles is configured."""
+        monkeypatch.setattr(onboarding.memory, "BASE_DIR", str(tmp_path))
+        monkeypatch.setattr(onboarding.memory, "load_config", lambda: {
+            "user_profile": {"target_roles": ["Engineer"]}
+        })
+        monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+        monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+        result = onboarding.get_suggested_workflows()
+        assert any("/scan" in s for s in result)
+
+    def test_job_suggestion_when_scan_queries_set(self, tmp_path, monkeypatch):
+        """Job suggestion appears when job_scan queries are configured."""
+        monkeypatch.setattr(onboarding.memory, "BASE_DIR", str(tmp_path))
+        monkeypatch.setattr(onboarding.memory, "load_config", lambda: {
+            "job_scan": {"queries": ["python developer"]}
+        })
+        monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+        monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+        result = onboarding.get_suggested_workflows()
+        assert any("/scan" in s for s in result)
+
+    def test_notification_suggestion_when_discord_token_set(self, tmp_path, monkeypatch):
+        """Daemon suggestion appears when DISCORD_BOT_TOKEN is set."""
+        monkeypatch.setattr(onboarding.memory, "BASE_DIR", str(tmp_path))
+        monkeypatch.setattr(onboarding.memory, "load_config", lambda: {})
+        monkeypatch.setenv("DISCORD_BOT_TOKEN", "fake-token")
+        monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+        result = onboarding.get_suggested_workflows()
+        assert any("daemon" in s for s in result)
+
+    def test_calendar_suggestion_when_credentials_exist(self, tmp_path, monkeypatch):
+        """Calendar suggestion appears when calendar_credentials.json exists."""
+        monkeypatch.setattr(onboarding.memory, "BASE_DIR", str(tmp_path))
+        monkeypatch.setattr(onboarding.memory, "load_config", lambda: {})
+        monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+        monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+        (tmp_path / "calendar_credentials.json").write_text("{}")
+        result = onboarding.get_suggested_workflows()
+        assert any("/cal" in s for s in result)
