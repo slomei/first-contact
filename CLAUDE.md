@@ -180,7 +180,7 @@ Tool definitions also use prompt caching: `get_cached_tools()` returns `TOOLS` w
 
 ### System Prompt Behaviors
 
-The system prompt (`memory.py`) includes three behavioral directives built from actual usage patterns:
+The system prompt (`memory.py`) includes four behavioral directives built from actual usage patterns:
 
 - **Calibrated honesty** — Evaluate work accurately. Praise when earned, critique when warranted. Never default to enthusiasm, sugarcoat bad news, or inflate quality to be supportive.
 - **Act-don't-ask** — When the user asks to do something, do it immediately. Don't ask for confirmation, optional fields, or clarifying questions unless the request is truly ambiguous. Programmatic confirmation gates (calendar events, file overwrites) handle their own confirmation — the agent doesn't add a second layer.
