@@ -1484,6 +1484,18 @@ def tool_status_text(name, tool_input):
     return labels.get(name, f"Using tool: {name}")
 
 
+# --- Confirmation prompt utility ---
+
+def clean_confirm_prompt(prompt):
+    """Strip terminal-oriented suffixes from confirmation prompts for non-terminal interfaces."""
+    text = prompt.rstrip()
+    for suffix in ("Confirm? [y/N]: ", "Allow this? [y/N]: ", "Run this code? [y/N]: ", "[y/N]: "):
+        if text.endswith(suffix):
+            text = text[:-len(suffix)].rstrip()
+            break
+    return text
+
+
 # --- Tool execution ---
 
 def execute_tool(name, tool_input, confirm_fn=None):

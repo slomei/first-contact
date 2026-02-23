@@ -15,10 +15,11 @@ import json
 import os
 import re
 import shutil
+import threading
 from datetime import datetime, timedelta
 
-from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import Application, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from telegram.constants import ChatAction
 
 import memory
@@ -86,12 +87,89 @@ def sync_state(state):
     memory.memories = memory.load_memories()
 
 
-def execute_tool_bot(name, tool_input):
-    """Wraps tools.execute_tool but auto-approves (no confirm_fn = no terminal prompt)."""
-    if name == "run_python":
-        code = tool_input["code"]
-        return tools.run_code_in_workspace(code)
-    return tools.execute_tool(name, tool_input)
+def execute_tool_bot(name, tool_input, confirm_fn=None):
+    """Wraps tools.execute_tool, passing through confirm_fn for interactive confirmation."""
+    return tools.execute_tool(name, tool_input, confirm_fn=confirm_fn)
+
+
+# Module-level pending confirmations, keyed by chat_id
+_pending_confirms = {}
+
+
+def make_telegram_confirm_fn(chat_id, bot, loop):
+    """Create a confirm_fn that sends inline keyboard buttons and waits for callback."""
+
+    def confirm_fn(prompt):
+        clean_prompt = tools.clean_confirm_prompt(prompt)
+        event = threading.Event()
+        holder = {"approved": False}
+        _pending_confirms[chat_id] = {"event": event, "holder": holder}
+
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("Confirm", callback_data="confirm_yes"),
+                InlineKeyboardButton("Cancel", callback_data="confirm_no"),
+            ]
+        ])
+
+        try:
+            asyncio.run_coroutine_threadsafe(
+                bot.send_message(
+                    chat_id=chat_id,
+                    text=f"*Confirmation required:*\n{clean_prompt}",
+                    reply_markup=keyboard,
+                ),
+                loop,
+            ).result(timeout=5)
+        except Exception:
+            _pending_confirms.pop(chat_id, None)
+            return False
+
+        if not event.wait(timeout=60):
+            _pending_confirms.pop(chat_id, None)
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    bot.send_message(
+                        chat_id=chat_id,
+                        text="Confirmation timed out. Action cancelled.",
+                    ),
+                    loop,
+                ).result(timeout=5)
+            except Exception:
+                pass
+            return False
+
+        approved = holder["approved"]
+        _pending_confirms.pop(chat_id, None)
+        return approved
+
+    return confirm_fn
+
+
+async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle inline keyboard callback for confirmation dialogs."""
+    query = update.callback_query
+    if not query or not query.data:
+        return
+
+    chat_id = query.message.chat_id
+    pending = _pending_confirms.get(chat_id)
+    if not pending:
+        await query.answer("No pending confirmation.")
+        return
+
+    approved = query.data == "confirm_yes"
+    pending["holder"]["approved"] = approved
+    pending["event"].set()
+
+    label = "Approved" if approved else "Cancelled"
+    await query.answer(label)
+    try:
+        await query.edit_message_text(
+            text=f"{query.message.text}\n\n_{label}_"
+        )
+    except Exception:
+        pass
 
 
 def split_message(text, limit=4096):
@@ -220,8 +298,12 @@ async def get_response(state, channel):
                     status = tools.tool_status_text(block.name, block.input)
                     await channel.send(f"_{status}..._")
 
+                    loop = asyncio.get_event_loop()
+                    confirm_fn = make_telegram_confirm_fn(
+                        channel.chat_id, channel.bot, loop
+                    )
                     result, is_error = await asyncio.to_thread(
-                        execute_tool_bot, block.name, block.input
+                        execute_tool_bot, block.name, block.input, confirm_fn
                     )
                     tool_result = {
                         "type": "tool_result",
@@ -2825,6 +2907,9 @@ if __name__ == "__main__":
         print("TELEGRAM_USER_ID not set — bot will run in setup mode (logs user IDs).")
 
     app = Application.builder().token(token).build()
+
+    # Register callback handler for confirmation inline buttons (before MessageHandler)
+    app.add_handler(CallbackQueryHandler(handle_confirm_callback))
 
     # Register the single message handler for all text (commands + free text)
     app.add_handler(MessageHandler(filters.TEXT, handle_message))

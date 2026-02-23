@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import threading
 from datetime import datetime, timedelta
 
 import discord
@@ -84,12 +85,47 @@ def sync_state(state):
     memory.memories = memory.load_memories()
 
 
-def execute_tool_discord(name, tool_input):
-    """Wraps tools.execute_tool but auto-approves (no confirm_fn = no terminal prompt)."""
-    if name == "run_python":
-        code = tool_input["code"]
-        return tools.run_code_in_workspace(code)
-    return tools.execute_tool(name, tool_input)
+def execute_tool_discord(name, tool_input, confirm_fn=None):
+    """Wraps tools.execute_tool, passing through confirm_fn for interactive confirmation."""
+    return tools.execute_tool(name, tool_input, confirm_fn=confirm_fn)
+
+
+def make_discord_confirm_fn(state, channel, loop):
+    """Create a confirm_fn that sends a Discord DM and waits for yes/no reply."""
+
+    def confirm_fn(prompt):
+        clean_prompt = tools.clean_confirm_prompt(prompt)
+        event = threading.Event()
+        holder = {"approved": False}
+        state._pending_confirm = {"event": event, "holder": holder}
+
+        try:
+            asyncio.run_coroutine_threadsafe(
+                channel.send(
+                    f"**Confirmation required:**\n{clean_prompt}\n\nReply **yes** or **no**."
+                ),
+                loop,
+            ).result(timeout=5)
+        except Exception:
+            state._pending_confirm = None
+            return False
+
+        if not event.wait(timeout=60):
+            state._pending_confirm = None
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    channel.send("*Confirmation timed out. Action cancelled.*"),
+                    loop,
+                ).result(timeout=5)
+            except Exception:
+                pass
+            return False
+
+        approved = holder["approved"]
+        state._pending_confirm = None
+        return approved
+
+    return confirm_fn
 
 
 def split_message(text, limit=2000):
@@ -205,8 +241,10 @@ async def get_response(state, channel):
                     status = tools.tool_status_text(block.name, block.input)
                     await channel.send(f"*{status}...*")
 
+                    loop = asyncio.get_event_loop()
+                    confirm_fn = make_discord_confirm_fn(state, channel, loop)
                     result, is_error = await asyncio.to_thread(
-                        execute_tool_discord, block.name, block.input
+                        execute_tool_discord, block.name, block.input, confirm_fn
                     )
                     tool_result = {
                         "type": "tool_result",
@@ -739,6 +777,21 @@ async def on_message(message):
         if done:
             state.onboarding_wizard = None
         return
+
+    # --- Confirmation interception ---
+    if hasattr(state, '_pending_confirm') and state._pending_confirm:
+        answer = content.lower().strip()
+        if answer in ("yes", "y"):
+            state._pending_confirm["holder"]["approved"] = True
+            state._pending_confirm["event"].set()
+            return
+        elif answer in ("no", "n"):
+            state._pending_confirm["holder"]["approved"] = False
+            state._pending_confirm["event"].set()
+            return
+        else:
+            await send_reply(dm, "*Please reply **yes** or **no**.*")
+            return
 
     # --- Commands ---
     command_lower = content.lower()

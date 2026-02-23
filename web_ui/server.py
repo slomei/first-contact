@@ -13,6 +13,7 @@ import asyncio
 import json
 import os
 import sys
+import threading
 
 # Add parent dir to path so we can import shared core
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -50,6 +51,46 @@ class Connection:
         self.session_cache_creation_tokens = 0
         self.session_cache_read_tokens = 0
         self.compressions = 0
+        self._pending_confirm = None
+
+
+def make_web_confirm_fn(ws, conn, loop):
+    """Create a confirm_fn that sends a WebSocket confirmation dialog and blocks until response."""
+
+    def confirm_fn(prompt):
+        clean_prompt = tools.clean_confirm_prompt(prompt)
+        event = threading.Event()
+        holder = {"approved": False}
+        conn._pending_confirm = {"event": event, "holder": holder}
+
+        try:
+            asyncio.run_coroutine_threadsafe(
+                ws.send(json.dumps({"type": "confirm", "content": clean_prompt})),
+                loop,
+            ).result(timeout=5)
+        except Exception:
+            conn._pending_confirm = None
+            return False
+
+        if not event.wait(timeout=60):
+            conn._pending_confirm = None
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    ws.send(json.dumps({
+                        "type": "status",
+                        "content": "Confirmation timed out. Action cancelled.",
+                    })),
+                    loop,
+                ).result(timeout=5)
+            except Exception:
+                pass
+            return False
+
+        approved = holder["approved"]
+        conn._pending_confirm = None
+        return approved
+
+    return confirm_fn
 
 
 async def handle_message(ws, conn, data):
@@ -152,8 +193,13 @@ async def handle_message(ws, conn, data):
                             "content": status,
                             "tool": block.name,
                         }))
-                        result, is_error = tools.execute_tool(
-                            block.name, block.input, confirm_fn=None
+                        loop = asyncio.get_event_loop()
+                        confirm_fn = make_web_confirm_fn(ws, conn, loop)
+                        result, is_error = await loop.run_in_executor(
+                            None,
+                            lambda b=block: tools.execute_tool(
+                                b.name, b.input, confirm_fn=confirm_fn
+                            ),
                         )
                         await ws.send(json.dumps({
                             "type": "tool_end",
@@ -402,6 +448,11 @@ async def handler(ws):
 
             elif msg_type == "file_upload":
                 await handle_file_upload(ws, conn, data)
+
+            elif msg_type == "confirm_response":
+                if conn._pending_confirm:
+                    conn._pending_confirm["holder"]["approved"] = data.get("approved", False)
+                    conn._pending_confirm["event"].set()
 
             elif msg_type == "set_model":
                 model_id = data.get("model", "")

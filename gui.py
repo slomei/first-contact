@@ -75,10 +75,7 @@ def format_memories():
 
 
 def execute_tool_gui(name, tool_input):
-    """Wraps tools.execute_tool but auto-approves (no confirm_fn = no terminal prompt)."""
-    if name == "run_python":
-        code = tool_input["code"]
-        return tools.run_code_in_workspace(code)
+    """Wraps tools.execute_tool. Auto-approves (Gradio cannot prompt mid-generation)."""
     return tools.execute_tool(name, tool_input)
 
 
@@ -1943,6 +1940,12 @@ def bot_response(history, state):
                     if is_error:
                         tool_result["is_error"] = True
                     tool_results.append(tool_result)
+
+                    # Note auto-approval for confirmation-worthy tools
+                    if block.name in ("create_calendar_event", "run_python"):
+                        note_status = tools.tool_status_text(block.name, block.input)
+                        history[-1]["content"] = response_text + f"\n\n*Auto-approved: {note_status} (Gradio does not support mid-conversation confirmations)*"
+                        yield history, state, format_cost(state)
 
             state.conversation_history.append({"role": "user", "content": tool_results})
             # Remove the streaming message — the next loop iteration will add a fresh one
