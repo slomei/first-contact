@@ -797,6 +797,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             state.onboarding_wizard = None
         return
 
+    # --- Tool confirmation interception ---
+    pending = _pending_confirms.get(chat_id)
+    if pending:
+        answer = text.lower().strip()
+        if answer in ("yes", "y"):
+            pending["holder"]["approved"] = True
+            pending["event"].set()
+            return
+        elif answer in ("no", "n"):
+            pending["holder"]["approved"] = False
+            pending["event"].set()
+            return
+        else:
+            await send_reply(chat_id, "Please reply *yes* or *no*, or use the buttons above.", bot)
+            return
+
     # --- Check for pending calendar confirmation ---
     if state.pending_event and text.lower() in ("yes", "y", "no", "n"):
         if text.lower() in ("yes", "y"):
@@ -2906,7 +2922,7 @@ if __name__ == "__main__":
     if not ALLOWED_USER_ID:
         print("TELEGRAM_USER_ID not set — bot will run in setup mode (logs user IDs).")
 
-    app = Application.builder().token(token).build()
+    app = Application.builder().token(token).concurrent_updates(True).build()
 
     # Register callback handler for confirmation inline buttons (before MessageHandler)
     app.add_handler(CallbackQueryHandler(handle_confirm_callback))
