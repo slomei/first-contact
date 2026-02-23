@@ -48,6 +48,7 @@ class Connection:
         self.session_cost = 0.0
         self.session_cache_creation_tokens = 0
         self.session_cache_read_tokens = 0
+        self.compressions = 0
 
 
 async def handle_message(ws, conn, data):
@@ -171,6 +172,18 @@ async def handle_message(ws, conn, data):
             "cache_creation_tokens": conn.session_cache_creation_tokens,
             "cache_read_tokens": conn.session_cache_read_tokens,
         }))
+
+        # Context compression — prevent unbounded history growth
+        compression = models.compress_conversation(history=conn.history)
+        if compression:
+            old_tok, new_tok, removed, kept, new_history = compression
+            conn.history = new_history
+            conn.compressions += 1
+            await ws.send(json.dumps({
+                "type": "status",
+                "content": f"Context compressed: ~{old_tok:,} → ~{new_tok:,} tokens "
+                           f"({removed} exchanges summarized, {kept} kept).",
+            }))
 
     except Exception as e:
         await ws.send(json.dumps({

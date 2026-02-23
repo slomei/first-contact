@@ -148,7 +148,7 @@ def check_compression():
         print(f"\n{memory.YELLOW}  \u26a0 Context window filling up \u2014 compressing older messages to keep conversation going.{memory.RESET}")
     result = models.compress_conversation()
     if result:
-        old_tokens, new_tokens, removed, kept = result
+        old_tokens, new_tokens, removed, kept, _ = result
         print(f"{memory.DIM}  \u2713 Compressed: ~{old_tokens:,} \u2192 ~{new_tokens:,} tokens "
               f"({removed} exchanges summarized, {kept} kept)")
         print(f"  If I forgot something important, just remind me.{memory.RESET}")

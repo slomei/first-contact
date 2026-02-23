@@ -130,10 +130,10 @@ def extract_text_from_message(msg):
     return None
 
 
-def estimate_conversation_tokens():
+def estimate_conversation_tokens(history=None):
     """Estimate total tokens in conversation history (~4 chars per token)."""
     total = 0
-    for msg in conversation_history:
+    for msg in (history if history is not None else conversation_history):
         content = msg["content"]
         if isinstance(content, str):
             total += len(content) // 4
@@ -196,20 +196,29 @@ def clean_exchange(messages, start, end):
     return []
 
 
-def compress_conversation():
+def compress_conversation(history=None):
     """Compress conversation history when tokens exceed threshold.
 
     Keeps the first 3, middle 5, and last 5 exchanges (with tool blocks stripped),
     summarizes the rest using Haiku, and rebuilds the history.
-    Returns (old_tokens, new_tokens, removed, kept) or None if no compression needed.
-    """
-    global conversation_history
 
-    tokens = estimate_conversation_tokens()
+    Args:
+        history: Optional list of messages. If None, uses the global
+                 conversation_history (terminal/GUI mode).
+
+    Returns (old_tokens, new_tokens, removed, kept, new_history) or None
+    if no compression needed. When using the global, also mutates it in place.
+    """
+    global conversation_history, session_compressions
+
+    using_global = history is None
+    msgs = conversation_history if using_global else history
+
+    tokens = estimate_conversation_tokens(msgs)
     if tokens < TOKEN_THRESHOLD:
         return None
 
-    exchanges = group_into_exchanges(conversation_history)
+    exchanges = group_into_exchanges(msgs)
     n = len(exchanges)
     if n <= 13:
         return None
@@ -230,7 +239,7 @@ def compress_conversation():
     summary_parts = []
     for i in remove:
         start, end = exchanges[i]
-        for msg in conversation_history[start:end + 1]:
+        for msg in msgs[start:end + 1]:
             text = extract_text_from_message(msg)
             if text:
                 role = "User" if msg["role"] == "user" else "Assistant"
@@ -267,7 +276,7 @@ def compress_conversation():
             summary_inserted = True
 
         start, end = exchanges[i]
-        cleaned = clean_exchange(conversation_history, start, end)
+        cleaned = clean_exchange(msgs, start, end)
         new_history.extend(cleaned)
 
     if not summary_inserted:
@@ -276,13 +285,14 @@ def compress_conversation():
         new_history.insert(1, {"role": "assistant",
             "content": "Understood, I have the context from our earlier conversation."})
 
-    global session_compressions
     old_tokens = tokens
-    conversation_history = new_history
-    new_tokens = estimate_conversation_tokens()
-    session_compressions += 1
+    new_tokens = estimate_conversation_tokens(new_history)
 
-    return (old_tokens, new_tokens, len(remove), len(keep))
+    if using_global:
+        conversation_history = new_history
+        session_compressions += 1
+
+    return (old_tokens, new_tokens, len(remove), len(keep), new_history)
 
 
 def get_last_response():
