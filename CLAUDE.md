@@ -219,6 +219,25 @@ The system prompt (`memory.py`) includes four behavioral directives built from a
 8. User-gated messaging — Discord/Telegram bots respond only to configured user ID
 9. Anti-injection on drafts — external email content marked as untrusted data
 
+### Structural Safety Model
+
+First Contact's security is built on a core assumption: safety that depends on an AI model choosing to follow instructions will eventually fail. The four principles below enforce safety in code, not in prompts.
+
+**Principle 1: No Tool, No Action.** The agent's capabilities are explicitly defined by the tool registry. If a tool doesn't exist for an action, the agent cannot take it. New tools must go through the registry (`tools.py` `TOOLS` list or `plugins/__init__.py`). `get_cached_tools()` presents only registered tools to the model.
+
+**Principle 2: Code Gates, Not Prompt Gates.** Any action affecting the outside world passes through structural enforcement the model cannot override:
+- `conversation.py` — confirmation flows via `confirm_fn` callback, blocks on `threading.Event`
+- `tools.py` — rate limits (10 drafts/session, 10 fetches/session, 20 notifs/hr, 3 scans/day), `read_file` path sandboxing (rejects paths outside project dir, blocks dotfiles/system paths)
+- Gmail — OAuth scope restricted to compose (not send)
+- Calendar — OAuth scope narrowed to events (not full access)
+- `plugins/__init__.py` — plugins receive `copy.deepcopy()` of config and history
+
+**Principle 3: External Data Is Never Trusted.** Content from web searches, emails, files, and URLs enters through structured tool outputs, never injected into the instruction context. Web results, email content, and file reads all return as tool results that the model processes as data. Plugins receive copied (not referenced) conversation history.
+
+**Principle 4: The Prompt Is the Weakest Layer.** Behavioral directives (`_STABLE_PROMPT_TEMPLATE` in `memory.py`) shape communication style — calibrated honesty, act-don't-ask, self-knowledge, typo tolerance. They are explicitly NOT safety mechanisms. When a prompt directive and a code gate conflict, code wins.
+
+**For contributors:** New tools must be added to the `TOOLS` list in `tools.py` (Principle 1). New actions that touch external systems must include a `confirm_fn` check in their execution path (Principle 2). External data must enter via tool results, never raw prompt injection (Principle 3).
+
 ---
 
 ## All Commands

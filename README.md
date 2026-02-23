@@ -239,6 +239,44 @@ This isn't an afterthought — security is baked into the architecture.
 
 **User-gated messaging.** Discord and Telegram bots only respond to your user ID. Nobody else can interact with your agent.
 
+## Structural Safety Model
+
+Most AI agent projects tell the model to be safe. First Contact assumes the model won't listen, and builds accordingly.
+
+Safety that depends on an AI model choosing to follow instructions will eventually fail. First Contact's security is built on four structural principles that enforce boundaries in code, not in prompts.
+
+### 1. No Tool, No Action
+
+The agent's capabilities are defined by the tool registry. If a tool doesn't exist for an action, the agent cannot take it. Capability restriction is the strongest form of safety — you can't misuse what doesn't exist.
+
+**Enforced in:** `tools.py` (tool registry defines all available actions), `plugins/__init__.py` (plugin tools go through the same registry with sandboxed execution), `get_cached_tools()` (only registered tools are presented to the model)
+
+*Example: The agent can draft emails but cannot send them. There is no "send email" tool. The absence of the capability is the safety mechanism.*
+
+### 2. Code Gates, Not Prompt Gates
+
+Any action that affects the outside world passes through structural enforcement the model cannot override. Confirmation flows block execution until a human approves. Rate limits are enforced in Python. File access is sandboxed before the model sees results. OAuth scopes are narrowed at the API level. The model doesn't decide whether to ask permission — the code decides for it.
+
+**Enforced in:** `conversation.py` (confirmation flows via `confirm_fn`, blocks on `threading.Event`), `tools.py` (rate limits, file path sandboxing), Gmail/Calendar integrations (narrowed OAuth scopes), `plugins/__init__.py` (read-only config copies)
+
+*Example: When the agent creates a calendar event, the code blocks execution and presents the action to the user for approval. The model cannot skip this step regardless of what its prompt says.*
+
+### 3. External Data Is Never Trusted
+
+Content from web searches, emails, files, and URLs is data to be processed, not commands to be followed. All external content enters through structured tool outputs that separate content from the instruction context.
+
+**Enforced in:** Web search results return via tool output (not injected into system prompt), email content processed through Gmail tool output, `read_file` returns content as tool results (sandboxed to project directories), plugins receive copied conversation history
+
+*Example: A web search result containing "ignore previous instructions" is treated as text content, not as a command. Even if the model were influenced, the code gates (Principle 2) would block any dangerous action.*
+
+### 4. The Prompt Is the Weakest Layer
+
+Behavioral directives in the system prompt shape how the agent communicates — calibrated honesty, act-don't-ask, self-knowledge. They are explicitly NOT relied upon for safety-critical boundaries. When a prompt directive and a code gate conflict, code wins. Always. The prompt layer exists for UX quality, not for safety enforcement.
+
+**Enforced in:** `memory.py` (behavioral directives shape communication style, not security boundaries), every safety-critical boundary has a corresponding code-level enforcement (Principles 1–3)
+
+*Example: The system prompt says "act, don't ask" to reduce unnecessary confirmation requests. But the confirmation code overrides this for any action touching external systems — code requires confirmation regardless of what the prompt says.*
+
 ## Commands
 
 First Contact responds to natural conversation and also supports direct commands. Type `/help` for a category overview, or `/help <category>` for details:
