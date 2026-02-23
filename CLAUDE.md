@@ -1,6 +1,6 @@
 # CLAUDE.md — First Contact Project Context
 
-*Last updated: February 22, 2026*
+*Last updated: February 23, 2026*
 
 ---
 
@@ -8,7 +8,7 @@
 
 First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Five interfaces (terminal, web UI, Gradio GUI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
 
-**Status:** Shipped. All 165 tests passing. Live on GitHub.
+**Status:** Shipped. All 166 tests passing. Live on GitHub.
 
 ---
 
@@ -19,7 +19,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | File | Description |
 |------|-------------|
 | `chat.py` | Terminal chatbot — primary interface. Streaming output, markdown stripping, session cost tracking, startup diagnostics. |
-| `web_ui/` | WebSocket-based web frontend (server.py + vanilla HTML/CSS/JS). Per-connection state, streaming responses, tool loop, token tracking, context compression, conversation persistence. Designed as Tauri desktop app foundation. |
+| `web_ui/` | WebSocket-based web frontend (server.py + vanilla HTML/CSS/JS). Per-connection state, streaming responses, tool loop, token tracking, context compression, conversation persistence, `/prompt` command. Designed as Tauri desktop app foundation. |
 | `gui.py` | Web GUI via Gradio. Returns markdown strings from command handlers. |
 | `discord_bot.py` | Discord bot (prefix: `!fc`). Background loops for reminders, email, briefing, scans. Async with typing indicators. |
 | `telegram_bot.py` | Telegram bot. Same command set as Discord, adapted for Telegram's API. |
@@ -29,9 +29,9 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 
 | File | Description |
 |------|-------------|
-| `memory.py` | Persistent memory (global + per-project), semantic search via sentence-transformers, system prompt builder, project switching, cross-project awareness, user profile, config I/O. |
+| `memory.py` | Persistent memory (global + per-project), semantic search via sentence-transformers, system prompt builder (stable/dynamic split for prompt caching), project switching, cross-project awareness, user profile, config I/O. |
 | `models.py` | Model routing (Haiku/Sonnet/Opus), API calls, token tracking, pricing, context compression (Haiku-summarized at 20K tokens), specialist delegation (researcher/writer/coder/analyst). |
-| `tools.py` | 18 tool definitions (`TOOLS` list) and `execute_tool()` dispatch. Gmail, Calendar, web search, file I/O, code execution, job search, notes, tasks, reminders, PDF generation. |
+| `tools.py` | 18 tool definitions (`TOOLS` list) and `execute_tool()` dispatch. Gmail, Calendar, web search, file I/O, code execution, job search, notes, tasks, reminders, PDF generation. Tool schemas are minimal — behavioral guidance lives in the cached system prompt. `get_cached_tools()` adds `cache_control` to the last tool for prompt caching. |
 | `tasks.py` | Task system (add/edit/done/remove, priority levels, due dates) and reminder system (natural language date parsing via dateutil). Stored per-project in `tasks.json`, reminders global in `reminders.json`. |
 | `documents.py` | PDF generation via reportlab. Cover letters with auto-fit-to-one-page (progressive margin/font reduction, Opus shortening as last resort). Generic PDF generation. Falls back to plain text if reportlab not installed. |
 | `briefing.py` | Daily briefing aggregation — 7 data sources: email, calendar, tasks, jobs, reminders, watchlist, scan results. Formats for Discord, Telegram, and terminal. |
@@ -52,9 +52,9 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 |------|-------------|
 | `tests/conftest.py` | Pytest fixtures — isolated temp dirs, test config, monkeypatched paths. |
 | `tests/test_imports.py` | Smoke tests — all 15 core modules import without errors. |
-| `tests/test_memory.py` | Memory system — config, profiles, memories, semantic search, cross-project, system prompt, custom prompt. |
+| `tests/test_memory.py` | Memory system — config, profiles, memories, semantic search, cross-project, system prompt, custom prompt, cached prompt blocks. |
 | `tests/test_models.py` | Model routing — MODELS dict, pricing, short names, token estimation, usage tracking, cache tokens, batch discount. |
-| `tests/test_tools.py` | Tool system — TOOLS list, required fields, status text, file sandboxing, description conciseness. |
+| `tests/test_tools.py` | Tool system — TOOLS list, required fields, status text, file sandboxing, description conciseness, cached tools. |
 | `tests/test_tasks.py` | Tasks — add/roundtrip, natural date parsing. |
 | `tests/test_onboarding.py` | Onboarding — calibration flow, step ordering, error handling. |
 | `tests/test_help_data.py` | Help system — categories, fuzzy matching, all 4 interface formatters. |
@@ -168,6 +168,17 @@ Specialists can be augmented with skills — `.md` files in the `skills/` direct
 - Legacy single-account setup supported as fallback
 - OAuth2 per account, separate credential files
 
+### Prompt Caching
+
+The system prompt is split into two content blocks for Anthropic prompt caching:
+
+- **Stable block** (`_build_stable_prompt()`) — Behavioral directives, identity, tool parameter guidance, challenge mode, custom prompt, resume reference, cross-project summary, integration status. Marked with `cache_control: {"type": "ephemeral"}`. Changes only on explicit user action, not per-turn.
+- **Dynamic block** (`_build_dynamic_prompt()`) — Date/time, memories (semantic or all), creative context. Rebuilt every turn.
+
+Tool definitions also use prompt caching: `get_cached_tools()` returns `TOOLS` with `cache_control` on the last tool. Tool schemas are kept minimal — behavioral guidance and parameter usage notes are in the stable system prompt block where they benefit from caching instead of being re-sent as uncached schema tokens.
+
+`build_system_prompt_cached()` returns the two-block list. The older `build_system_prompt()` still exists for callers that need a single string.
+
 ### System Prompt Behaviors
 
 The system prompt (`memory.py`) includes three behavioral directives built from actual usage patterns:
@@ -175,6 +186,7 @@ The system prompt (`memory.py`) includes three behavioral directives built from 
 - **Calibrated honesty** — Evaluate work accurately. Praise when earned, critique when warranted. Never default to enthusiasm, sugarcoat bad news, or inflate quality to be supportive.
 - **Act-don't-ask** — When the user asks to do something, do it immediately. Don't ask for confirmation, optional fields, or clarifying questions unless the request is truly ambiguous. Programmatic confirmation gates (calendar events, file overwrites) handle their own confirmation — the agent doesn't add a second layer.
 - **Self-knowledge** — Dynamic section describing First Contact's own identity, capabilities, tool count, skill count, and architecture. Rebuilt each turn so the agent can accurately answer "what are you?" questions.
+- **Tool parameter notes** — Consolidated guidance for tool usage (memory defaults, date/time parameter format, generate_pdf modes, calendar confirmation) in the stable block so the model has context without bloating tool schemas.
 
 ### Timezone Handling
 
@@ -262,8 +274,10 @@ The system prompt enforces these behaviors (see System Prompt Behaviors above):
 - Per-connection isolation — each browser tab gets its own conversation history, model, and token counters
 - Vanilla HTML/CSS/JS frontend — no framework, no build step
 - Streaming responses, tool activity indicators, model switching, accent color picker
+- `/prompt [text|clear]` command — view, set, or clear custom system prompt instructions
 - Context compression at 20K tokens (same threshold as terminal, via shared `models.compress_conversation()`)
 - Conversation auto-save on new chat and disconnect (via shared `models.save_conversation()`)
+- Prompt caching via `build_system_prompt_cached()` and `get_cached_tools()`
 - Specific Anthropic API error handling (rate limit, auth, context overflow, connection)
 - Designed as foundation for eventual Tauri desktop app
 - `confirm_fn=None` (auto-approve, same as gui.py/discord)
@@ -286,7 +300,7 @@ The system prompt enforces these behaviors (see System Prompt Behaviors above):
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 165 tests across 13 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 166 tests across 13 test files.
 
 ---
 
