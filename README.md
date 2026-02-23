@@ -36,7 +36,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 
 **25 core tools** (plus any from plugins):
 
-- **Web search** — DuckDuckGo-powered, with page fetching and content extraction
+- **Web search** — configurable search provider (DuckDuckGo default, Brave/Google/SerpAPI), with page fetching and content extraction
 - **Gmail** — Read your inbox, search emails, draft replies. Multi-account support. Draft-only: the agent creates drafts, you send them
 - **Google Calendar** — View events, create new ones (with confirmation). Read and create only — no delete, no modify
 - **Job search pipeline** — Search boards, save listings, track application status, auto-generate cover letters as formatted PDFs
@@ -112,7 +112,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
          └────────┘ └────────┘ └───┘ └────────┘ └────────┘
 ```
 
-**31 Python modules:**
+**35 Python modules:**
 
 | File | Purpose |
 |------|---------|
@@ -133,7 +133,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 | `job_scanner.py` | Proactive multi-platform job scanning with AI fit assessment |
 | `batch_api.py` | Batch API wrapper for 50% cost job assessments |
 | `daemon.py` | Background scheduler for briefings, email, scans, reminders |
-| `onboarding.py` | Interactive setup wizard (20 steps, multi-interface) |
+| `onboarding.py` | Interactive setup wizard (21 steps, multi-interface) |
 | `help_data.py` | Shared help categories and per-interface formatters |
 | `creative.py` | Creative project tools (world bible, characters, locations) |
 | `skills_loader.py` | Extensible skills system (keyword matching, specialist prompt injection) |
