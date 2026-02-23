@@ -51,7 +51,8 @@
     "auto_start_web_ui": true,
     "auto_start_discord": true,
     "auto_start_telegram": true,
-    "hot_reload": false
+    "hot_reload": false,
+    "insights_interval_hours": 6
   },
   "rate_limits": {
     "drafts_per_session": 10,

@@ -135,6 +135,11 @@ def test_daemon_send_notification_accepts_list():
     daemon._send_notification("test", log, channels=["nonexistent"])
 
 
+def test_import_insights():
+    import insights
+    assert hasattr(insights, "generate_insights")
+
+
 def test_import_batch_api():
     import batch_api
     assert hasattr(batch_api, "submit_batch")

@@ -43,6 +43,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 - **Proactive job scanning** — Scheduled multi-platform scans with AI fit assessment against your profile, delivered via Discord/Telegram
 - **Task & reminder system** — Natural language dates, priority levels, due date tracking, background reminder delivery. The agent can list, complete, edit, and remove tasks conversationally — not just via slash commands
 - **Daily briefing** — Aggregates email, calendar, tasks, jobs, reminders, and watchlist topics into a single morning report
+- **Proactive insights** — Cross-references tasks, email, calendar, jobs, and reminders every 6 hours to surface actionable connections. Delivered via notifications. Stays silent when nothing is worth flagging
 - **Persistent memory** — Two-layer memory system: global facts persist across all projects, project-specific memories stay scoped. Semantic search retrieves the most relevant memories per query instead of loading all (requires optional `sentence-transformers` — works on CPU, uses GPU if available)
 - **File operations** — Read, write, and manage files in sandboxed project workspaces
 - **Code execution** — Run Python in a sandboxed workspace with timeout protection
@@ -112,7 +113,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
          └────────┘ └────────┘ └───┘ └────────┘ └────────┘
 ```
 
-**35 Python modules:**
+**36 Python modules:**
 
 | File | Purpose |
 |------|---------|
@@ -130,6 +131,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 | `documents.py` | PDF generation (cover letters, generic documents) |
 | `briefing.py` | Daily briefing aggregation (7 data sources) |
 | `notifications.py` | Email classification and notification routing |
+| `insights.py` | Proactive cross-source insight synthesis (daemon-only, Sonnet tier) |
 | `job_scanner.py` | Proactive multi-platform job scanning with AI fit assessment |
 | `batch_api.py` | Batch API wrapper for 50% cost job assessments |
 | `daemon.py` | Background scheduler for briefings, email, scans, reminders |

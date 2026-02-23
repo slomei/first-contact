@@ -47,6 +47,7 @@ DEFAULTS = {
     "auto_start_discord": True,
     "auto_start_telegram": True,
     "hot_reload": False,
+    "insights_interval_hours": 6,
 }
 
 
@@ -437,6 +438,20 @@ def _run_reminder_check(log, channels):
         log.error("Reminder check failed: %s", e)
 
 
+def _run_insights(log, channels):
+    """Cross-reference data sources and surface actionable insights."""
+    import insights
+    try:
+        text, cost = insights.generate_insights()
+        if text:
+            _send_notification(text, log, channels)
+            log.info("Insights delivered (cost: $%.4f)", cost)
+        else:
+            log.info("No insights to surface (cost: $%.4f)", cost)
+    except Exception as e:
+        log.error("Insights analysis failed: %s", e)
+
+
 # --- Main loop ---
 
 def _next_occurrence(now, hour, minute):
@@ -492,6 +507,7 @@ def run(hot_reload=False):
     scan_interval = timedelta(hours=cfg.get("scan_interval_hours", 12))
     reminder_interval = timedelta(minutes=cfg.get("reminder_check_interval_minutes", 5))
     heartbeat_interval = timedelta(minutes=cfg.get("heartbeat_interval_minutes", 30))
+    insights_interval = timedelta(hours=cfg.get("insights_interval_hours", 6))
 
     now = memory.local_now()
 
@@ -501,6 +517,7 @@ def run(hot_reload=False):
     last_scan = now
     last_reminder = now
     last_heartbeat = now
+    last_insights = now
 
     # Bug fix: compute next briefing time instead of firing retroactively.
     # If briefing was already sent today (per config), push to tomorrow.
@@ -566,6 +583,11 @@ def run(hot_reload=False):
         if now - last_reminder >= reminder_interval:
             _run_reminder_check(log, channels)
             last_reminder = now
+
+        # Proactive insights
+        if api_available and now - last_insights >= insights_interval:
+            _run_insights(log, channels)
+            last_insights = now
 
         # Heartbeat
         if now - last_heartbeat >= heartbeat_interval:

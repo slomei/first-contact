@@ -8,7 +8,7 @@
 
 First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Four interfaces (terminal, web UI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
 
-**Status:** Shipped. All 345 tests passing. Live on GitHub.
+**Status:** Shipped. All 357 tests passing. Live on GitHub.
 
 ---
 
@@ -37,9 +37,10 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `documents.py` | PDF generation via reportlab. Cover letters with auto-fit-to-one-page (progressive margin/font reduction, Opus shortening as last resort). Generic PDF generation. Falls back to plain text if reportlab not installed. |
 | `briefing.py` | Daily briefing aggregation — 7 data sources: email, calendar, tasks, jobs, reminders, watchlist, scan results. Formats for Discord, Telegram, and terminal. |
 | `notifications.py` | Email classification (high/medium/low priority by sender domain + keywords), rate limiting (20/hour), seen-message dedup (7-day prune), audit logging, Discord/Telegram/email formatters. |
+| `insights.py` | Proactive insights engine — cross-references tasks, email, calendar, jobs, reminders via Sonnet to surface actionable connections. 6 data-gathering functions, minimum-source gate (≥2), NO_INSIGHTS parsing. Daemon-only (every 6 hours). |
 | `job_scanner.py` | Proactive job scanning — multi-platform search via search provider abstraction, Haiku fit assessment against user profile, dedup via seen_jobs.json, rate limiting (3 manual scans/day). Batch API for >=5 jobs (50% cost). |
 | `batch_api.py` | Batch API wrapper — submit, poll, retrieve for Anthropic Messages Batches endpoint. Used by job_scanner for fit assessments at 50% cost. |
-| `daemon.py` | Single entry point for all services. Spawns and supervises web_ui, discord, and telegram as subprocesses (auto-restart on crash). Also runs scheduled tasks: daily briefings, email checks (30 min), job scans (12 hr), reminder checks (5 min). PID management, graceful SIGTERM/SIGINT, notification routing. Hot reload via watchdog (opt-in, `--hot-reload` or `config.hot_reload`). Configurable via `auto_start_*` keys. |
+| `daemon.py` | Single entry point for all services. Spawns and supervises web_ui, discord, and telegram as subprocesses (auto-restart on crash). Also runs scheduled tasks: daily briefings, email checks (30 min), job scans (12 hr), reminder checks (5 min), insights analysis (6 hr). PID management, graceful SIGTERM/SIGINT, notification routing. Hot reload via watchdog (opt-in, `--hot-reload` or `config.hot_reload`). Configurable via `auto_start_*` keys. |
 | `onboarding.py` | 21-step interactive setup wizard. Covers profile, communication style, integrations (Discord, Telegram, Gmail, Calendar, search provider), notification preferences, and Haiku-driven personality calibration. Works across all interfaces. `get_suggested_workflows()` returns config-aware suggestions for post-onboarding guidance. |
 | `help_data.py` | Single source of truth for all help text. `HELP_CATEGORIES` dict with per-interface formatters (terminal ANSI box-drawing, Discord markdown, Telegram plain text). Fuzzy prefix matching. |
 | `creative.py` | Creative project tools — world bible PDF parsing via pdfplumber, character/location JSON lookup. Used for the First Light screenplay project. |
@@ -79,6 +80,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `tests/test_mcp_server.py` | MCP server — config merging, tool listing/blacklist, call routing, error handling, async bridge. |
 | `tests/test_plugin_generator.py` | Plugin generator — name validation, directory scaffolding, tool count, overwrite protection, importability, metadata. |
 | `tests/test_search_providers.py` | Search providers — ABC compliance, registry/factory, config selection, all 4 provider request/response format, missing key errors. |
+| `tests/test_insights.py` | Insights engine — source gathering, minimum-source gate, model tier, system prompt, response parsing (NO_INSIGHTS + insight text), error handling. |
 
 ### Config & Data Files
 
@@ -421,7 +423,7 @@ All four interfaces share these features via the shared core:
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 345 tests across 23 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 357 tests across 24 test files.
 
 ---
 
