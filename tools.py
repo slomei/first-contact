@@ -317,6 +317,105 @@ TOOLS = [
         },
     },
     {
+        "name": "list_tasks",
+        "description": "List tasks in the current or all projects.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filter": {
+                    "type": "string",
+                    "enum": ["open", "done", "all"],
+                    "description": "Default: open",
+                },
+                "all_projects": {
+                    "type": "boolean",
+                    "description": "List tasks across all projects.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "complete_task",
+        "description": "Mark a task as done by ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "integer",
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+    {
+        "name": "edit_task",
+        "description": "Edit a task's description by ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "integer",
+                },
+                "description": {
+                    "type": "string",
+                },
+            },
+            "required": ["task_id", "description"],
+        },
+    },
+    {
+        "name": "remove_task",
+        "description": "Remove a task entirely by ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "integer",
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+    {
+        "name": "add_task_note",
+        "description": "Add a note to a task by ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "integer",
+                },
+                "note": {
+                    "type": "string",
+                },
+            },
+            "required": ["task_id", "note"],
+        },
+    },
+    {
+        "name": "list_reminders",
+        "description": "List all pending reminders.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "cancel_reminder",
+        "description": "Cancel a reminder by ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reminder_id": {
+                    "type": "integer",
+                },
+            },
+            "required": ["reminder_id"],
+        },
+    },
+    {
         "name": "web_fetch",
         "description": "Fetch and read a web page by URL.",
         "input_schema": {
@@ -1491,6 +1590,13 @@ def tool_status_text(name, tool_input):
         "search_email": f'Searching email: "{tool_input.get("query", "")}"',
         "create_task": f'Creating task: "{tool_input.get("description", "")}"',
         "create_reminder": f'Setting reminder: "{tool_input.get("description", "")}"',
+        "list_tasks": "Listing tasks",
+        "complete_task": f'Completing task #{tool_input.get("task_id", "")}',
+        "edit_task": f'Editing task #{tool_input.get("task_id", "")}',
+        "remove_task": f'Removing task #{tool_input.get("task_id", "")}',
+        "add_task_note": f'Adding note to task #{tool_input.get("task_id", "")}',
+        "list_reminders": "Listing reminders",
+        "cancel_reminder": f'Cancelling reminder #{tool_input.get("reminder_id", "")}',
         "web_fetch": f'Fetching page: {tool_input.get("url", "")}',
         "generate_pdf": f'Generating PDF: {tool_input.get("type", "document")}',
         "get_calendar_events": f'Checking calendar: {tool_input.get("start_date", "")}',
@@ -1768,6 +1874,124 @@ def execute_tool(name, tool_input, confirm_fn=None):
         except (ValueError, TypeError):
             time_str = reminder["remind_at"]
         return f"Reminder #{reminder['id']} set: {desc} — {time_str}", False
+
+    elif name == "list_tasks":
+        import tasks
+        filter_status = tool_input.get("filter", "open")
+        all_projects = tool_input.get("all_projects", False)
+
+        if all_projects:
+            status_filter = None if filter_status == "all" else filter_status
+            task_list = tasks.get_all_project_tasks(filter_status=status_filter)
+            if not task_list:
+                return f"No {filter_status} tasks across any project.", False
+            lines = []
+            for t in task_list:
+                line = f"#{t['id']} [{t['project']}] {t['description']}"
+                if t.get("priority", "normal") != "normal":
+                    line += f" [{t['priority']}]"
+                if t.get("due_date"):
+                    try:
+                        dt = datetime.fromisoformat(t["due_date"])
+                        line += f" (due {dt.strftime('%b %d %I:%M%p')})"
+                    except (ValueError, TypeError):
+                        pass
+                if t.get("status") == "done":
+                    line += " [done]"
+                if t.get("notes"):
+                    preview = t["notes"].splitlines()[0][:60]
+                    line += f"\n  note: {preview}"
+                lines.append(line)
+            return "\n".join(lines), False
+        else:
+            if filter_status == "done":
+                task_list = tasks.get_done_tasks()
+            elif filter_status == "all":
+                task_list = tasks.get_all_tasks()
+            else:
+                task_list = tasks.get_open_tasks()
+
+            if not task_list:
+                return f"No {filter_status} tasks in {memory.active_project}.", False
+            lines = []
+            for t in task_list:
+                line = f"#{t['id']} {t['description']}"
+                if t.get("priority", "normal") != "normal":
+                    line += f" [{t['priority']}]"
+                if t.get("due_date"):
+                    try:
+                        dt = datetime.fromisoformat(t["due_date"])
+                        line += f" (due {dt.strftime('%b %d %I:%M%p')})"
+                    except (ValueError, TypeError):
+                        pass
+                if t.get("status") == "done":
+                    line += " [done]"
+                if t.get("notes"):
+                    preview = t["notes"].splitlines()[0][:60]
+                    line += f"\n  note: {preview}"
+                lines.append(line)
+            return "\n".join(lines), False
+
+    elif name == "complete_task":
+        import tasks
+        task_id = tool_input["task_id"]
+        task = tasks.complete_task(task_id)
+        if task is None:
+            return f"Task #{task_id} not found.", True
+        return f"Task #{task_id} completed: {task['description']}", False
+
+    elif name == "edit_task":
+        import tasks
+        task_id = tool_input["task_id"]
+        desc = tool_input["description"]
+        task = tasks.edit_task(task_id, desc)
+        if task is None:
+            return f"Task #{task_id} not found.", True
+        return f"Task #{task_id} updated: {desc}", False
+
+    elif name == "remove_task":
+        import tasks
+        task_id = tool_input["task_id"]
+        task = tasks.remove_task(task_id)
+        if task is None:
+            return f"Task #{task_id} not found.", True
+        return f"Task #{task_id} removed: {task['description']}", False
+
+    elif name == "add_task_note":
+        import tasks
+        task_id = tool_input["task_id"]
+        note = tool_input["note"]
+        task = tasks.add_note(task_id, note)
+        if task is None:
+            return f"Task #{task_id} not found.", True
+        return f"Note added to task #{task_id}.", False
+
+    elif name == "list_reminders":
+        import tasks
+        pending = tasks.get_pending_reminders()
+        if not pending:
+            return "No pending reminders.", False
+        lines = []
+        for r in pending:
+            line = f"#{r['id']} {r['description']}"
+            if r.get("remind_at"):
+                try:
+                    dt = datetime.fromisoformat(r["remind_at"])
+                    line += f" — {dt.strftime('%b %d %I:%M%p')}"
+                except (ValueError, TypeError):
+                    pass
+            if r.get("project"):
+                line += f" [{r['project']}]"
+            lines.append(line)
+        return "\n".join(lines), False
+
+    elif name == "cancel_reminder":
+        import tasks
+        reminder_id = tool_input["reminder_id"]
+        reminder = tasks.cancel_reminder(reminder_id)
+        if reminder is None:
+            return f"Reminder #{reminder_id} not found.", True
+        return f"Reminder #{reminder_id} cancelled: {reminder['description']}", False
 
     elif name == "web_fetch":
         url = tool_input["url"]

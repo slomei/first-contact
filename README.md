@@ -28,14 +28,14 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 
 **Plugin system.** Add new tools without modifying core code. Drop a Python file into `plugins/` with a tool definition and handler function, and it's auto-discovered on startup. Plugins receive read-only copies of config and conversation history. Ships with an example dice-roller plugin. See `plugins/README.md` for the full spec.
 
-**18 core tools** (plus any from plugins):
+**25 core tools** (plus any from plugins):
 
 - **Web search** — DuckDuckGo-powered, with page fetching and content extraction
 - **Gmail** — Read your inbox, search emails, draft replies. Multi-account support. Draft-only: the agent creates drafts, you send them
 - **Google Calendar** — View events, create new ones (with confirmation). Read and create only — no delete, no modify
 - **Job search pipeline** — Search boards, save listings, track application status, auto-generate cover letters as formatted PDFs
 - **Proactive job scanning** — Scheduled multi-platform scans with AI fit assessment against your profile, delivered via Discord/Telegram
-- **Task & reminder system** — Natural language dates, priority levels, due date tracking, background reminder delivery
+- **Task & reminder system** — Natural language dates, priority levels, due date tracking, background reminder delivery. The agent can list, complete, edit, and remove tasks conversationally — not just via slash commands
 - **Daily briefing** — Aggregates email, calendar, tasks, jobs, reminders, and watchlist topics into a single morning report
 - **Persistent memory** — Two-layer memory system: global facts persist across all projects, project-specific memories stay scoped. Semantic search retrieves the most relevant memories per query instead of loading all (requires optional `sentence-transformers` — works on CPU, uses GPU if available)
 - **File operations** — Read, write, and manage files in sandboxed project workspaces
@@ -118,7 +118,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 | `memory.py` | Persistent memory, semantic search, system prompt, projects |
 | `models.py` | Model routing, provider dispatch, API calls, pricing, context compression, specialists |
 | `providers/` | Provider abstraction — Anthropic, OpenAI, Gemini with Anthropic-compatible wrapper |
-| `tools.py` | 18 core tool definitions + plugin routing |
+| `tools.py` | 25 core tool definitions + plugin routing |
 | `tasks.py` | Task and reminder system with natural language dates |
 | `documents.py` | PDF generation (cover letters, generic documents) |
 | `briefing.py` | Daily briefing aggregation (7 data sources) |

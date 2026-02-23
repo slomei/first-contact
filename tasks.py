@@ -286,6 +286,37 @@ def get_all_tasks():
     return open_tasks + done_tasks
 
 
+def get_all_project_tasks(filter_status=None):
+    """Scan all projects and return tasks with project labels.
+
+    filter_status: "open", "done", or None for all.
+    Returns list of task dicts, each with extra 'project' key.
+    """
+    results = []
+    if not os.path.exists(memory.PROJECTS_DIR):
+        return results
+    for name in sorted(os.listdir(memory.PROJECTS_DIR)):
+        proj_dir = os.path.join(memory.PROJECTS_DIR, name)
+        if not os.path.isdir(proj_dir):
+            continue
+        path = os.path.join(proj_dir, "tasks.json")
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            continue
+        task_list = _extract_tasks_list(data)
+        for t in task_list:
+            if filter_status and t.get("status") != filter_status:
+                continue
+            t_copy = dict(t)
+            t_copy["project"] = name
+            results.append(t_copy)
+    return results
+
+
 # --- Reminder I/O ---
 
 def load_reminders():
