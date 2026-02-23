@@ -348,6 +348,7 @@ def load_config():
             "heartbeat_interval_minutes": 30,
             "notify_channel": "discord",
         },
+        "custom_prompt": "",
         "email_accounts": [],
         "notification_channels": [],
         "discord_prefix": "!fc",
@@ -395,6 +396,18 @@ def save_config(config):
 def get_user_profile():
     """Return the user_profile dict from config."""
     return load_config().get("user_profile", {})
+
+
+def get_custom_prompt():
+    """Return the custom system prompt text, or empty string."""
+    return load_config().get("custom_prompt", "")
+
+
+def set_custom_prompt(text):
+    """Set or clear the custom system prompt text."""
+    cfg = load_config()
+    cfg["custom_prompt"] = text
+    save_config(cfg)
 
 
 def get_jobs_file():
@@ -746,6 +759,10 @@ def build_system_prompt(mems, creative_context="", query=None):
     base = _build_base_prompt()
     if challenge_mode:
         base += _build_challenge_addendum()
+
+    custom = get_custom_prompt()
+    if custom:
+        base += f"\n\nCustom instructions from the user:\n{custom}"
 
     if query and SEMANTIC_AVAILABLE:
         # Semantic retrieval: get the most relevant memories

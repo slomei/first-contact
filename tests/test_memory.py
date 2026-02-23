@@ -243,3 +243,19 @@ def test_build_system_prompt_cached_returns_list(isolated_env):
     assert block["cache_control"] == {"type": "ephemeral"}
     assert isinstance(block["text"], str)
     assert len(block["text"]) > 0
+
+
+def test_custom_prompt_roundtrip(isolated_env):
+    """get/set custom prompt persists via config."""
+    assert memory.get_custom_prompt() == ""
+    memory.set_custom_prompt("Always respond in haiku form.")
+    assert memory.get_custom_prompt() == "Always respond in haiku form."
+    # Verify it appears in system prompt
+    prompt = memory.build_system_prompt([])
+    assert "Always respond in haiku form." in prompt
+    assert "Custom instructions from the user:" in prompt
+    # Clear
+    memory.set_custom_prompt("")
+    assert memory.get_custom_prompt() == ""
+    prompt2 = memory.build_system_prompt([])
+    assert "Custom instructions" not in prompt2

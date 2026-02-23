@@ -137,6 +137,20 @@ def handle_command(command, state):
         status = "ON" if state.challenge_mode else "OFF"
         return f"Challenge mode: {status}"
 
+    # --- Custom prompt ---
+    if cmd_lower == "/prompt" or cmd_lower.startswith("/prompt "):
+        arg = cmd[7:].strip() if len(cmd) > 7 else ""
+        if not arg:
+            current = memory.get_custom_prompt()
+            if current:
+                return f"**Current custom prompt:**\n{current}"
+            return "No custom prompt set. Use `/prompt <text>` to add one."
+        if arg.lower() == "clear":
+            memory.set_custom_prompt("")
+            return "Custom prompt cleared."
+        memory.set_custom_prompt(arg)
+        return "Custom prompt set."
+
     # --- New conversation ---
     if cmd_lower == "/new":
         state.conversation_history = []

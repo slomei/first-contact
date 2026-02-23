@@ -779,6 +779,22 @@ async def on_message(message):
         await send_reply(dm, f"*Challenge mode: {status}*")
         return
 
+    if command_lower == "!prompt" or command_lower.startswith("!prompt "):
+        arg = content[7:].strip() if len(content) > 7 else ""
+        if not arg:
+            current = memory.get_custom_prompt()
+            if current:
+                await send_reply(dm, f"**Current custom prompt:**\n{current}")
+            else:
+                await send_reply(dm, "*No custom prompt set. Use !prompt <text> to add one.*")
+        elif arg.lower() == "clear":
+            memory.set_custom_prompt("")
+            await send_reply(dm, "*Custom prompt cleared.*")
+        else:
+            memory.set_custom_prompt(arg)
+            await send_reply(dm, "*Custom prompt set.*")
+        return
+
     if command_lower == "!memories":
         await send_reply(dm, build_memories_text(state))
         return

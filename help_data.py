@@ -11,6 +11,7 @@ HELP_CATEGORIES = {
         "commands": [
             ("/opus, /sonnet, /haiku", "Switch Claude model"),
             ("/challenge on|off", "Toggle devil's advocate mode"),
+            ("/prompt [text|clear]", "View, set, or clear custom system prompt"),
             ("/new", "Save conversation and start fresh"),
             ("/load", "Load a previous conversation"),
             ("/conversations", "List saved conversations"),

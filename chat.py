@@ -914,6 +914,22 @@ if __name__ == "__main__":
             print(f"{memory.DIM}Challenge mode: {status}{memory.RESET}\n")
             continue
 
+        if command_lower == "/prompt" or command_lower.startswith("/prompt "):
+            arg = command[7:].strip() if len(command) > 7 else ""
+            if not arg:
+                current = memory.get_custom_prompt()
+                if current:
+                    print(f"{memory.DIM}Current custom prompt:{memory.RESET}\n{current}\n")
+                else:
+                    print(f"{memory.DIM}No custom prompt set. Use /prompt <text> to add one.{memory.RESET}\n")
+            elif arg.lower() == "clear":
+                memory.set_custom_prompt("")
+                print(f"{memory.DIM}Custom prompt cleared.{memory.RESET}\n")
+            else:
+                memory.set_custom_prompt(arg)
+                print(f"{memory.DIM}Custom prompt set.{memory.RESET}\n")
+            continue
+
         if command_lower == "/project" or command_lower.startswith("/project "):
             arg = command[8:].strip() if len(command) > 8 else ""
             if not arg:

@@ -772,6 +772,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_reply(chat_id, f"Challenge mode: {status}", bot)
         return
 
+    if content_lower == "/prompt" or content_lower.startswith("/prompt "):
+        arg = content[7:].strip() if len(content) > 7 else ""
+        if not arg:
+            current = memory.get_custom_prompt()
+            if current:
+                await send_reply(chat_id, f"Current custom prompt:\n{current}", bot)
+            else:
+                await send_reply(chat_id, "No custom prompt set. Use /prompt <text> to add one.", bot)
+        elif arg.lower() == "clear":
+            memory.set_custom_prompt("")
+            await send_reply(chat_id, "Custom prompt cleared.", bot)
+        else:
+            memory.set_custom_prompt(arg)
+            await send_reply(chat_id, "Custom prompt set.", bot)
+        return
+
     if content_lower == "/memories":
         await send_reply(chat_id, build_memories_text(state), bot)
         return
