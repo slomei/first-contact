@@ -192,6 +192,30 @@ async def handle_message(ws, conn, data):
         }))
 
 
+def _save_conversation(conn):
+    """Save a connection's conversation history via the shared core."""
+    if len(conn.history) >= 2:
+        try:
+            return models.save_conversation(conn.history)
+        except Exception:
+            pass
+    return None
+
+
+def _list_conversations():
+    """Return conversation list for the sidebar."""
+    filenames = memory.list_conversations()
+    entries = []
+    for f in reversed(filenames):
+        # Filenames are YYYY-MM-DD_slug.txt
+        name = f.replace(".txt", "")
+        parts = name.split("_", 1)
+        date = parts[0] if parts else ""
+        title = parts[1].replace("-", " ") if len(parts) > 1 else name
+        entries.append({"filename": f, "title": title, "date": date})
+    return entries
+
+
 async def handle_file_upload(ws, conn, data):
     """Handle file uploads from the web client (drag-and-drop)."""
     uploaded = data.get("files", [])
@@ -282,6 +306,12 @@ async def handler(ws):
     print(f"Client connected ({ws.remote_address})")
 
     try:
+        # Send conversation list on connect
+        await ws.send(json.dumps({
+            "type": "conversation_list",
+            "conversations": _list_conversations(),
+        }))
+
         async for raw in ws:
             try:
                 data = json.loads(raw)
@@ -298,15 +328,21 @@ async def handler(ws):
                 await handle_message(ws, conn, data)
 
             elif msg_type == "new_chat":
+                _save_conversation(conn)
                 conn.history = []
                 conn.session_input_tokens = 0
                 conn.session_output_tokens = 0
                 conn.session_cost = 0.0
                 conn.session_cache_creation_tokens = 0
                 conn.session_cache_read_tokens = 0
+                conn.compressions = 0
                 await ws.send(json.dumps({
                     "type": "status",
                     "content": "New conversation started.",
+                }))
+                await ws.send(json.dumps({
+                    "type": "conversation_list",
+                    "conversations": _list_conversations(),
                 }))
 
             elif msg_type == "file_upload":
@@ -338,6 +374,7 @@ async def handler(ws):
     except websockets.exceptions.ConnectionClosed:
         pass
     finally:
+        _save_conversation(conn)
         print(f"Client disconnected ({ws.remote_address})")
 
 

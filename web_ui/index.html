@@ -999,6 +999,10 @@ function handleServerMessage(data) {
     case 'file_upload_result':
       addStatusMessage(data.content);
       break;
+
+    case 'conversation_list':
+      renderConversationList(data.conversations || []);
+      break;
   }
 }
 
@@ -1169,8 +1173,19 @@ function uploadFiles(files) {
 }
 
 // ═══ SIDEBAR ═══
-// Clear placeholder items — conversation persistence is TODO
-document.getElementById('chatList').innerHTML = '';
+function renderConversationList(conversations) {
+  const list = document.getElementById('chatList');
+  if (!conversations.length) {
+    list.innerHTML = '';
+    return;
+  }
+  list.innerHTML = conversations.map(c => `
+    <div class="chat-item">
+      <div class="chat-item-title">${escapeHtml(c.title)}</div>
+      <div class="chat-item-date">${escapeHtml(c.date)}</div>
+    </div>
+  `).join('');
+}
 
 // ═══ INIT ═══
 connect();
