@@ -11,6 +11,9 @@ Usage:
 Stops gracefully on SIGTERM/SIGINT.
 """
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import logging
 import os
 import signal

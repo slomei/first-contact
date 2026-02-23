@@ -7,6 +7,9 @@ Imports core logic from memory, models, tools — run with:
     python telegram_bot.py
 """
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import asyncio
 import json
 import os

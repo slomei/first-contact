@@ -5,6 +5,9 @@ Imports core logic from memory, models, tools — run with:
     python gui.py
 """
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import json
 import os
 import re

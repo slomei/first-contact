@@ -5,6 +5,9 @@ Thin adapter — all logic in the shared core modules.
 Each WebSocket connection gets its own conversation state.
 """
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import argparse
 import asyncio
 import json

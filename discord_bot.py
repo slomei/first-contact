@@ -6,6 +6,9 @@ Imports core logic from memory, models, tools — run with:
     python discord_bot.py
 """
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import asyncio
 import json
 import os

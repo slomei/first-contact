@@ -9,6 +9,9 @@ Usage:
     python chat.py
 """
 
+from dotenv import load_dotenv
+load_dotenv()
+
 print("Starting First Contact...")
 
 import json
