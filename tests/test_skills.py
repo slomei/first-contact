@@ -88,15 +88,19 @@ def test_match_skill_irrelevant_message():
 
 
 def test_builtin_skills_set():
-    """BUILTIN_SKILLS contains the 5 starter files."""
+    """BUILTIN_SKILLS contains the 9 starter files (5 task + 4 base)."""
     import skills_loader
 
-    assert len(skills_loader.BUILTIN_SKILLS) == 5
+    assert len(skills_loader.BUILTIN_SKILLS) == 9
     assert 'cover_letter.md' in skills_loader.BUILTIN_SKILLS
     assert 'research.md' in skills_loader.BUILTIN_SKILLS
     assert 'code_review.md' in skills_loader.BUILTIN_SKILLS
     assert 'email_draft.md' in skills_loader.BUILTIN_SKILLS
     assert 'job_analysis.md' in skills_loader.BUILTIN_SKILLS
+    assert 'researcher_base.md' in skills_loader.BUILTIN_SKILLS
+    assert 'writer_base.md' in skills_loader.BUILTIN_SKILLS
+    assert 'coder_base.md' in skills_loader.BUILTIN_SKILLS
+    assert 'analyst_base.md' in skills_loader.BUILTIN_SKILLS
 
 
 def test_reload_picks_up_new_files(tmp_path, monkeypatch):
@@ -220,3 +224,33 @@ def test_missing_skills_dir(tmp_path, monkeypatch):
     skills_loader.reload_skills()
 
     assert skills_loader.list_skills() == []
+
+
+def test_get_default_skill(tmp_path, monkeypatch):
+    """get_default_skill() returns the base skill for a specialist."""
+    import skills_loader
+
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    (skills_dir / "coder_base.md").write_text("""---
+name: coder_base
+description: Base coding instructions
+specialist: coder
+default: true
+trigger_keywords: []
+---
+
+You are a coding specialist.
+""")
+
+    monkeypatch.setattr(skills_loader, 'SKILLS_DIR', str(skills_dir))
+    skills_loader.reload_skills()
+
+    result = skills_loader.get_default_skill("coder")
+    assert result is not None
+    assert result['name'] == 'coder_base'
+    assert result['default'] is True
+    assert "coding specialist" in result['content']
+
+    # No default for writer in this dir
+    assert skills_loader.get_default_skill("writer") is None

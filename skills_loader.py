@@ -26,6 +26,10 @@ BUILTIN_SKILLS = {
     "code_review.md",
     "email_draft.md",
     "job_analysis.md",
+    "researcher_base.md",
+    "writer_base.md",
+    "coder_base.md",
+    "analyst_base.md",
 }
 
 # Lazy-loaded cache: {filename_stem: {name, description, specialist, model_preference, keywords, content, is_builtin}}
@@ -104,6 +108,10 @@ def _load_skills():
         if isinstance(keywords, str):
             keywords = [keywords]
 
+        default_val = metadata.get('default', False)
+        if isinstance(default_val, str):
+            default_val = default_val.lower() in ('true', 'yes', '1')
+
         _skills_cache[stem] = {
             'name': metadata.get('name', stem),
             'description': metadata.get('description', ''),
@@ -112,6 +120,7 @@ def _load_skills():
             'keywords': keywords,
             'content': body.strip(),
             'is_builtin': filename in BUILTIN_SKILLS,
+            'default': bool(default_val),
         }
 
     _loaded = True
@@ -184,3 +193,12 @@ def match_skill(user_message, specialist_name=None):
             best = skill
 
     return best if best_hits > 0 else None
+
+
+def get_default_skill(specialist_name):
+    """Return the default base skill for a specialist, or None."""
+    _ensure_loaded()
+    for skill in _skills_cache.values():
+        if skill.get('default') and skill['specialist'] == specialist_name:
+            return skill
+    return None

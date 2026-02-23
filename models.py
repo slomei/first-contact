@@ -54,41 +54,25 @@ SPECIALISTS = {
         "model": "claude-haiku-4-5",
         "label": "haiku",
         "description": "Web research and summarization",
-        "system_prompt": (
-            "You are a research specialist. Focus on finding accurate information, "
-            "synthesizing sources, and providing clear, well-organized summaries. "
-            "Be thorough but concise. Cite sources when possible."
-        ),
+        "system_prompt": "You are a research specialist.",
     },
     "writer": {
         "model": "claude-opus-4-6",
         "label": "opus",
         "description": "Creative writing, cover letters, polished prose",
-        "system_prompt": (
-            "You are a writing specialist. Focus on producing polished, compelling prose. "
-            "Pay attention to tone, style, flow, and persuasiveness. Adapt your voice to "
-            "the task at hand. Prioritize clarity and impact."
-        ),
+        "system_prompt": "You are a writing specialist.",
     },
     "coder": {
         "model": "claude-sonnet-4-6",
         "label": "sonnet",
         "description": "Code generation and debugging",
-        "system_prompt": (
-            "You are a coding specialist. Focus on writing clean, correct, well-structured "
-            "code. Provide clear explanations of your approach. Debug methodically. "
-            "Follow best practices for the language in use."
-        ),
+        "system_prompt": "You are a coding specialist.",
     },
     "analyst": {
         "model": "claude-sonnet-4-6",
         "label": "sonnet",
         "description": "Problem analysis, finding flaws, critical thinking",
-        "system_prompt": (
-            "You are an analysis specialist. Break down problems systematically. "
-            "Identify assumptions, find flaws in reasoning, and evaluate trade-offs. "
-            "Be rigorous and precise. Present your analysis in a structured way."
-        ),
+        "system_prompt": "You are an analysis specialist.",
     },
 }
 
@@ -484,9 +468,13 @@ def delegate_to_specialist(specialist_name, task):
     spec = SPECIALISTS[specialist_name]
     model = spec["model"]
 
-    system_prompt = spec["system_prompt"]
+    # Load default base skill for this specialist (from skills/ dir)
+    default_skill = skills_loader.get_default_skill(specialist_name)
+    system_prompt = default_skill['content'] if default_skill else spec["system_prompt"]
+
+    # Layer on keyword-matched skill if found
     matched_skill = skills_loader.match_skill(task, specialist_name)
-    if matched_skill:
+    if matched_skill and matched_skill.get('name') != (default_skill or {}).get('name'):
         skill_block = (
             f"=== SKILL: {matched_skill['name']} ===\n"
             f"{matched_skill['content']}\n"
