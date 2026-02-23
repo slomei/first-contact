@@ -1,14 +1,16 @@
 """
-Background daemon for First Contact.
+Background daemon for First Contact — single entry point for all services.
 
-Runs scheduled tasks (briefing, email checks, job scans, reminders)
-and routes results to configured notification channels.
+Spawns and supervises web_ui, discord, and telegram as subprocesses
+(auto-restart on crash). Also runs scheduled tasks (briefing, email
+checks, job scans, reminders) and routes results to configured
+notification channels.
 
 Usage:
-    python daemon.py           # Run in foreground
-    python daemon.py --detach  # Run as background process
+    python daemon.py           # Run everything in foreground
+    python daemon.py --detach  # Run everything as background process
 
-Stops gracefully on SIGTERM/SIGINT.
+Stops gracefully on SIGTERM/SIGINT (terminates all child services).
 """
 
 from dotenv import load_dotenv
