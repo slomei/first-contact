@@ -992,6 +992,26 @@ if __name__ == "__main__":
                     print(f"\n{memory.DIM}Use /skills reload to re-scan the skills/ directory.{memory.RESET}\n")
             continue
 
+        if command_lower == "/plugins" or command_lower.startswith("/plugins "):
+            import plugins
+            plugins_arg = command[8:].strip().lower() if len(command) > 8 else ""
+            if plugins_arg == "reload":
+                plugins.reload_plugins()
+                tools._rebuild_cached_tools()
+                count = len(plugins.list_plugins())
+                print(f"{memory.DIM}Plugins reloaded. {count} plugin{'s' if count != 1 else ''} loaded.{memory.RESET}\n")
+            else:
+                loaded = plugins.list_plugins()
+                if not loaded:
+                    print(f"{memory.DIM}No plugins installed. Drop .py files into plugins/ to add them.{memory.RESET}\n")
+                else:
+                    print(f"\n{memory.CYAN}Installed plugins:{memory.RESET}")
+                    for p in loaded:
+                        print(f"  {memory.CYAN}{p['name']:<20}{memory.RESET} {p['description']}")
+                        print(f"  {memory.DIM}{'':20} {p['tool_count']} tool{'s' if p['tool_count'] != 1 else ''}{memory.RESET}")
+                    print(f"\n{memory.DIM}Use /plugins reload to re-scan the plugins/ directory.{memory.RESET}\n")
+            continue
+
         if command_lower == "/email" or command_lower.startswith("/email "):
             email_arg = command[6:].strip() if len(command) > 6 else ""
             email_arg_lower = email_arg.lower()

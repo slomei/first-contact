@@ -146,3 +146,10 @@ def test_import_service_registry():
     import service_registry
     assert hasattr(service_registry, "check_all")
     assert hasattr(service_registry, "is_available")
+
+
+def test_import_plugins():
+    import plugins
+    assert hasattr(plugins, "load_plugins")
+    assert hasattr(plugins, "get_all_plugin_tools")
+    assert hasattr(plugins, "execute_plugin_tool")

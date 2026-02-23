@@ -325,6 +325,19 @@ def build_skills_text():
     return "\n".join(lines)
 
 
+def build_plugins_text():
+    """Build plugins list display."""
+    import plugins
+    loaded = plugins.list_plugins()
+    if not loaded:
+        return "No plugins installed. Drop `.py` files into `plugins/` to add them."
+    lines = ["**Installed plugins:**"]
+    for p in loaded:
+        lines.append(f"`{p['name']}` — {p['description']} ({p['tool_count']} tool{'s' if p['tool_count'] != 1 else ''})")
+    lines.append("\n*Use `!plugins reload` to re-scan the plugins/ directory.*")
+    return "\n".join(lines)
+
+
 def build_watchlist_text(state):
     """Build watched topics list."""
     sync_state(state)
@@ -1669,6 +1682,19 @@ async def on_message(message):
             await send_reply(dm, f"Skills reloaded. {count} skill{'s' if count != 1 else ''} loaded.")
         else:
             await send_reply(dm, build_skills_text())
+        return
+
+    # --- Plugins ---
+    if command_lower == "!plugins" or command_lower.startswith("!plugins "):
+        import plugins
+        plugins_arg = command[8:].strip().lower() if len(command) > 8 else ""
+        if plugins_arg == "reload":
+            plugins.reload_plugins()
+            tools._rebuild_cached_tools()
+            count = len(plugins.list_plugins())
+            await send_reply(dm, f"Plugins reloaded. {count} plugin{'s' if count != 1 else ''} loaded.")
+        else:
+            await send_reply(dm, build_plugins_text())
         return
 
     # --- Conversations ---

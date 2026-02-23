@@ -24,6 +24,8 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 
 **Extensible skills system.** Specialists can be augmented with skills — markdown files with YAML front matter that get injected into specialist system prompts when keyword-matched. Ships with 5 built-in skills (cover letters, research, code review, email drafting, job analysis). Drop a `.md` file into `skills/` to create your own.
 
+**Plugin system.** Add new tools without modifying core code. Drop a Python file into `plugins/` with a tool definition and handler function, and it's auto-discovered on startup. Plugins receive read-only copies of config and conversation history. Ships with an example dice-roller plugin. See `plugins/README.md` for the full spec.
+
 **18 integrated tools:**
 
 - **Web search** — DuckDuckGo-powered, with page fetching and content extraction

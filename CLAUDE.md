@@ -8,7 +8,7 @@
 
 First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Four interfaces (terminal, web UI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
 
-**Status:** Shipped. All 218 tests passing. Live on GitHub.
+**Status:** Shipped. All 232 tests passing. Live on GitHub.
 
 ---
 
@@ -31,7 +31,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `conversation.py` | Shared conversation turn loop used by all 4 interfaces. `run_conversation_turn()` handles the API call -> tool use -> loop pattern with callbacks for streaming, tool status, and confirmation. `extract_last_user_query()` for semantic retrieval. Always uses prompt caching. |
 | `memory.py` | Persistent memory (global + per-project), semantic search via sentence-transformers, system prompt builder (stable/dynamic split for prompt caching), project switching, cross-project awareness, user profile, config I/O. |
 | `models.py` | Model routing (Haiku/Sonnet/Opus), API calls, token tracking, pricing, context compression (Haiku-summarized at 20K tokens), specialist delegation (researcher/writer/coder/analyst). |
-| `tools.py` | 18 tool definitions (`TOOLS` list) and `execute_tool()` dispatch. Gmail, Calendar, web search, file I/O, code execution, job search, notes, tasks, reminders, PDF generation. Tool schemas are minimal — behavioral guidance lives in the cached system prompt. `get_cached_tools()` adds `cache_control` to the last tool for prompt caching. |
+| `tools.py` | 18 core tool definitions (`TOOLS` list) and `execute_tool()` dispatch. Gmail, Calendar, web search, file I/O, code execution, job search, notes, tasks, reminders, PDF generation. Unknown tool names fall through to plugins. `get_cached_tools()` merges core + plugin tools with `cache_control` on the last tool. `_rebuild_cached_tools()` refreshes after plugin reload. |
 | `tasks.py` | Task system (add/edit/done/remove, priority levels, due dates) and reminder system (natural language date parsing via dateutil). Stored per-project in `tasks.json`, reminders global in `reminders.json`. |
 | `documents.py` | PDF generation via reportlab. Cover letters with auto-fit-to-one-page (progressive margin/font reduction, Opus shortening as last resort). Generic PDF generation. Falls back to plain text if reportlab not installed. |
 | `briefing.py` | Daily briefing aggregation — 7 data sources: email, calendar, tasks, jobs, reminders, watchlist, scan results. Formats for Discord, Telegram, and terminal. |
@@ -44,6 +44,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `creative.py` | Creative project tools — world bible PDF parsing via pdfplumber, character/location JSON lookup. Used for the First Light screenplay project. |
 | `skills_loader.py` | Extensible skills system — loads `.md` skill files from `skills/` directory, keyword matching, default base skills per specialist, injects matched skill content into specialist system prompts during delegation. |
 | `files.py` | Project file management — import, list, remove files. Validation, large-file detection, conversation injection formatting. Used by all interfaces and web UI drag-and-drop. |
+| `plugins/` | Plugin system — `__init__.py` loader discovers `.py` files, validates required attributes (`PLUGIN_NAME`, `TOOLS`, `execute`), routes tool calls. `example_plugin.py` reference implementation (dice roller). `README.md` for plugin authors. |
 | `service_registry.py` | Centralized integration status — registers check functions for 6 built-in services (Discord, Telegram, Gmail, Calendar, web search, job search), caches status (unconfigured/configured/healthy/error), `check_all()` / `is_available()` API. |
 | `sync.py` | File sync system — reads `sync_sources.json` for source/destination mappings, glob-scans Windows paths, resolves version conflicts, copies latest file. |
 
@@ -52,7 +53,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | File | Description |
 |------|-------------|
 | `tests/conftest.py` | Pytest fixtures — isolated temp dirs, test config, monkeypatched paths. |
-| `tests/test_imports.py` | Smoke tests — all 17 core modules import without errors. |
+| `tests/test_imports.py` | Smoke tests — all 18 core modules import without errors. |
 | `tests/test_conversation.py` | Conversation turn loop — non-streaming, streaming, tool loops, multi-turn, max turns, caching, cost calculation, confirm passthrough, KeyboardInterrupt handling. |
 | `tests/test_memory.py` | Memory system — config, profiles, memories, semantic search, cross-project, system prompt, custom prompt, cached prompt blocks. |
 | `tests/test_models.py` | Model routing — MODELS dict, pricing, short names, token estimation, usage tracking, cache tokens, batch discount. |
@@ -67,6 +68,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `tests/test_batch_api.py` | Batch API — module loads, functions exist. |
 | `tests/test_adapters.py` | Interface adapters — subclass validation, interface names, formatting support, confirm defaults. |
 | `tests/test_service_registry.py` | Service registry — built-in registration, status checks for all 6 services, is_available, custom registration, error handling. |
+| `tests/test_plugins.py` | Plugin system — discovery, invalid plugin handling, tool merging, execution routing, read-only sandboxing, reload. |
 
 ### Config & Data Files
 
@@ -118,6 +120,10 @@ first-contact/
 │   ├── styles.css          # Styling (CSS custom properties)
 │   └── README.md           # Architecture & Tauri integration guide
 ├── skills/                 # Specialist skill files (.md with YAML front matter)
+├── plugins/                # User-installable tool packages (.py files)
+│   ├── __init__.py         # Plugin loader
+│   ├── example_plugin.py   # Reference implementation (dice roller)
+│   └── README.md           # How to write a plugin
 ├── tests/
 └── venv/
 ```
@@ -241,7 +247,7 @@ The system prompt (`memory.py`) includes four behavioral directives built from a
 
 **Watchlist:** `/watch <topic>`, `/watch list`, `/watch remove <topic>`, `/digest`
 
-**System:** `/help [category]`, `/status`, `/tokens`, `/billing`, `/delegates`, `/skills`, `/skills reload`, `/setup`, `/update`, `/reset`
+**System:** `/help [category]`, `/status`, `/tokens`, `/billing`, `/delegates`, `/skills`, `/skills reload`, `/plugins`, `/plugins reload`, `/setup`, `/update`, `/reset`
 
 **Creative:** `/characters`, `/character <name>`, `/locations`, `/location <name>`
 
@@ -328,7 +334,7 @@ All four interfaces share these features via the shared core:
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 218 tests across 16 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 232 tests across 17 test files.
 
 ---
 
@@ -338,7 +344,7 @@ All four interfaces share these features via the shared core:
 - **Provider abstraction** — support OpenAI, Gemini, local models alongside Anthropic
 - **Tauri desktop app** — native desktop wrapper
 - **Mobile app** — iOS/Android interface
-- **Plugin system** — user-installable tool packages
+- **Plugin system** — ~~user-installable tool packages~~ **Shipped.** `plugins/` directory with auto-discovery, sandboxed execution, example plugin
 - **Docker** — containerized deployment
 - **LinkedIn monitoring** — job board integration
 - **Voice input/output** — local Whisper on GPU

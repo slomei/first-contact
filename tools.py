@@ -413,14 +413,29 @@ TOOLS = [
 
 
 def get_cached_tools():
-    """Return TOOLS with cache_control on the last tool for prompt caching."""
+    """Return TOOLS (core + plugin) with cache_control on the last tool for prompt caching."""
     return _CACHED_TOOLS
 
 
+def _rebuild_cached_tools():
+    """Rebuild the cached tools list from core TOOLS + plugin tools."""
+    global _CACHED_TOOLS
+    import copy
+    _CACHED_TOOLS = copy.deepcopy(TOOLS)
+    try:
+        import plugins
+        plugin_tools = plugins.get_all_plugin_tools()
+        if plugin_tools:
+            _CACHED_TOOLS.extend(copy.deepcopy(plugin_tools))
+    except Exception:
+        pass
+    if _CACHED_TOOLS:
+        _CACHED_TOOLS[-1]["cache_control"] = {"type": "ephemeral"}
+
+
 import copy
-_CACHED_TOOLS = copy.deepcopy(TOOLS)
-if _CACHED_TOOLS:
-    _CACHED_TOOLS[-1]["cache_control"] = {"type": "ephemeral"}
+_CACHED_TOOLS = []
+_rebuild_cached_tools()
 
 # --- Mutable globals ---
 last_job_results = []
@@ -1917,6 +1932,19 @@ def execute_tool(name, tool_input, confirm_fn=None):
 
             documents.generate_pdf(title, body, filepath)
             return f"PDF generated: {filepath}", False
+
+    # Try plugin tools before giving up
+    try:
+        import plugins
+        result = plugins.execute_plugin_tool(
+            name, tool_input,
+            config=memory.load_config(),
+            conversation_history=None,
+        )
+        if result is not None:
+            return result
+    except Exception:
+        pass
 
     return f"Unknown tool: {name}", True
 
