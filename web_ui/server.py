@@ -29,6 +29,14 @@ except ImportError:
     sys.exit(1)
 
 
+# Short name -> full model ID (matches the <select> values in the new UI)
+MODEL_MAP = {
+    "sonnet": "claude-sonnet-4-6",
+    "haiku": "claude-haiku-4-5",
+    "opus": "claude-opus-4-6",
+}
+
+
 class Connection:
     """Per-client state. Isolated from other connections and from models.py globals."""
 
@@ -48,9 +56,11 @@ async def handle_message(ws, conn, data):
     if not user_msg:
         return
 
-    # Override model if client sent one
-    if data.get("model") and data["model"] in models.MODELS.values():
-        conn.active_model = data["model"]
+    # Override model if client sent one (accept short names or full IDs)
+    if data.get("model"):
+        resolved = MODEL_MAP.get(data["model"], data["model"])
+        if resolved in models.MODELS.values():
+            conn.active_model = resolved
 
     conn.history.append({"role": "user", "content": user_msg})
 
@@ -120,10 +130,15 @@ async def handle_message(ws, conn, data):
                         await ws.send(json.dumps({
                             "type": "tool_status",
                             "content": status,
+                            "tool": block.name,
                         }))
                         result, is_error = tools.execute_tool(
                             block.name, block.input, confirm_fn=None
                         )
+                        await ws.send(json.dumps({
+                            "type": "tool_end",
+                            "tool": block.name,
+                        }))
                         tool_result = {
                             "type": "tool_result",
                             "tool_use_id": block.id,
@@ -144,9 +159,11 @@ async def handle_message(ws, conn, data):
         conn.session_output_tokens += total_output
         conn.session_cost += total_cost
 
+        short_model = models.MODEL_SHORT_NAMES.get(conn.active_model, conn.active_model)
         await ws.send(json.dumps({
             "type": "response",
             "content": response_text,
+            "model": short_model,
             "input_tokens": total_input,
             "output_tokens": total_output,
             "cost": round(total_cost, 6),
@@ -284,9 +301,11 @@ async def handler(ws):
 
             elif msg_type == "set_model":
                 model_id = data.get("model", "")
-                if model_id in models.MODELS.values():
-                    conn.active_model = model_id
-                    short = models.MODEL_SHORT_NAMES.get(model_id, model_id)
+                # Accept short names (sonnet/haiku/opus) or full IDs
+                resolved = MODEL_MAP.get(model_id, model_id)
+                if resolved in models.MODELS.values():
+                    conn.active_model = resolved
+                    short = models.MODEL_SHORT_NAMES.get(resolved, resolved)
                     await ws.send(json.dumps({
                         "type": "status",
                         "content": f"Switched to {short}.",
