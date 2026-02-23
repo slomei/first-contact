@@ -2,9 +2,10 @@
 Model configuration, conversation utilities, and API functions.
 
 Imports memory (base module). No circular dependencies.
+Provider abstraction: get_client() returns an Anthropic-compatible client
+regardless of active provider (Anthropic, OpenAI, Gemini).
 """
 
-import anthropic
 import json
 import os
 import re
@@ -12,16 +13,76 @@ from datetime import datetime
 
 import memory
 
-# Anthropic client — lazy-initialized to avoid requiring API key at import time
+# --- Provider state (lazy-initialized) ---
+_provider = None
 _client = None
+_model_data_initialized = False
+
+
+def _get_provider():
+    """Get the active provider, initialized from config."""
+    global _provider
+    if _provider is None:
+        config = memory.load_config()
+        provider_name = config.get("provider", "anthropic")
+
+        # Import providers (triggers registration via module-level register_provider calls)
+        import providers.anthropic_provider
+        try:
+            import providers.openai_provider
+        except ImportError:
+            pass
+        try:
+            import providers.gemini_provider
+        except ImportError:
+            pass
+
+        import providers
+        cls = providers.get_provider_class(provider_name) or providers.get_provider_class("anthropic")
+        _provider = cls()
+
+        # Apply config tier overrides if present
+        config_tiers = config.get("model_tiers")
+        if config_tiers:
+            _provider._config_tiers = config_tiers
+
+    return _provider
+
+
+def _resolve_tiers():
+    """Resolve model tiers from provider + optional config overrides."""
+    provider = _get_provider()
+    tiers = provider.get_tiers()
+    config_tiers = getattr(provider, "_config_tiers", None)
+    if config_tiers:
+        for key in ("fast", "standard", "quality"):
+            if config_tiers.get(key):
+                tiers[key] = config_tiers[key]
+    return tiers
 
 
 def get_client():
-    """Return the Anthropic client, creating it on first use."""
+    """Return a client with .messages.create() and .messages.stream().
+
+    For Anthropic, returns the raw SDK client. For OpenAI/Gemini, returns
+    an AnthropicCompatClient wrapper that translates requests/responses.
+    """
     global _client
     if _client is None:
-        _client = anthropic.Anthropic()
+        _client = _get_provider().get_client()
+        _init_model_data()
     return _client
+
+
+def reset_client():
+    """Reset client and provider (for /setup or config change)."""
+    global _client, _provider, _model_data_initialized
+    _client = None
+    _provider = None
+    _model_data_initialized = False
+
+
+# --- Model data (Anthropic defaults at import time) ---
 
 # Available models and their shorthand commands
 MODELS = {
@@ -75,6 +136,85 @@ SPECIALISTS = {
         "system_prompt": "You are an analysis specialist.",
     },
 }
+
+DRAFT_MODEL = "claude-opus-4-6"
+
+
+def _init_model_data():
+    """Refresh MODELS, PRICING, SPECIALISTS, etc. from the active provider.
+
+    Called once on first get_client(). Overwrites module-level defaults.
+    """
+    global MODELS, PRICING, MODEL_SHORT_NAMES, CACHE_WRITE_MULTIPLIER, CACHE_READ_MULTIPLIER
+    global DIRECTOR_MODEL, DRAFT_MODEL, SPECIALISTS, _model_data_initialized
+
+    if _model_data_initialized:
+        return
+    _model_data_initialized = True
+
+    provider = _get_provider()
+    tiers = _resolve_tiers()
+
+    PRICING = provider.get_pricing()
+    write_mult, read_mult = provider.get_cache_multipliers()
+    CACHE_WRITE_MULTIPLIER = write_mult
+    CACHE_READ_MULTIPLIER = read_mult
+
+    # Commands always /opus, /sonnet, /haiku — mapped to tiers
+    MODELS = {
+        "/opus":   tiers["quality"],
+        "/sonnet": tiers["standard"],
+        "/haiku":  tiers["fast"],
+    }
+    MODEL_SHORT_NAMES = {v: k.lstrip("/") for k, v in MODELS.items()}
+
+    DIRECTOR_MODEL = tiers["standard"]
+    DRAFT_MODEL = tiers["quality"]
+
+    SPECIALISTS = {
+        "researcher": {
+            "model": tiers["fast"],
+            "label": "haiku",
+            "description": "Web research and summarization",
+            "system_prompt": "You are a research specialist.",
+        },
+        "writer": {
+            "model": tiers["quality"],
+            "label": "opus",
+            "description": "Creative writing, cover letters, polished prose",
+            "system_prompt": "You are a writing specialist.",
+        },
+        "coder": {
+            "model": tiers["standard"],
+            "label": "sonnet",
+            "description": "Code generation and debugging",
+            "system_prompt": "You are a coding specialist.",
+        },
+        "analyst": {
+            "model": tiers["standard"],
+            "label": "sonnet",
+            "description": "Problem analysis, finding flaws, critical thinking",
+            "system_prompt": "You are an analysis specialist.",
+        },
+    }
+
+
+# --- Provider helpers ---
+
+def get_tier(tier_name):
+    """Get model ID for a tier ('fast', 'standard', 'quality')."""
+    return _resolve_tiers().get(tier_name)
+
+
+def get_provider_name():
+    """Return active provider name (e.g. 'anthropic', 'openai', 'gemini')."""
+    return _get_provider().name
+
+
+def get_provider_features():
+    """Return active provider's feature flags."""
+    return _get_provider().get_features()
+
 
 # Context window compression threshold (estimated tokens)
 TOKEN_THRESHOLD = 20_000
@@ -250,9 +390,10 @@ def compress_conversation(history=None):
     if not summary_parts:
         return None
 
+    fast_model = _resolve_tiers()["fast"]
     combined = "\n\n".join(summary_parts)
     summary_response = get_client().messages.create(
-        model="claude-haiku-4-5",
+        model=fast_model,
         max_tokens=300,
         messages=[{"role": "user", "content":
             "Summarize this conversation excerpt into 2-3 concise sentences. "
@@ -262,7 +403,7 @@ def compress_conversation(history=None):
 
     track_usage(summary_response.usage.input_tokens,
                 summary_response.usage.output_tokens,
-                "claude-haiku-4-5")
+                fast_model)
 
     new_history = []
     summary_inserted = False
@@ -309,7 +450,7 @@ def get_last_response():
 
 
 def generate_title(history):
-    """Use Haiku to generate a short title for a conversation."""
+    """Use the fast-tier model to generate a short title for a conversation."""
     parts = []
     for msg in history:
         text = extract_text_from_message(msg)
@@ -325,9 +466,10 @@ def generate_title(history):
     if len(combined) > 5000:
         combined = combined[:5000] + "..."
 
+    fast_model = _resolve_tiers()["fast"]
     try:
         response = get_client().messages.create(
-            model="claude-haiku-4-5",
+            model=fast_model,
             max_tokens=30,
             messages=[{"role": "user", "content":
                 "Generate a short descriptive title (5-8 words) for this conversation. "
@@ -336,7 +478,7 @@ def generate_title(history):
         title = response.content[0].text.strip().strip('"\'')
         track_usage(response.usage.input_tokens,
                     response.usage.output_tokens,
-                    "claude-haiku-4-5")
+                    fast_model)
         return title
     except Exception:
         return "untitled conversation"
@@ -385,7 +527,7 @@ def save_conversation(history):
 
 
 def load_conversation(filepath):
-    """Load a conversation file, summarize it with Haiku, and inject into history.
+    """Load a conversation file, summarize it with the fast-tier model, and inject into history.
 
     Returns (summary, cost) or None if file is empty.
     """
@@ -398,8 +540,9 @@ def load_conversation(filepath):
     if len(raw) > 30_000:
         raw = raw[:30_000] + "\n...[truncated]"
 
+    fast_model = _resolve_tiers()["fast"]
     summary_response = get_client().messages.create(
-        model="claude-haiku-4-5",
+        model=fast_model,
         max_tokens=500,
         messages=[{"role": "user", "content":
             "Summarize this conversation into a concise recap (3-5 sentences). "
@@ -410,7 +553,7 @@ def load_conversation(filepath):
 
     cost = track_usage(summary_response.usage.input_tokens,
                        summary_response.usage.output_tokens,
-                       "claude-haiku-4-5")
+                       fast_model)
 
     conversation_history.append({"role": "user",
         "content": f"[Loaded previous conversation summary]\n{summary}"})
@@ -534,17 +677,15 @@ def generate_cover_letter(job, memories_list, resume_text="", job_description=""
         "- Address it to 'Hiring Manager' unless a specific name is in the listing."
     )
 
-    cover_letter_model = "claude-opus-4-6"
-
     response = get_client().messages.create(
-        model=cover_letter_model,
+        model=DRAFT_MODEL,
         max_tokens=1000,
         messages=[{"role": "user", "content": prompt}],
     )
 
     cost = track_usage(response.usage.input_tokens,
                        response.usage.output_tokens,
-                       cover_letter_model)
+                       DRAFT_MODEL)
 
     return response.content[0].text, cost
 
@@ -561,8 +702,6 @@ _DRAFT_SYSTEM_TEMPLATE = (
     "Write professional, concise emails. Match the tone to the context — formal for "
     "professional contacts, warmer for personal ones. No fluff. Sign off as {name}."
 )
-
-DRAFT_MODEL = "claude-opus-4-6"
 
 
 def _get_draft_system_prompt():

@@ -153,3 +153,19 @@ def test_import_plugins():
     assert hasattr(plugins, "load_plugins")
     assert hasattr(plugins, "get_all_plugin_tools")
     assert hasattr(plugins, "execute_plugin_tool")
+
+
+def test_import_providers():
+    import providers
+    assert hasattr(providers, "Provider")
+    assert hasattr(providers, "register_provider")
+    assert hasattr(providers, "get_provider_class")
+    assert hasattr(providers, "list_providers")
+
+    from providers.compat import (
+        Message, TextBlock, ToolUseBlock, Usage,
+        StreamWrapper, MessagesNamespace, AnthropicCompatClient,
+    )
+
+    import providers.anthropic_provider
+    assert "anthropic" in providers.list_providers()

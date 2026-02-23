@@ -1,4 +1,6 @@
 {
+  "provider": "anthropic",
+  "model_tiers": null,
   "briefing": {
     "enabled": true,
     "time": "08:00",
