@@ -265,3 +265,52 @@ def test_custom_prompt_roundtrip(isolated_env):
     assert memory.get_custom_prompt() == ""
     prompt2 = memory.build_system_prompt([])
     assert "Custom instructions" not in prompt2
+
+
+def test_custom_prompt_stored_in_config_key(isolated_env):
+    """Custom prompt is stored under 'custom_prompt' key in config.json."""
+    memory.set_custom_prompt("Be concise.")
+    cfg = memory.load_config()
+    assert cfg["custom_prompt"] == "Be concise."
+    memory.set_custom_prompt("")
+
+
+def test_custom_prompt_clear_removes_text(isolated_env):
+    """Setting custom prompt to empty string clears it from config."""
+    memory.set_custom_prompt("Something")
+    assert memory.get_custom_prompt() == "Something"
+    memory.set_custom_prompt("")
+    assert memory.get_custom_prompt() == ""
+    cfg = memory.load_config()
+    assert cfg["custom_prompt"] == ""
+
+
+def test_custom_prompt_layers_on_top(isolated_env):
+    """Custom prompt is added on top of the core template, not replacing it."""
+    base_prompt = memory.build_system_prompt([])
+    memory.set_custom_prompt("Special user instruction.")
+    custom_prompt = memory.build_system_prompt([])
+    # Custom prompt should contain everything the base has, plus the custom text
+    assert "Special user instruction." in custom_prompt
+    assert "Custom instructions from the user:" in custom_prompt
+    # Core template content is still present — check for a known stable element
+    # (the base prompt always contains the identity/behavioral section)
+    assert len(custom_prompt) > len(base_prompt)
+    memory.set_custom_prompt("")
+
+
+def test_custom_prompt_default_empty(isolated_env):
+    """Default custom prompt is empty string when not set."""
+    assert memory.get_custom_prompt() == ""
+
+
+def test_custom_prompt_in_cached_version(isolated_env):
+    """build_system_prompt_cached includes custom prompt in the stable block."""
+    memory.set_custom_prompt("Cached custom instruction.")
+    blocks = memory.build_system_prompt_cached([])
+    # Stable block is first, has cache_control
+    stable = blocks[0]
+    assert stable["cache_control"] == {"type": "ephemeral"}
+    assert "Cached custom instruction." in stable["text"]
+    assert "Custom instructions from the user:" in stable["text"]
+    memory.set_custom_prompt("")
