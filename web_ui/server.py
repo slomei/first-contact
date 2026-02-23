@@ -19,6 +19,7 @@ import threading
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import anthropic
+import conversation
 import memory
 import models
 import tools
@@ -125,114 +126,60 @@ async def handle_message(ws, conn, data):
 
     conn.history.append({"role": "user", "content": user_msg})
 
-    system_prompt = memory.build_system_prompt_cached(
-        memory.memories, query=user_msg
-    )
+    loop = asyncio.get_event_loop()
+    confirm_fn = make_web_confirm_fn(ws, conn, loop)
 
-    total_input = 0
-    total_output = 0
-    total_cost = 0.0
+    def on_stream_chunk(text):
+        asyncio.run_coroutine_threadsafe(
+            ws.send(json.dumps({"type": "stream", "content": text})),
+            loop,
+        ).result()
+
+    def on_tool_start(name, tool_input):
+        status = tools.tool_status_text(name, tool_input)
+        asyncio.run_coroutine_threadsafe(
+            ws.send(json.dumps({
+                "type": "tool_status",
+                "content": status,
+                "tool": name,
+            })),
+            loop,
+        ).result(timeout=5)
+
+    def on_tool_end(name):
+        asyncio.run_coroutine_threadsafe(
+            ws.send(json.dumps({"type": "tool_end", "tool": name})),
+            loop,
+        ).result(timeout=5)
 
     try:
-        for turn in range(10):
-            response_text = ""
+        result = await loop.run_in_executor(
+            None,
+            lambda: conversation.run_conversation_turn(
+                conn.history,
+                conn.active_model,
+                confirm_fn=confirm_fn,
+                on_stream_chunk=on_stream_chunk,
+                on_tool_start=on_tool_start,
+                on_tool_end=on_tool_end,
+                query=user_msg,
+            ),
+        )
 
-            # Use synchronous streaming in a thread to avoid blocking the event loop
-            final = await _stream_response(
-                ws, conn, system_prompt
-            )
-
-            if final is None:
-                # Streaming failed — error already sent to client
-                return
-
-            # Collect the full text from the final message
-            for block in final.content:
-                if block.type == "text":
-                    response_text += block.text
-
-            # Token accounting
-            input_tokens = final.usage.input_tokens
-            output_tokens = final.usage.output_tokens
-            cache_creation = getattr(final.usage, 'cache_creation_input_tokens', 0) or 0
-            cache_read = getattr(final.usage, 'cache_read_input_tokens', 0) or 0
-            prices = models.PRICING.get(conn.active_model, {"input": 0, "output": 0})
-            input_cost = input_tokens * prices["input"]
-            output_cost = output_tokens * prices["output"]
-            cache_write_cost = cache_creation * prices["input"] * models.CACHE_WRITE_MULTIPLIER
-            cache_read_cost = cache_read * prices["input"] * models.CACHE_READ_MULTIPLIER
-            msg_cost = (input_cost + output_cost + cache_write_cost + cache_read_cost) / 1_000_000
-            total_input += input_tokens
-            total_output += output_tokens
-            total_cost += msg_cost
-            conn.session_cache_creation_tokens += cache_creation
-            conn.session_cache_read_tokens += cache_read
-
-            if final.stop_reason == "tool_use":
-                # Build assistant content for history
-                assistant_content = []
-                for block in final.content:
-                    if block.type == "text":
-                        assistant_content.append({"type": "text", "text": block.text})
-                    elif block.type == "tool_use":
-                        assistant_content.append({
-                            "type": "tool_use",
-                            "id": block.id,
-                            "name": block.name,
-                            "input": block.input,
-                        })
-                conn.history.append({"role": "assistant", "content": assistant_content})
-
-                # Execute each tool
-                tool_results = []
-                for block in final.content:
-                    if block.type == "tool_use":
-                        status = tools.tool_status_text(block.name, block.input)
-                        await ws.send(json.dumps({
-                            "type": "tool_status",
-                            "content": status,
-                            "tool": block.name,
-                        }))
-                        loop = asyncio.get_event_loop()
-                        confirm_fn = make_web_confirm_fn(ws, conn, loop)
-                        result, is_error = await loop.run_in_executor(
-                            None,
-                            lambda b=block: tools.execute_tool(
-                                b.name, b.input, confirm_fn=confirm_fn
-                            ),
-                        )
-                        await ws.send(json.dumps({
-                            "type": "tool_end",
-                            "tool": block.name,
-                        }))
-                        tool_result = {
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": result,
-                        }
-                        if is_error:
-                            tool_result["is_error"] = True
-                        tool_results.append(tool_result)
-                conn.history.append({"role": "user", "content": tool_results})
-                continue
-            else:
-                # Normal end — add to history
-                conn.history.append({"role": "assistant", "content": response_text})
-                break
-
-        # Update session totals
-        conn.session_input_tokens += total_input
-        conn.session_output_tokens += total_output
-        conn.session_cost += total_cost
+        conn.session_input_tokens += result["input_tokens"]
+        conn.session_output_tokens += result["output_tokens"]
+        conn.session_cost += result["cost"]
+        conn.session_cache_creation_tokens += result["cache_creation_tokens"]
+        conn.session_cache_read_tokens += result["cache_read_tokens"]
 
         short_model = models.MODEL_SHORT_NAMES.get(conn.active_model, conn.active_model)
         await ws.send(json.dumps({
             "type": "response",
-            "content": response_text,
+            "content": result["text"],
             "model": short_model,
-            "input_tokens": total_input,
-            "output_tokens": total_output,
-            "cost": round(total_cost, 6),
+            "input_tokens": result["input_tokens"],
+            "output_tokens": result["output_tokens"],
+            "cost": round(result["cost"], 6),
             "session_cost": round(conn.session_cost, 4),
             "cache_creation_tokens": conn.session_cache_creation_tokens,
             "cache_read_tokens": conn.session_cache_read_tokens,
@@ -246,7 +193,7 @@ async def handle_message(ws, conn, data):
             conn.compressions += 1
             await ws.send(json.dumps({
                 "type": "status",
-                "content": f"Context compressed: ~{old_tok:,} → ~{new_tok:,} tokens "
+                "content": f"Context compressed: ~{old_tok:,} \u2192 ~{new_tok:,} tokens "
                            f"({removed} exchanges summarized, {kept} kept).",
             }))
 
@@ -361,44 +308,6 @@ async def handle_file_upload(ws, conn, data):
         "success_count": success_count,
         "error_count": error_count,
     }))
-
-
-async def _stream_response(ws, conn, system_prompt):
-    """Stream a single API call. Returns the final message or None on error."""
-    try:
-        # Run the synchronous streaming API in a thread
-        loop = asyncio.get_event_loop()
-        final = await loop.run_in_executor(
-            None,
-            lambda: _sync_stream(ws, conn, system_prompt, loop),
-        )
-        return final
-    except anthropic.APIError:
-        raise  # Let handle_message's specific handlers deal with these
-    except Exception as e:
-        await ws.send(json.dumps({
-            "type": "error",
-            "content": f"Streaming error: {type(e).__name__}",
-        }))
-        return None
-
-
-def _sync_stream(ws, conn, system_prompt, loop):
-    """Synchronous streaming call — runs in a thread pool executor."""
-    with models.get_client().messages.stream(
-        model=conn.active_model,
-        max_tokens=4096,
-        system=system_prompt,
-        messages=conn.history,
-        tools=tools.get_cached_tools(),
-    ) as stream:
-        for text in stream.text_stream:
-            # Schedule the send on the event loop from this worker thread
-            asyncio.run_coroutine_threadsafe(
-                ws.send(json.dumps({"type": "stream", "content": text})),
-                loop,
-            ).result()
-        return stream.get_final_message()
 
 
 async def handler(ws):

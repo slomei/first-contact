@@ -22,6 +22,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from telegram.constants import ChatAction
 
+import conversation
 import memory
 import models
 import tools
@@ -85,11 +86,6 @@ def sync_state(state):
     memory.active_project = state.active_project
     memory.challenge_mode = state.challenge_mode
     memory.memories = memory.load_memories()
-
-
-def execute_tool_bot(name, tool_input, confirm_fn=None):
-    """Wraps tools.execute_tool, passing through confirm_fn for interactive confirmation."""
-    return tools.execute_tool(name, tool_input, confirm_fn=confirm_fn)
 
 
 # Module-level pending confirmations, keyed by chat_id
@@ -239,109 +235,39 @@ async def get_response(state, channel):
     """
     sync_state(state)
 
-    # Extract last user message for semantic retrieval
-    last_user_query = None
-    for msg in reversed(state.conversation_history):
-        if msg.get("role") == "user":
-            content = msg.get("content", "")
-            if isinstance(content, str):
-                last_user_query = content
-            elif isinstance(content, list):
-                texts = [b.get("text", "") for b in content if b.get("type") == "text"]
-                last_user_query = " ".join(texts)
-            break
+    last_user_query = conversation.extract_last_user_query(state.conversation_history)
+    loop = asyncio.get_event_loop()
+    confirm_fn = make_telegram_confirm_fn(channel.chat_id, channel.bot, loop)
 
-    total_input = 0
-    total_output = 0
-    total_cost = 0.0
+    def on_tool_start(name, tool_input):
+        status = tools.tool_status_text(name, tool_input)
+        asyncio.run_coroutine_threadsafe(
+            channel.send(f"_{status}..._"), loop
+        ).result(timeout=5)
 
-    for turn in range(10):
-        response = await asyncio.to_thread(
-            models.get_client().messages.create,
-            model=state.active_model,
-            max_tokens=4096,
-            system=memory.build_system_prompt(memory.memories, query=last_user_query),
-            messages=state.conversation_history,
-            tools=tools.TOOLS,
-        )
+    result = await asyncio.to_thread(
+        conversation.run_conversation_turn,
+        state.conversation_history,
+        state.active_model,
+        confirm_fn=confirm_fn,
+        on_tool_start=on_tool_start,
+        query=last_user_query,
+    )
 
-        # Track tokens/cost
-        inp = response.usage.input_tokens
-        out = response.usage.output_tokens
-        prices = models.PRICING.get(state.active_model, {"input": 0, "output": 0})
-        msg_cost = (inp * prices["input"] + out * prices["output"]) / 1_000_000
-        total_input += inp
-        total_output += out
-        total_cost += msg_cost
+    state.input_tokens += result["input_tokens"]
+    state.output_tokens += result["output_tokens"]
+    state.cost += result["cost"]
 
-        if response.stop_reason == "tool_use":
-            # Store assistant content blocks
-            assistant_content = []
-            for block in response.content:
-                if block.type == "text":
-                    assistant_content.append({"type": "text", "text": block.text})
-                elif block.type == "tool_use":
-                    assistant_content.append({
-                        "type": "tool_use",
-                        "id": block.id,
-                        "name": block.name,
-                        "input": block.input,
-                    })
-            state.conversation_history.append(
-                {"role": "assistant", "content": assistant_content}
-            )
+    response_text = result["text"] or "(Stopped after 10 tool rounds.)"
+    cost_line = format_cost(result["input_tokens"], result["output_tokens"], result["cost"], state)
 
-            # Execute tools, send status messages
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    status = tools.tool_status_text(block.name, block.input)
-                    await channel.send(f"_{status}..._")
+    # Context compression
+    compression = models.compress_conversation(history=state.conversation_history)
+    if compression:
+        old_tok, new_tok, removed, kept, new_history = compression
+        state.conversation_history = new_history
 
-                    loop = asyncio.get_event_loop()
-                    confirm_fn = make_telegram_confirm_fn(
-                        channel.chat_id, channel.bot, loop
-                    )
-                    result, is_error = await asyncio.to_thread(
-                        execute_tool_bot, block.name, block.input, confirm_fn
-                    )
-                    tool_result = {
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result,
-                    }
-                    if is_error:
-                        tool_result["is_error"] = True
-                    tool_results.append(tool_result)
-
-            state.conversation_history.append(
-                {"role": "user", "content": tool_results}
-            )
-            continue
-        else:
-            # Final text response
-            response_text = ""
-            for block in response.content:
-                if block.type == "text":
-                    response_text += block.text
-
-            state.conversation_history.append(
-                {"role": "assistant", "content": response_text}
-            )
-
-            state.input_tokens += total_input
-            state.output_tokens += total_output
-            state.cost += total_cost
-
-            cost_line = format_cost(total_input, total_output, total_cost, state)
-            return f"{response_text}\n\n{cost_line}"
-
-    # Safety: hit 10 tool loops
-    state.input_tokens += total_input
-    state.output_tokens += total_output
-    state.cost += total_cost
-    cost_line = format_cost(total_input, total_output, total_cost, state)
-    return f"(Stopped after 10 tool rounds.)\n\n{cost_line}"
+    return f"{response_text}\n\n{cost_line}"
 
 
 # ---------------------------------------------------------------------------

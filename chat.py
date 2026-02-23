@@ -25,6 +25,7 @@ try:
 except ImportError:
     pdfplumber = None
 
+import conversation
 import memory
 import models
 import tools
@@ -41,11 +42,6 @@ import files
 
 
 # --- Terminal-specific helpers ---
-
-class _ResponseCancelled(Exception):
-    """Raised when the user cancels a streaming response with Ctrl+C."""
-    pass
-
 
 class _TerminalStreamer:
     """Strips inline markdown from streaming chunks for terminal display.
@@ -256,126 +252,60 @@ def _is_cover_letter_refusal(text):
 
 def chat_turn():
     """Run a chat turn with tool use support. Streams response, handles tool calls in a loop."""
-    total_input = 0
-    total_output = 0
-    total_cost = 0
-    total_cache_creation = 0
-    total_cache_read = 0
-
     # Inject creative context when first-light project is active
     creative_ctx = ""
     if memory.active_project == "first-light":
         creative_ctx = creative.get_creative_context()
 
-    # Extract last user message for semantic retrieval
-    last_user_query = None
-    for msg in reversed(models.conversation_history):
-        if msg.get("role") == "user":
-            content = msg.get("content", "")
-            if isinstance(content, str):
-                last_user_query = content
-            elif isinstance(content, list):
-                texts = [b.get("text", "") for b in content if b.get("type") == "text"]
-                last_user_query = " ".join(texts)
-            break
+    last_user_query = conversation.extract_last_user_query(models.conversation_history)
+
+    _streamer = _TerminalStreamer()
+    _first_chunk = [True]
+
+    def on_stream_chunk(text):
+        if _first_chunk[0]:
+            print(f"\n{memory.CYAN}Claude:{memory.RESET} ", end="", flush=True)
+            _first_chunk[0] = False
+        print(_streamer.feed(text), end="", flush=True)
+
+    def on_tool_start(name, tool_input):
+        # Flush any pending streamer state before tool status
+        remaining = _streamer.flush()
+        if remaining:
+            print(remaining, end="", flush=True)
+        if name != "list_memories":
+            print_tool_status(name, tool_input)
+        # Reset for next streaming segment
+        _first_chunk[0] = True
 
     try:
-        for turn in range(10):
-            if turn == 0:
-                print(f"\n{memory.CYAN}Claude:{memory.RESET} ", end="", flush=True)
-
-            response_text = ""
-            _streamer = _TerminalStreamer()
-            try:
-                with models.get_client().messages.stream(
-                    model=models.active_model,
-                    max_tokens=4096,
-                    system=memory.build_system_prompt_cached(memory.memories, creative_context=creative_ctx, query=last_user_query),
-                    messages=models.conversation_history,
-                    tools=tools.get_cached_tools(),
-                ) as stream:
-                    for text in stream.text_stream:
-                        print(_streamer.feed(text), end="", flush=True)
-                        response_text += text
-                    _remaining = _streamer.flush()
-                    if _remaining:
-                        print(_remaining, end="", flush=True)
-
-                    final = stream.get_final_message()
-            except KeyboardInterrupt:
-                if response_text:
-                    models.conversation_history.append({"role": "assistant", "content": response_text})
-                raise _ResponseCancelled()
-            except Exception:
-                if response_text:
-                    # Stream was interrupted after partial output — treat as cancellation
-                    models.conversation_history.append({"role": "assistant", "content": response_text})
-                    raise _ResponseCancelled()
-                raise  # No partial output — genuine API error, propagate normally
-
-            input_tokens = final.usage.input_tokens
-            output_tokens = final.usage.output_tokens
-            cache_creation = getattr(final.usage, 'cache_creation_input_tokens', 0) or 0
-            cache_read = getattr(final.usage, 'cache_read_input_tokens', 0) or 0
-            prices = models.PRICING.get(models.active_model, {"input": 0, "output": 0})
-            input_cost = input_tokens * prices["input"]
-            output_cost = output_tokens * prices["output"]
-            cache_write_cost = cache_creation * prices["input"] * models.CACHE_WRITE_MULTIPLIER
-            cache_read_cost = cache_read * prices["input"] * models.CACHE_READ_MULTIPLIER
-            msg_cost = (input_cost + output_cost + cache_write_cost + cache_read_cost) / 1_000_000
-            total_input += input_tokens
-            total_output += output_tokens
-            total_cache_creation += cache_creation
-            total_cache_read += cache_read
-            total_cost += msg_cost
-
-            if final.stop_reason == "tool_use":
-                assistant_content = []
-                for block in final.content:
-                    if block.type == "text":
-                        assistant_content.append({"type": "text", "text": block.text})
-                    elif block.type == "tool_use":
-                        assistant_content.append({
-                            "type": "tool_use",
-                            "id": block.id,
-                            "name": block.name,
-                            "input": block.input,
-                        })
-                models.conversation_history.append({"role": "assistant", "content": assistant_content})
-
-                tool_results = []
-                for block in final.content:
-                    if block.type == "tool_use":
-                        if block.name != "list_memories":
-                            print_tool_status(block.name, block.input)
-                        result, is_error = tools.execute_tool(block.name, block.input, confirm_fn=terminal_confirm)
-                        tool_result = {
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": result,
-                        }
-                        if is_error:
-                            tool_result["is_error"] = True
-                        tool_results.append(tool_result)
-                models.conversation_history.append({"role": "user", "content": tool_results})
-                continue
-            else:
-                models.conversation_history.append({"role": "assistant", "content": response_text})
-                break
-
-    except _ResponseCancelled:
+        result = conversation.run_conversation_turn(
+            models.conversation_history,
+            models.active_model,
+            confirm_fn=terminal_confirm,
+            on_stream_chunk=on_stream_chunk,
+            on_tool_start=on_tool_start,
+            query=last_user_query,
+            creative_context=creative_ctx,
+        )
+    except KeyboardInterrupt:
         print(f"\n{memory.DIM}  [response cancelled]{memory.RESET}\n")
         return
 
-    # Update session totals
-    models.session_input_tokens += total_input
-    models.session_output_tokens += total_output
-    models.session_cache_creation_tokens += total_cache_creation
-    models.session_cache_read_tokens += total_cache_read
-    models.session_cost += total_cost
+    # Flush any remaining streamer content
+    remaining = _streamer.flush()
+    if remaining:
+        print(remaining, end="", flush=True)
 
-    cache_info = f" | cache: {total_cache_read}" if total_cache_read else ""
-    print(f"\n{memory.DIM}  [{total_input} in / {total_output} out{cache_info} \u2014 ${total_cost:.4f}]  "
+    # Update session totals
+    models.session_input_tokens += result["input_tokens"]
+    models.session_output_tokens += result["output_tokens"]
+    models.session_cache_creation_tokens += result["cache_creation_tokens"]
+    models.session_cache_read_tokens += result["cache_read_tokens"]
+    models.session_cost += result["cost"]
+
+    cache_info = f" | cache: {result['cache_read_tokens']}" if result["cache_read_tokens"] else ""
+    print(f"\n{memory.DIM}  [{result['input_tokens']} in / {result['output_tokens']} out{cache_info} \u2014 ${result['cost']:.4f}]  "
           f"session: ${models.session_cost:.4f}{memory.RESET}\n")
 
 

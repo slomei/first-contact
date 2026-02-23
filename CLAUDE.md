@@ -8,7 +8,7 @@
 
 First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Four interfaces (terminal, web UI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
 
-**Status:** Shipped. All 163 tests passing. Live on GitHub.
+**Status:** Shipped. All 181 tests passing. Live on GitHub.
 
 ---
 
@@ -28,6 +28,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 
 | File | Description |
 |------|-------------|
+| `conversation.py` | Shared conversation turn loop used by all 4 interfaces. `run_conversation_turn()` handles the API call -> tool use -> loop pattern with callbacks for streaming, tool status, and confirmation. `extract_last_user_query()` for semantic retrieval. Always uses prompt caching. |
 | `memory.py` | Persistent memory (global + per-project), semantic search via sentence-transformers, system prompt builder (stable/dynamic split for prompt caching), project switching, cross-project awareness, user profile, config I/O. |
 | `models.py` | Model routing (Haiku/Sonnet/Opus), API calls, token tracking, pricing, context compression (Haiku-summarized at 20K tokens), specialist delegation (researcher/writer/coder/analyst). |
 | `tools.py` | 18 tool definitions (`TOOLS` list) and `execute_tool()` dispatch. Gmail, Calendar, web search, file I/O, code execution, job search, notes, tasks, reminders, PDF generation. Tool schemas are minimal — behavioral guidance lives in the cached system prompt. `get_cached_tools()` adds `cache_control` to the last tool for prompt caching. |
@@ -50,7 +51,8 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | File | Description |
 |------|-------------|
 | `tests/conftest.py` | Pytest fixtures — isolated temp dirs, test config, monkeypatched paths. |
-| `tests/test_imports.py` | Smoke tests — all 15 core modules import without errors. |
+| `tests/test_imports.py` | Smoke tests — all 16 core modules import without errors. |
+| `tests/test_conversation.py` | Conversation turn loop — non-streaming, streaming, tool loops, multi-turn, max turns, caching, cost calculation, confirm passthrough, KeyboardInterrupt handling. |
 | `tests/test_memory.py` | Memory system — config, profiles, memories, semantic search, cross-project, system prompt, custom prompt, cached prompt blocks. |
 | `tests/test_models.py` | Model routing — MODELS dict, pricing, short names, token estimation, usage tracking, cache tokens, batch discount. |
 | `tests/test_tools.py` | Tool system — TOOLS list, required fields, status text, file sandboxing, description conciseness, cached tools. |
@@ -305,7 +307,7 @@ The system prompt enforces these behaviors (see System Prompt Behaviors above):
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 163 tests across 13 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 181 tests across 14 test files.
 
 ---
 

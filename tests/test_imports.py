@@ -1,6 +1,12 @@
 """Smoke tests: verify all core modules import without errors."""
 
 
+def test_import_conversation():
+    import conversation
+    assert hasattr(conversation, "run_conversation_turn")
+    assert hasattr(conversation, "extract_last_user_query")
+
+
 def test_import_memory():
     import memory
     assert hasattr(memory, "BASE_DIR")
