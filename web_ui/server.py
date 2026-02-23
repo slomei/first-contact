@@ -17,6 +17,7 @@ import sys
 # Add parent dir to path so we can import shared core
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import anthropic
 import memory
 import models
 import tools
@@ -185,10 +186,44 @@ async def handle_message(ws, conn, data):
                            f"({removed} exchanges summarized, {kept} kept).",
             }))
 
+    except anthropic.BadRequestError as e:
+        msg = str(e)
+        if "too long" in msg or "token" in msg.lower():
+            await ws.send(json.dumps({
+                "type": "error",
+                "content": "Message too long for the context window. Starting a new conversation.",
+            }))
+            _save_conversation(conn)
+            conn.history = []
+        else:
+            await ws.send(json.dumps({
+                "type": "error",
+                "content": f"Request error: {msg}",
+            }))
+    except anthropic.RateLimitError:
+        await ws.send(json.dumps({
+            "type": "error",
+            "content": "Rate limited by the API. Please wait a moment and try again.",
+        }))
+    except anthropic.APIConnectionError:
+        await ws.send(json.dumps({
+            "type": "error",
+            "content": "Cannot reach the Anthropic API. Check your internet connection.",
+        }))
+    except anthropic.AuthenticationError:
+        await ws.send(json.dumps({
+            "type": "error",
+            "content": "Invalid API key. Check ANTHROPIC_API_KEY in .env.",
+        }))
+    except anthropic.InternalServerError:
+        await ws.send(json.dumps({
+            "type": "error",
+            "content": "Anthropic API is temporarily unavailable. Try again shortly.",
+        }))
     except Exception as e:
         await ws.send(json.dumps({
             "type": "error",
-            "content": f"Error: {e}",
+            "content": f"Unexpected error: {type(e).__name__}",
         }))
 
 
@@ -274,10 +309,12 @@ async def _stream_response(ws, conn, system_prompt):
             lambda: _sync_stream(ws, conn, system_prompt, loop),
         )
         return final
+    except anthropic.APIError:
+        raise  # Let handle_message's specific handlers deal with these
     except Exception as e:
         await ws.send(json.dumps({
             "type": "error",
-            "content": f"API error: {e}",
+            "content": f"Streaming error: {type(e).__name__}",
         }))
         return None
 
