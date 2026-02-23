@@ -155,6 +155,13 @@ def test_import_plugins():
     assert hasattr(plugins, "execute_plugin_tool")
 
 
+def test_import_mcp_server():
+    import mcp_server
+    assert hasattr(mcp_server, "get_mcp_tools")
+    assert hasattr(mcp_server, "call_tool")
+    assert hasattr(mcp_server, "MCP_AVAILABLE")
+
+
 def test_import_providers():
     import providers
     assert hasattr(providers, "Provider")

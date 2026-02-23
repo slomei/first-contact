@@ -8,7 +8,7 @@
 
 First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Four interfaces (terminal, web UI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
 
-**Status:** Shipped. All 291 tests passing. Live on GitHub.
+**Status:** Shipped. All 308 tests passing. Live on GitHub.
 
 ---
 
@@ -47,6 +47,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `files.py` | Project file management — import, list, remove files. Validation, large-file detection, conversation injection formatting. Used by all interfaces and web UI drag-and-drop. |
 | `plugins/` | Plugin system — `__init__.py` loader discovers `.py` files, validates required attributes (`PLUGIN_NAME`, `TOOLS`, `execute`), routes tool calls. `example_plugin.py` reference implementation (dice roller). `README.md` for plugin authors. |
 | `service_registry.py` | Centralized integration status — registers check functions for 6 built-in services (Discord, Telegram, Gmail, Calendar, web search, job search), caches status (unconfigured/configured/healthy/error), `check_all()` / `is_available()` API. |
+| `mcp_server.py` | MCP (Model Context Protocol) server over stdio transport. Exposes core + plugin tools to external clients (Claude Desktop, Cursor). Tool translation (`input_schema` → `inputSchema`), configurable blacklist, async bridge to `execute_tool()`. Optional dep (`mcp` package). |
 | `sync.py` | File sync system — reads `sync_sources.json` for source/destination mappings, glob-scans Windows paths, resolves version conflicts, copies latest file. |
 
 ### Tests
@@ -73,6 +74,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `tests/test_providers.py` | Provider abstraction — ABC compliance, registry, compat types, OpenAI translation, tier system, config overrides, feature flags, cache multipliers. |
 | `tests/test_task_tools.py` | Task/reminder tools — list/complete/edit/remove/note tasks, list/cancel reminders, daemon-agent data parity. |
 | `tests/test_hot_reload.py` | Hot reload — file filtering, excluded dirs, debounce, file-to-subprocess mapping, daemon self-change detection. |
+| `tests/test_mcp_server.py` | MCP server — config merging, tool listing/blacklist, call routing, error handling, async bridge. |
 
 ### Config & Data Files
 
@@ -83,7 +85,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `memory.json` | Global persistent memory store (objects with `text`, `embedding`, `created`). |
 | `reminders.json` | Global reminders (cross-project). |
 | `sync_sources.json` | File sync source/destination mappings. |
-| `requirements.txt` | Python runtime dependencies. `sentence-transformers` and `watchdog` are commented out (optional). |
+| `requirements.txt` | Python runtime dependencies. `sentence-transformers`, `watchdog`, and `mcp` are commented out (optional). |
 | `requirements-dev.txt` | Test dependencies (pytest, pytest-mock). Install with `pip install -r requirements-dev.txt`. |
 | `setup.sh` | Setup script — creates venv, installs deps, copies config templates. |
 
@@ -159,6 +161,18 @@ first-contact/
 **Configuration.** Set `"provider": "openai"` (or `"gemini"`) in `config.json`. Override individual tiers with `"model_tiers": {"fast": "custom-model"}`. Module-level defaults are Anthropic values at import time; `_init_model_data()` refreshes from the active provider on first `get_client()` call.
 
 **Adding a new provider:** Subclass `providers.Provider`, implement `get_client()` / `get_tiers()` / `get_pricing()` / `get_features()`, call `register_provider()` at module level.
+
+### MCP Server
+
+`mcp_server.py` exposes First Contact's tools to external MCP clients (Claude Desktop, Cursor, etc.) over stdio transport. It reads directly from `tools.TOOLS` and `plugins.get_all_plugin_tools()` — no duplication, no divergence.
+
+**Tool translation.** `get_mcp_tools()` maps Anthropic-style `input_schema` to MCP-style `inputSchema`, strips `cache_control` markers, and filters out blacklisted tools. Returns plain dicts that are testable without the MCP SDK installed.
+
+**Blacklist.** `run_python` is blacklisted by default — auto-approve (no `confirm_fn`) would mean unsandboxed code execution. Configurable in `config.json` under `"mcp"."blacklist"`. Other tools that use `confirm_fn` for confirmation (calendar events) auto-approve via MCP — this is a documented trade-off.
+
+**Async bridge.** `call_tool()` runs `tools.execute_tool()` via `asyncio.to_thread()` with `confirm_fn=None`. Code-level safety gates (path sandboxing, rate limits, OAuth scopes) still apply.
+
+**Optional dependency.** `mcp>=1.0.0` is commented out in `requirements.txt`. `MCP_AVAILABLE` sentinel guards the server entry point. `get_mcp_tools()` and `call_tool()` work without the SDK for testing.
 
 ### Model Routing
 
@@ -381,7 +395,7 @@ All four interfaces share these features via the shared core:
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 291 tests across 20 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 308 tests across 21 test files.
 
 ---
 
@@ -399,7 +413,7 @@ The daemon reads/writes several data files that the conversational agent cannot 
 
 ## Known Stretch Goals
 
-- **MCP (Model Context Protocol)** — expose tools as MCP servers
+- **MCP (Model Context Protocol)** — ~~expose tools as MCP servers~~ **Shipped.** `mcp_server.py` — stdio transport, tool translation, configurable blacklist, async bridge
 - **Provider abstraction** — ~~support OpenAI, Gemini, local models alongside Anthropic~~ **Shipped.** `providers/` directory with ABC, registry, Anthropic/OpenAI/Gemini implementations, tier system
 - **Tauri desktop app** — native desktop wrapper
 - **Mobile app** — iOS/Android interface

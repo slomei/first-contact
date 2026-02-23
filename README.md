@@ -28,6 +28,8 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 
 **Plugin system.** Add new tools without modifying core code. Drop a Python file into `plugins/` with a tool definition and handler function, and it's auto-discovered on startup. Plugins receive read-only copies of config and conversation history. Ships with an example dice-roller plugin. See `plugins/README.md` for the full spec.
 
+**MCP server.** Expose First Contact's tools to external AI clients via the [Model Context Protocol](https://modelcontextprotocol.io/). Claude Desktop, Cursor, and any MCP-compatible client can discover and call all 25 core tools (plus plugins) directly — email, calendar, web search, tasks, memory, files — without going through the chat interface. Configurable tool blacklist for safety (`run_python` blocked by default). Optional dependency: install `mcp` to enable.
+
 **25 core tools** (plus any from plugins):
 
 - **Web search** — DuckDuckGo-powered, with page fetching and content extraction
@@ -106,7 +108,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
          └────────┘ └────────┘ └───┘ └────────┘ └────────┘
 ```
 
-**28 Python modules:**
+**29 Python modules:**
 
 | File | Purpose |
 |------|---------|
@@ -133,6 +135,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 | `files.py` | Project file management (import, list, remove, validation) |
 | `service_registry.py` | Centralized integration status checks (6 built-in services) |
 | `plugins/` | Plugin loader — auto-discovers user-installable tool packages |
+| `mcp_server.py` | MCP server — exposes tools to Claude Desktop, Cursor, and other MCP clients |
 | `sync.py` | File sync with version conflict resolution |
 
 The four interfaces are thin layers. All logic lives in the shared core — model routing, tool execution, memory, notifications. Adding a new interface means writing the I/O adapter; all tools and capabilities come for free.
@@ -191,6 +194,36 @@ Works on CPU. Auto-detects and uses GPU (CUDA) when available for faster embeddi
 **Discord bot:** Create a bot at [discord.com/developers](https://discord.com/developers/applications), add the token to your `.env`, invite the bot to your server. The onboarding wizard walks through this step by step.
 
 **Telegram bot:** Message [@BotFather](https://t.me/BotFather) on Telegram, create a bot, add the token to your `.env`. Setup mode auto-detects your user ID on first message.
+
+### MCP Server
+
+Expose First Contact's tools to Claude Desktop, Cursor, or any MCP client. Install the optional dependency and add the server to your client's config:
+
+```bash
+pip install mcp
+```
+
+**Claude Desktop** (`claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "first-contact": {
+      "command": "python",
+      "args": ["/path/to/first-contact/mcp_server.py"]
+    }
+  }
+}
+```
+
+**Important:** Tools that require human confirmation in the chat interface (calendar events, code execution) execute automatically via MCP. `run_python` is blacklisted by default. Review the blacklist in `config.json` under `"mcp"."blacklist"` and add any tools you want gated:
+
+```json
+{
+  "mcp": {
+    "blacklist": ["run_python", "create_calendar_event"]
+  }
+}
+```
 
 ## Configuration
 

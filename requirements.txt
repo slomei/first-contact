@@ -22,3 +22,6 @@ google-auth-httplib2>=0.2.0
 
 # Optional: enables hot-reload file watching in daemon
 # watchdog>=4.0.0
+
+# Optional: enables MCP (Model Context Protocol) server for external tool access
+# mcp>=1.0.0
