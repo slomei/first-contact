@@ -1598,6 +1598,14 @@ def execute_tool(name, tool_input, confirm_fn=None):
     elif name == "read_file":
         filepath = tool_input["path"]
 
+        # Bare filename → check project files/ then workspace/
+        if os.sep not in filepath and "/" not in filepath:
+            for check_dir in [memory.get_files_dir(), memory.get_workspace_dir()]:
+                candidate = os.path.join(check_dir, filepath)
+                if os.path.isfile(candidate):
+                    filepath = candidate
+                    break
+
         # --- Path restriction: only allow reads within project directory ---
         resolved = os.path.realpath(os.path.expanduser(filepath))
         allowed_bases = [os.path.realpath(memory.BASE_DIR)]

@@ -118,6 +118,16 @@ HELP_CATEGORIES = {
         ],
         "tip": "Claude also searches the web autonomously when it would help.",
     },
+    "files": {
+        "desc": "Project file management",
+        "commands": [
+            ("/file <path>", "Import a file into the project and inject into conversation"),
+            ("/files", "List all files in the project"),
+            ("/file remove <name>", "Remove a file from the project"),
+            ("/file clear", "Remove all project files"),
+        ],
+        "tip": "Files persist in projects/<project>/files/. Drag-and-drop works in the web UI.",
+    },
     "skills": {
         "desc": "Extensible specialist skills",
         "commands": [

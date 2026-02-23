@@ -412,6 +412,29 @@ footer {
     border-radius: 4px;
 }
 
+/* --- Drag-and-Drop Overlay --- */
+
+main.drag-over {
+    position: relative;
+}
+
+main.drag-over::after {
+    content: "Drop files here";
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px dashed var(--fc-accent);
+    border-radius: 8px;
+    background: rgba(45, 106, 79, 0.08);
+    color: var(--fc-accent);
+    font-size: 1.1rem;
+    font-weight: 500;
+    pointer-events: none;
+    z-index: 10;
+}
+
 /* --- Scrollbar --- */
 
 main::-webkit-scrollbar {

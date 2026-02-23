@@ -311,5 +311,97 @@ accentPicker.addEventListener("input", (e) => {
     localStorage.setItem("fc-accent", e.target.value);
 });
 
+// --- Drag-and-Drop File Upload ---
+
+const ALLOWED_EXTENSIONS = new Set([
+    ".txt", ".md", ".py", ".js", ".json", ".csv", ".html", ".css",
+    ".yml", ".yaml", ".toml", ".cfg", ".log", ".xml", ".sh", ".bat",
+    ".sql", ".r", ".dart",
+]);
+
+function getExtension(filename) {
+    const dot = filename.lastIndexOf(".");
+    return dot >= 0 ? filename.slice(dot).toLowerCase() : "";
+}
+
+chatArea.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    chatArea.closest("main").classList.add("drag-over");
+});
+
+chatArea.addEventListener("dragleave", (e) => {
+    // Only remove if we're leaving the main area entirely
+    if (!e.relatedTarget || !chatArea.closest("main").contains(e.relatedTarget)) {
+        chatArea.closest("main").classList.remove("drag-over");
+    }
+});
+
+chatArea.addEventListener("drop", (e) => {
+    e.preventDefault();
+    chatArea.closest("main").classList.remove("drag-over");
+
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    if (!droppedFiles.length) return;
+
+    // Filter valid files
+    const valid = [];
+    const rejected = [];
+    for (const file of droppedFiles) {
+        const ext = getExtension(file.name);
+        if (ALLOWED_EXTENSIONS.has(ext)) {
+            valid.push(file);
+        } else {
+            rejected.push(file.name);
+        }
+    }
+
+    if (rejected.length) {
+        showStatus(`Skipped unsupported: ${rejected.join(", ")}`);
+    }
+
+    if (!valid.length) return;
+
+    // Show user bubble for each file
+    for (const file of valid) {
+        const bubble = createBubble("user");
+        bubble.textContent = `[File: ${file.name}]`;
+    }
+
+    // Read all files and send as batch
+    let pending = valid.length;
+    const fileData = [];
+
+    for (const file of valid) {
+        const reader = new FileReader();
+        reader.onload = () => {
+            fileData.push({ name: file.name, contents: reader.result });
+            pending--;
+            if (pending === 0) {
+                ws.send(JSON.stringify({
+                    type: "file_upload",
+                    files: fileData,
+                }));
+            }
+        };
+        reader.onerror = () => {
+            showStatus(`Failed to read: ${file.name}`);
+            pending--;
+        };
+        reader.readAsText(file);
+    }
+});
+
+// Handle file_upload_result from server
+const _origHandler = handleServerMessage;
+handleServerMessage = function(data) {
+    if (data.type === "file_upload_result") {
+        showStatus(data.content);
+        return;
+    }
+    _origHandler(data);
+};
+
 // --- Init ---
 connect();

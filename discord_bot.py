@@ -27,6 +27,7 @@ import onboarding
 import help_data
 import creative
 import sync
+import files
 
 # Only respond to this Discord user ID (set via DISCORD_USER_ID env var)
 ALLOWED_USER_ID = int(os.environ.get("DISCORD_USER_ID", "0"))
@@ -2697,6 +2698,58 @@ async def on_message(message):
                 f.write("\n")
         line_count = content_to_write.count("\n") + 1
         await send_reply(dm, f"*Wrote {line_count} lines to {state.active_project}/workspace/{filename}*")
+        return
+
+    # --- Project files ---
+    if command_lower == "!files":
+        listing = files.list_project_files()
+        if not listing:
+            await send_reply(dm, "*No files in project. Use `!file <path>` to import one.*")
+        else:
+            lines = [f"**Project files ({state.active_project}):**"]
+            for f_info in listing:
+                size = files.format_file_size(f_info["size"])
+                lines.append(f"  {f_info['name']}  *({size})*")
+            await send_reply(dm, "\n".join(lines))
+        return
+
+    if command_lower == "!file clear":
+        count, msg = files.clear_all_files()
+        await send_reply(dm, f"*{msg}*")
+        return
+
+    if command_lower.startswith("!file remove "):
+        name = content[13:].strip()
+        if not name:
+            await send_reply(dm, "*Usage: `!file remove <name>`*")
+            return
+        ok, msg = files.remove_file(name)
+        await send_reply(dm, f"*{msg}*")
+        return
+
+    if command_lower.startswith("!file "):
+        path_arg = content[6:].strip()
+        if not path_arg:
+            await send_reply(dm, "*Usage: `!file <path>`*")
+            return
+        resolved, in_project = files.resolve_file_path(path_arg)
+        if not resolved:
+            await send_reply(dm, f"*File not found: {path_arg}*")
+            return
+        if not in_project:
+            ok, err = files.check_file_importable(resolved)
+            if not ok:
+                await send_reply(dm, f"*{err}*")
+                return
+            files.import_file(resolved)
+        try:
+            contents = files.read_file_contents(resolved)
+        except Exception as e:
+            await send_reply(dm, f"*Error reading file: {e}*")
+            return
+        msg, filename, line_count = files.format_file_for_injection(resolved, contents)
+        state.conversation_history.append({"role": "user", "content": msg})
+        await send_reply(dm, f"*Loaded {filename} ({line_count} lines)*")
         return
 
     # --- Run code ---

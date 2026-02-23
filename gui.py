@@ -24,6 +24,7 @@ import creative
 import documents
 import job_scanner
 import help_data
+import files
 
 
 class SessionState:
@@ -1252,6 +1253,57 @@ def handle_command(command, state):
             return f"Path is a directory: {filepath}"
         except UnicodeDecodeError:
             return f"Cannot read binary file: {filepath}"
+
+    # --- Project files ---
+    if cmd_lower == "/files":
+        listing = files.list_project_files()
+        if not listing:
+            return "No files in project. Use `/file <path>` to import one."
+        lines = [
+            f"**Project files ({state.active_project}):**",
+            "",
+            "| File | Size |",
+            "|------|------|",
+        ]
+        for f_info in listing:
+            size = files.format_file_size(f_info["size"])
+            lines.append(f"| {f_info['name']} | {size} |")
+        return "\n".join(lines)
+
+    if cmd_lower == "/file clear":
+        count, msg = files.clear_all_files()
+        return msg
+
+    if cmd_lower.startswith("/file remove "):
+        name = cmd[13:].strip()
+        if not name:
+            return "Usage: `/file remove <name>`"
+        ok, msg = files.remove_file(name)
+        return msg
+
+    if cmd_lower.startswith("/file "):
+        path_arg = cmd[6:].strip()
+        if not path_arg:
+            return "Usage: `/file <path>`"
+
+        resolved, in_project = files.resolve_file_path(path_arg)
+        if not resolved:
+            return f"File not found: {path_arg}"
+
+        if not in_project:
+            ok, err = files.check_file_importable(resolved)
+            if not ok:
+                return err
+            files.import_file(resolved)
+
+        try:
+            contents = files.read_file_contents(resolved)
+        except Exception as e:
+            return f"Error reading file: {e}"
+
+        msg, filename, line_count = files.format_file_for_injection(resolved, contents)
+        state.conversation_history.append({"role": "user", "content": msg})
+        return f"Loaded {filename} ({line_count} lines)"
 
     # --- Write file ---
     if cmd_lower.startswith("/write "):

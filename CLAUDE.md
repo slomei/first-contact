@@ -8,7 +8,7 @@
 
 First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Five interfaces (terminal, web UI, Gradio GUI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
 
-**Status:** Pre-ship. All 117 tests passing. Ready for GitHub.
+**Status:** Pre-ship. All 143 tests passing. Ready for GitHub.
 
 ---
 
@@ -42,6 +42,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `help_data.py` | Single source of truth for all help text. `HELP_CATEGORIES` dict with per-interface formatters (terminal ANSI box-drawing, Discord markdown, Telegram plain text, GUI Gradio markdown). Fuzzy prefix matching. |
 | `creative.py` | Creative project tools — world bible PDF parsing via pdfplumber, character/location JSON lookup. Used for the First Light screenplay project. |
 | `skills_loader.py` | Extensible skills system — loads `.md` skill files from `skills/` directory, keyword matching, injects matched skill content into specialist system prompts during delegation. |
+| `files.py` | Project file management — import, list, remove files. Validation, large-file detection, conversation injection formatting. Used by all interfaces and web UI drag-and-drop. |
 | `sync.py` | File sync system — reads `sync_sources.json` for source/destination mappings, glob-scans Windows paths, resolves version conflicts, copies latest file. |
 
 ### Tests
@@ -58,6 +59,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `tests/test_help_data.py` | Help system — categories, fuzzy matching, all 4 interface formatters. |
 | `tests/test_notes_status.py` | Notes, reminders, draft rate limits, daemon PID, config loading. |
 | `tests/test_skills.py` | Skills system — skill loading, keyword matching, specialist prompt injection. |
+| `tests/test_files.py` | File management — extension validation, import/list/remove, large file detection, path resolution. |
 
 ### Config & Data Files
 
@@ -82,12 +84,14 @@ first-contact/
 │   ├── general/            # Default project
 │   │   ├── conversations/
 │   │   ├── tasks.json
+│   │   ├── files/              # Imported project files (persistent context)
 │   │   └── workspace/
 │   │       ├── cover_letters/
 │   │       └── jobs/       # Per-listing dirs (listing.json, notes.md, cover-letter.md)
 │   └── {project-name}/    # Each project gets its own dir
 │       ├── memory.json     # Project-specific memories
 │       ├── tasks.json
+│       ├── files/              # Per-project imported files
 │       ├── conversations/
 │       └── workspace/
 ├── interfaces/
@@ -205,6 +209,8 @@ The system prompt (`memory.py`) includes three behavioral directives built from 
 
 **Web & Files:** `/web <query>`, `/fetch <url>`, `/read <path>`, `/write <file>`, `/run`, `/pdf <title>`
 
+**Project Files:** `/file <path>`, `/files`, `/file remove <name>`, `/file clear`
+
 **Projects:** `/project [name|list]`
 
 **Watchlist:** `/watch <topic>`, `/watch list`, `/watch remove <topic>`, `/digest`
@@ -269,7 +275,7 @@ The system prompt enforces these behaviors (see System Prompt Behaviors above):
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 117 tests across 9 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 143 tests across 10 test files.
 
 ---
 

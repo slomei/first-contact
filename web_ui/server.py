@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import memory
 import models
 import tools
+import files
 
 try:
     import websockets
@@ -146,6 +147,54 @@ async def handle_message(ws, conn, data):
         }))
 
 
+async def handle_file_upload(ws, conn, data):
+    """Handle file uploads from the web client (drag-and-drop)."""
+    uploaded = data.get("files", [])
+    if not uploaded:
+        await ws.send(json.dumps({
+            "type": "file_upload_result",
+            "content": "No files received.",
+            "success_count": 0,
+            "error_count": 0,
+        }))
+        return
+
+    success_count = 0
+    error_count = 0
+    results = []
+
+    for item in uploaded:
+        name = item.get("name", "")
+        contents = item.get("contents", "")
+
+        ok, ext = files.validate_extension(name)
+        if not ok:
+            results.append(f"Skipped {name}: unsupported type ({ext or 'no extension'})")
+            error_count += 1
+            continue
+
+        try:
+            filepath = files.write_file_contents(name, contents)
+        except Exception as e:
+            results.append(f"Failed to save {name}: {e}")
+            error_count += 1
+            continue
+
+        # Inject into conversation history
+        msg, filename, line_count = files.format_file_for_injection(filepath, contents)
+        conn.history.append({"role": "user", "content": msg})
+        results.append(f"Loaded {filename} ({line_count} lines)")
+        success_count += 1
+
+    summary = "\n".join(results)
+    await ws.send(json.dumps({
+        "type": "file_upload_result",
+        "content": summary,
+        "success_count": success_count,
+        "error_count": error_count,
+    }))
+
+
 async def _stream_response(ws, conn, system_prompt):
     """Stream a single API call. Returns the final message or None on error."""
     try:
@@ -212,6 +261,9 @@ async def handler(ws):
                     "type": "status",
                     "content": "New conversation started.",
                 }))
+
+            elif msg_type == "file_upload":
+                await handle_file_upload(ws, conn, data)
 
             elif msg_type == "set_model":
                 model_id = data.get("model", "")

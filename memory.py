@@ -277,6 +277,13 @@ def get_memory_file():
     return os.path.join(get_project_dir(), "memory.json")
 
 
+def get_files_dir():
+    """Return the files directory for the active project."""
+    d = os.path.join(get_project_dir(), "files")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
 def get_watchlist_file():
     """Return the watchlist file path for the active project."""
     return os.path.join(get_project_dir(), "watchlist.json")

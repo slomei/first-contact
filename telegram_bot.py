@@ -30,6 +30,7 @@ import onboarding
 import help_data
 import creative
 import sync
+import files
 
 # Only respond to this Telegram user ID (set via TELEGRAM_USER_ID env var)
 # Set to 0 to log all user IDs (useful for initial setup)
@@ -2605,6 +2606,58 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f_w.write("\n")
         line_count = content_to_write.count("\n") + 1
         await send_reply(chat_id, f"Wrote {line_count} lines to {state.active_project}/workspace/{filename}", bot)
+        return
+
+    # --- Project files ---
+    if content_lower == "/files":
+        listing = files.list_project_files()
+        if not listing:
+            await send_reply(chat_id, "No files in project. Use /file <path> to import one.", bot)
+        else:
+            lines = [f"Project files ({state.active_project}):"]
+            for f_info in listing:
+                size = files.format_file_size(f_info["size"])
+                lines.append(f"  {f_info['name']}  ({size})")
+            await send_reply(chat_id, "\n".join(lines), bot)
+        return
+
+    if content_lower == "/file clear":
+        count, msg = files.clear_all_files()
+        await send_reply(chat_id, msg, bot)
+        return
+
+    if content_lower.startswith("/file remove "):
+        name = text[13:].strip()
+        if not name:
+            await send_reply(chat_id, "Usage: /file remove <name>", bot)
+            return
+        ok, msg = files.remove_file(name)
+        await send_reply(chat_id, msg, bot)
+        return
+
+    if content_lower.startswith("/file "):
+        path_arg = text[6:].strip()
+        if not path_arg:
+            await send_reply(chat_id, "Usage: /file <path>", bot)
+            return
+        resolved, in_project = files.resolve_file_path(path_arg)
+        if not resolved:
+            await send_reply(chat_id, f"File not found: {path_arg}", bot)
+            return
+        if not in_project:
+            ok, err = files.check_file_importable(resolved)
+            if not ok:
+                await send_reply(chat_id, err, bot)
+                return
+            files.import_file(resolved)
+        try:
+            contents = files.read_file_contents(resolved)
+        except Exception as e:
+            await send_reply(chat_id, f"Error reading file: {e}", bot)
+            return
+        msg, filename, line_count = files.format_file_for_injection(resolved, contents)
+        state.conversation_history.append({"role": "user", "content": msg})
+        await send_reply(chat_id, f"Loaded {filename} ({line_count} lines)", bot)
         return
 
     # --- Run code ---

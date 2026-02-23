@@ -34,6 +34,7 @@ import documents
 import job_scanner
 import onboarding
 import help_data
+import files
 
 
 # --- Terminal-specific helpers ---
@@ -103,8 +104,20 @@ class _TerminalStreamer:
 
 def _clean_exit():
     """Save conversation silently and exit."""
-    print_session_summary()
-    models.save_conversation(models.conversation_history)
+    try:
+        print_session_summary()
+    except Exception:
+        pass
+    try:
+        memory.save_memories(memory.memories)  # Fast, high-value — save before API call
+    except Exception:
+        pass
+    try:
+        models.save_conversation(models.conversation_history)
+    except KeyboardInterrupt:
+        print("\nSave interrupted — exiting.")
+    except Exception:
+        pass
     print("Goodbye!")
 
 
@@ -551,6 +564,93 @@ if __name__ == "__main__":
                 print(f"{memory.DIM}Path is a directory: {filepath}{memory.RESET}\n")
             except UnicodeDecodeError:
                 print(f"{memory.DIM}Cannot read binary file: {filepath}{memory.RESET}\n")
+            continue
+
+        # --- Project files ---
+        if command_lower == "/files":
+            listing = files.list_project_files()
+            if not listing:
+                print(f"{memory.DIM}No files in project. Use /file <path> to import one.{memory.RESET}\n")
+            else:
+                print(f"\n{memory.BOLD}Project files ({memory.active_project}):{memory.RESET}")
+                for f_info in listing:
+                    size = files.format_file_size(f_info["size"])
+                    print(f"  {f_info['name']}  {memory.DIM}({size}){memory.RESET}")
+                print()
+            continue
+
+        if command_lower == "/file clear":
+            confirm = terminal_confirm("Remove all project files? (y/n) ")
+            if confirm:
+                count, msg = files.clear_all_files()
+                print(f"{memory.DIM}{msg}{memory.RESET}\n")
+            else:
+                print(f"{memory.DIM}Cancelled.{memory.RESET}\n")
+            continue
+
+        if command_lower.startswith("/file remove "):
+            name = command[13:].strip()
+            if not name:
+                print(f"{memory.DIM}Usage: /file remove <name>{memory.RESET}\n")
+                continue
+            if not files.file_exists_in_project(name):
+                print(f"{memory.DIM}File not found: {name}{memory.RESET}\n")
+                continue
+            confirm = terminal_confirm(f"Remove {name}? (y/n) ")
+            if confirm:
+                ok, msg = files.remove_file(name)
+                print(f"{memory.DIM}{msg}{memory.RESET}\n")
+            else:
+                print(f"{memory.DIM}Cancelled.{memory.RESET}\n")
+            continue
+
+        if command_lower.startswith("/file "):
+            path_arg = command[6:].strip()
+            if not path_arg:
+                print(f"{memory.DIM}Usage: /file <path>{memory.RESET}\n")
+                continue
+
+            resolved, in_project = files.resolve_file_path(path_arg)
+            if not resolved:
+                print(f"{memory.DIM}File not found: {path_arg}{memory.RESET}\n")
+                continue
+
+            if not in_project:
+                # Validate before importing
+                ok, err = files.check_file_importable(resolved)
+                if not ok:
+                    print(f"{memory.DIM}{err}{memory.RESET}\n")
+                    continue
+
+                # Check overwrite
+                basename = os.path.basename(resolved)
+                if files.file_exists_in_project(basename):
+                    confirm = terminal_confirm(f"{basename} already exists. Overwrite? (y/n) ")
+                    if not confirm:
+                        print(f"{memory.DIM}Cancelled.{memory.RESET}\n")
+                        continue
+
+                dest = files.import_file(resolved)
+                resolved = dest
+                print(f"{memory.DIM}Imported {basename} into project files.{memory.RESET}")
+
+            # Read and inject
+            try:
+                contents = files.read_file_contents(resolved)
+            except Exception as e:
+                print(f"{memory.DIM}Error reading file: {e}{memory.RESET}\n")
+                continue
+
+            is_large = files.file_is_large(resolved)
+            if is_large:
+                confirm = terminal_confirm(f"Large file ({files.format_file_size(os.path.getsize(resolved))}). Inject into conversation? (y/n) ")
+                if not confirm:
+                    print(f"{memory.DIM}File saved to project but not injected.{memory.RESET}\n")
+                    continue
+
+            msg, filename, line_count = files.format_file_for_injection(resolved, contents)
+            models.conversation_history.append({"role": "user", "content": msg})
+            print(f"{memory.DIM}Loaded {filename} ({line_count} lines){memory.RESET}\n")
             continue
 
         if command_lower.startswith("/web "):
