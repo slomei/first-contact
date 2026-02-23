@@ -155,6 +155,12 @@ def test_import_plugins():
     assert hasattr(plugins, "execute_plugin_tool")
 
 
+def test_import_plugin_generator():
+    import plugin_generator
+    assert hasattr(plugin_generator, "generate_plugin")
+    assert hasattr(plugin_generator, "validate_name")
+
+
 def test_import_mcp_server():
     import mcp_server
     assert hasattr(mcp_server, "get_mcp_tools")

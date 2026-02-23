@@ -28,6 +28,8 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 
 **Plugin system.** Add new tools without modifying core code. Drop a Python file into `plugins/` with a tool definition and handler function, and it's auto-discovered on startup. Plugins receive read-only copies of config and conversation history. Ships with an example dice-roller plugin. See `plugins/README.md` for the full spec.
 
+**Plugin ecosystem.** Create plugins with the built-in template generator: `python plugin_generator.py my_plugin`. Scaffolds a complete plugin with metadata, stub tools, and documentation. Browse community plugins in the [plugin directory](plugins/DIRECTORY.md). Plugins run with full process access — review source code before installing third-party plugins.
+
 **MCP server.** Expose First Contact's tools to external AI clients via the [Model Context Protocol](https://modelcontextprotocol.io/). Claude Desktop, Cursor, and any MCP-compatible client can discover and call all 25 core tools (plus plugins) directly — email, calendar, web search, tasks, memory, files — without going through the chat interface. Configurable tool blacklist for safety (`run_python` blocked by default). Optional dependency: install `mcp` to enable.
 
 **25 core tools** (plus any from plugins):
@@ -108,7 +110,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
          └────────┘ └────────┘ └───┘ └────────┘ └────────┘
 ```
 
-**29 Python modules:**
+**30 Python modules:**
 
 | File | Purpose |
 |------|---------|
@@ -134,6 +136,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 | `skills_loader.py` | Extensible skills system (keyword matching, specialist prompt injection) |
 | `files.py` | Project file management (import, list, remove, validation) |
 | `service_registry.py` | Centralized integration status checks (6 built-in services) |
+| `plugin_generator.py` | Plugin template generator (scaffolds new plugins with metadata and docs) |
 | `plugins/` | Plugin loader — auto-discovers user-installable tool packages |
 | `mcp_server.py` | MCP server — exposes tools to Claude Desktop, Cursor, and other MCP clients |
 | `sync.py` | File sync with version conflict resolution |

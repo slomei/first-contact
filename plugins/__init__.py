@@ -1,9 +1,10 @@
 """
 Plugin loader — discovers and loads user-installable tool packages.
 
-Scans the plugins/ directory for .py files, validates they have the required
-attributes (PLUGIN_NAME, TOOLS, execute), and provides a unified interface
-for the core to query and execute plugin tools.
+Scans the plugins/ directory for .py files and packages (directories with
+__init__.py), validates they have the required attributes (PLUGIN_NAME,
+TOOLS, execute), and provides a unified interface for the core to query
+and execute plugin tools.
 
 Plugins cannot modify core state. They receive read-only copies of config
 and conversation history when their execute() function is called.
@@ -20,7 +21,7 @@ log = logging.getLogger("plugins")
 # Internal state
 _plugins = {}       # {module_name: module}
 _tool_map = {}      # {tool_name: module}  — routes tool calls to the right plugin
-_load_errors = []   # [(filename, error_string)]
+_load_errors = []   # [(entry, error_string)]
 
 REQUIRED_ATTRS = ("PLUGIN_NAME", "TOOLS", "execute")
 
@@ -44,13 +45,20 @@ def load_plugins():
     if PLUGINS_DIR not in sys.path:
         sys.path.insert(0, PLUGINS_DIR)
 
-    for filename in sorted(os.listdir(PLUGINS_DIR)):
-        if not filename.endswith(".py"):
-            continue
-        if filename.startswith("_"):
+    for entry in sorted(os.listdir(PLUGINS_DIR)):
+        if entry.startswith("_"):
             continue
 
-        module_name = filename[:-3]
+        entry_path = os.path.join(PLUGINS_DIR, entry)
+
+        # Single-file plugin: foo.py
+        if entry.endswith(".py") and os.path.isfile(entry_path):
+            module_name = entry[:-3]
+        # Package plugin: foo/__init__.py
+        elif os.path.isdir(entry_path) and os.path.isfile(os.path.join(entry_path, "__init__.py")):
+            module_name = entry
+        else:
+            continue
         try:
             # Import or reload the module
             if module_name in sys.modules:
@@ -62,20 +70,20 @@ def load_plugins():
             missing = [a for a in REQUIRED_ATTRS if not hasattr(mod, a)]
             if missing:
                 err = f"missing required attributes: {', '.join(missing)}"
-                _load_errors.append((filename, err))
-                log.warning("Plugin %s skipped: %s", filename, err)
+                _load_errors.append((entry, err))
+                log.warning("Plugin %s skipped: %s", entry, err)
                 continue
 
             if not isinstance(mod.TOOLS, list):
                 err = "TOOLS must be a list"
-                _load_errors.append((filename, err))
-                log.warning("Plugin %s skipped: %s", filename, err)
+                _load_errors.append((entry, err))
+                log.warning("Plugin %s skipped: %s", entry, err)
                 continue
 
             if not callable(mod.execute):
                 err = "execute must be callable"
-                _load_errors.append((filename, err))
-                log.warning("Plugin %s skipped: %s", filename, err)
+                _load_errors.append((entry, err))
+                log.warning("Plugin %s skipped: %s", entry, err)
                 continue
 
             # Register the plugin and map its tools
@@ -88,8 +96,8 @@ def load_plugins():
             log.info("Loaded plugin: %s (%d tools)", mod.PLUGIN_NAME, len(mod.TOOLS))
 
         except Exception as e:
-            _load_errors.append((filename, str(e)))
-            log.warning("Plugin %s failed to load: %s", filename, e)
+            _load_errors.append((entry, str(e)))
+            log.warning("Plugin %s failed to load: %s", entry, e)
 
 
 def get_all_plugin_tools():
@@ -134,7 +142,7 @@ def list_plugins():
 
 
 def get_load_errors():
-    """Return list of (filename, error_string) from last load."""
+    """Return list of (entry, error_string) from last load."""
     return list(_load_errors)
 
 

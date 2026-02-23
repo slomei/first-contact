@@ -8,7 +8,7 @@
 
 First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Four interfaces (terminal, web UI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
 
-**Status:** Shipped. All 308 tests passing. Live on GitHub.
+**Status:** Shipped. All 328 tests passing. Live on GitHub.
 
 ---
 
@@ -45,7 +45,8 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `creative.py` | Creative project tools — world bible PDF parsing via pdfplumber, character/location JSON lookup. Used for the First Light screenplay project. |
 | `skills_loader.py` | Extensible skills system — loads `.md` skill files from `skills/` directory, keyword matching, default base skills per specialist, injects matched skill content into specialist system prompts during delegation. |
 | `files.py` | Project file management — import, list, remove files. Validation, large-file detection, conversation injection formatting. Used by all interfaces and web UI drag-and-drop. |
-| `plugins/` | Plugin system — `__init__.py` loader discovers `.py` files, validates required attributes (`PLUGIN_NAME`, `TOOLS`, `execute`), routes tool calls. `example_plugin.py` reference implementation (dice roller). `README.md` for plugin authors. |
+| `plugin_generator.py` | Plugin template generator — scaffolds new plugins with correct directory structure, metadata (`plugin.json`), stub tools, and documentation. CLI via argparse, also importable. Validates names, prevents overwrites. |
+| `plugins/` | Plugin system — `__init__.py` loader discovers `.py` files and packages (directories with `__init__.py`), validates required attributes (`PLUGIN_NAME`, `TOOLS`, `execute`), routes tool calls. `example_plugin.py` reference implementation (dice roller). `DIRECTORY.md` community plugin registry. `README.md` for plugin authors. |
 | `service_registry.py` | Centralized integration status — registers check functions for 6 built-in services (Discord, Telegram, Gmail, Calendar, web search, job search), caches status (unconfigured/configured/healthy/error), `check_all()` / `is_available()` API. |
 | `mcp_server.py` | MCP (Model Context Protocol) server over stdio transport. Exposes core + plugin tools to external clients (Claude Desktop, Cursor). Tool translation (`input_schema` → `inputSchema`), configurable blacklist, async bridge to `execute_tool()`. Optional dep (`mcp` package). |
 | `sync.py` | File sync system — reads `sync_sources.json` for source/destination mappings, glob-scans Windows paths, resolves version conflicts, copies latest file. |
@@ -75,6 +76,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `tests/test_task_tools.py` | Task/reminder tools — list/complete/edit/remove/note tasks, list/cancel reminders, daemon-agent data parity. |
 | `tests/test_hot_reload.py` | Hot reload — file filtering, excluded dirs, debounce, file-to-subprocess mapping, daemon self-change detection. |
 | `tests/test_mcp_server.py` | MCP server — config merging, tool listing/blacklist, call routing, error handling, async bridge. |
+| `tests/test_plugin_generator.py` | Plugin generator — name validation, directory scaffolding, tool count, overwrite protection, importability, metadata. |
 
 ### Config & Data Files
 
@@ -395,7 +397,7 @@ All four interfaces share these features via the shared core:
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 308 tests across 21 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 328 tests across 22 test files.
 
 ---
 
