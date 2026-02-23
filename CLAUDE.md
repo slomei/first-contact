@@ -19,7 +19,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | File | Description |
 |------|-------------|
 | `chat.py` | Terminal chatbot — primary interface. Streaming output, markdown stripping, session cost tracking, startup diagnostics. |
-| `web_ui/` | WebSocket-based web frontend (server.py + vanilla HTML/CSS/JS). Per-connection state, streaming responses, tool loop, token tracking, context compression, conversation persistence, `/prompt` command. Designed as Tauri desktop app foundation. |
+| `web_ui/` | WebSocket-based web frontend (server.py + vanilla HTML/CSS/JS). Per-connection state, streaming responses, tool loop, token tracking, context compression, conversation persistence, `/prompt` command, project switching (`set_project`). Designed as Tauri desktop app foundation. |
 | `discord_bot.py` | Discord bot (prefix: `!fc`). Background loops for reminders, email, briefing, scans. Async with typing indicators. |
 | `telegram_bot.py` | Telegram bot. Same command set as Discord, adapted for Telegram's API. |
 | `interfaces/` | Interface adapter pattern. `InterfaceAdapter` ABC in `base_adapter.py`, adapters for all 4 interfaces (terminal, discord, telegram, web), example implementation, README. |
@@ -276,15 +276,16 @@ The system prompt enforces these behaviors (see System Prompt Behaviors above):
 
 **Web UI (`web_ui/`):**
 - WebSocket server on `ws://localhost:8765` (configurable port)
-- Per-connection isolation — each browser tab gets its own conversation history, model, and token counters
+- Per-connection isolation — each browser tab gets its own conversation history, model, project, and token counters
 - Vanilla HTML/CSS/JS frontend — no framework, no build step
-- Streaming responses, tool activity indicators, model switching, accent color picker
+- Streaming responses, tool activity indicators, model switching, project switching (`set_project` message), accent color picker
 - `/prompt [text|clear]` command — view, set, or clear custom system prompt instructions
 - Context compression at 20K tokens (same threshold as terminal, via shared `models.compress_conversation()`)
 - Conversation auto-save on new chat and disconnect (via shared `models.save_conversation()`)
 - Prompt caching via `build_system_prompt_cached()` and `get_cached_tools()`
 - Specific Anthropic API error handling (rate limit, auth, context overflow, connection)
 - Designed as foundation for eventual Tauri desktop app
+- Suggested workflows shown on first connection after onboarding (same `suggestions_shown` config flag as terminal)
 - Confirmation flow: `make_web_confirm_fn()` sends `{"type": "confirm"}` over WebSocket, client shows Approve/Deny buttons, user response sent back as `{"type": "confirm_response"}`. Server-side uses `threading.Event` to block the executor thread (60s timeout). `handle_message` runs via `asyncio.create_task()` so the dispatch loop continues processing `confirm_response` frames during tool execution
 
 **Discord (`discord_bot.py`):**
@@ -297,6 +298,22 @@ The system prompt enforces these behaviors (see System Prompt Behaviors above):
 
 **Onboarding:**
 - Generates `Claude.md` (personal context), updated `config.json`, `setup_env.sh` (chmod 600)
+
+### Interface Parity
+
+All four interfaces share these features via the shared core:
+
+| Feature | Terminal | Web UI | Discord | Telegram |
+|---------|----------|--------|---------|----------|
+| Conversation loop (`conversation.run_conversation_turn()`) | ✅ | ✅ | ✅ | ✅ |
+| Prompt caching (`build_system_prompt_cached()` + `get_cached_tools()`) | ✅ | ✅ | ✅ | ✅ |
+| Context compression (20K token threshold) | ✅ | ✅ | ✅ | ✅ |
+| Human-in-the-loop confirmations | ✅ | ✅ | ✅ | ✅ |
+| Suggested workflows (post-onboarding) | ✅ | ✅ | ✅ | ✅ |
+| Model switching (Haiku/Sonnet/Opus) | ✅ | ✅ | ✅ | ✅ |
+| Project switching | ✅ | ✅ | ✅ | ✅ |
+| Token/cost tracking (incl. cache tokens) | ✅ | ✅ | ✅ | ✅ |
+| Conversation persistence | ✅ | ✅ | ✅ | ✅ |
 
 ---
 
