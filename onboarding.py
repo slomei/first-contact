@@ -104,6 +104,19 @@ STEPS = [
     ("gmail", "Connect Gmail? (yes/skip)", "oauth"),
     ("calendar", "Connect Google Calendar? (yes/skip)", "oauth"),
     (
+        "search_provider",
+        (
+            "Search works out of the box with DuckDuckGo (no API key needed).\n"
+            "For better results, you can upgrade:\n"
+            "  1. DuckDuckGo (default — no key required)\n"
+            "  2. Brave Search (free tier, 2,000 queries/month — recommended)\n"
+            "  3. Google Custom Search (best quality, 100 free/day)\n"
+            "  4. SerpAPI (paid, starts at $50/month)\n"
+            "(Enter a number, or 'skip' for default)"
+        ),
+        "search_provider",
+    ),
+    (
         "notify_prefs",
         (
             "Where do you want to receive daily briefings and alerts?\n"
@@ -217,7 +230,7 @@ _PROJECT_SECTION = """\
 - **Opus** — cover letters, deep analysis, high-quality writing
 
 ### Integrated Tools
-1. Web search (DuckDuckGo/ddgs package)
+1. Web search (DuckDuckGo default, Brave/Google/SerpAPI optional)
 2. File read/write operations
 3. Memory management
 4. Gmail read — INBOX only, no spam/trash
@@ -379,6 +392,36 @@ class OnboardingWizard:
             return ("Please select at least one channel.", False)
 
         self.data[key] = selections
+        self.step += 1
+        return self._next_prompt()
+
+    def _handle_search_provider(self, key, user_input):
+        """Handle search provider selection step."""
+        text = user_input.strip().lower()
+
+        if not text or text == "skip" or text == "1":
+            self.data[key] = "duckduckgo"
+            self.step += 1
+            return self._next_prompt()
+
+        mapping = {
+            "2": "brave",
+            "3": "google",
+            "4": "serpapi",
+        }
+        provider_keys = {
+            "brave": ["BRAVE_SEARCH_API_KEY"],
+            "google": ["GOOGLE_SEARCH_API_KEY", "GOOGLE_SEARCH_CX"],
+            "serpapi": ["SERPAPI_KEY"],
+        }
+
+        if text not in mapping:
+            return ("Please enter 1-4, or 'skip' for default.", False)
+
+        provider = mapping[text]
+        self.data[key] = provider
+        # Note which env keys the user will need to set
+        self.data["search_provider_keys"] = provider_keys[provider]
         self.step += 1
         return self._next_prompt()
 
@@ -778,6 +821,9 @@ class OnboardingWizard:
         if notes == "multi_select":
             return self._handle_multi_select(key, user_input)
 
+        if notes == "search_provider":
+            return self._handle_search_provider(key, user_input)
+
         if notes == "calibration":
             return self._handle_calibration(key, user_input)
 
@@ -969,6 +1015,11 @@ class OnboardingWizard:
 
         config["user_profile"] = profile
         config["notification_channels"] = self.data.get("notify_prefs", [])
+
+        # Search provider (default: duckduckgo)
+        search_provider = self.data.get("search_provider")
+        if search_provider and search_provider != "duckduckgo":
+            config["search_provider"] = search_provider
 
         # Ensure email_accounts reflects connected Gmail accounts
         if d.get("gmail") == "connected":

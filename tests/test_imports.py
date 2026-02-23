@@ -155,6 +155,13 @@ def test_import_plugins():
     assert hasattr(plugins, "execute_plugin_tool")
 
 
+def test_import_search_providers():
+    import search_providers
+    assert hasattr(search_providers, "SearchProvider")
+    assert hasattr(search_providers, "get_search_provider")
+    assert hasattr(search_providers, "list_search_providers")
+
+
 def test_import_plugin_generator():
     import plugin_generator
     assert hasattr(plugin_generator, "generate_plugin")

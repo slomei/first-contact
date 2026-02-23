@@ -1,6 +1,7 @@
 {
   "provider": "anthropic",
   "model_tiers": null,
+  "search_provider": "duckduckgo",
   "briefing": {
     "enabled": true,
     "time": "08:00",

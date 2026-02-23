@@ -48,6 +48,8 @@ def _advance_to_calibration(wiz, is_terminal=False):
     prompt, done = wiz.advance("skip", is_terminal)
     # calendar
     prompt, done = wiz.advance("skip", is_terminal)
+    # search_provider
+    prompt, done = wiz.advance("skip", is_terminal)
     # notify_prefs
     prompt, done = wiz.advance("1", is_terminal)
     # At this point, _next_prompt should have auto-advanced through

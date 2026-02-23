@@ -289,11 +289,9 @@ def run_scan(queries=None, progress_fn=None, scan_type="manual"):
                 progress_fn(f"Searching {platform['name']}: {query}...")
 
             try:
-                import contextlib, io
-                from ddgs import DDGS
-                # Suppress primp "Impersonate ... does not exist" warnings
-                with contextlib.redirect_stderr(io.StringIO()):
-                    raw_results = DDGS().text(full_query, max_results=max_results)
+                from search_providers import get_search_provider
+                provider = get_search_provider()
+                raw_results = provider.search(full_query, max_results=max_results)
             except Exception as e:
                 if progress_fn:
                     progress_fn(f"Search failed ({platform['name']}): {e}")
@@ -303,9 +301,9 @@ def run_scan(queries=None, progress_fn=None, scan_type="manual"):
                 continue
 
             for r in raw_results:
-                url = r.get("href", "")
+                url = r.get("url", "")
                 title = r.get("title", "")
-                body = r.get("body", "")
+                body = r.get("snippet", "")
 
                 if not url:
                     continue

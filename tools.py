@@ -13,10 +13,7 @@ import tempfile
 import base64
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-try:
-    from ddgs import DDGS
-except ImportError:
-    DDGS = None
+from search_providers import get_search_provider
 
 try:
     from dateutil import parser as dateutil_parser
@@ -570,18 +567,14 @@ JOB_BOARD_DOMAINS = [
 # --- Search functions ---
 
 def web_search(query, max_results=5):
-    """Search the web using DuckDuckGo and return formatted results."""
-    if DDGS is None:
-        return None
-    # Suppress primp "Impersonate ... does not exist" warnings
-    import contextlib, io
-    with contextlib.redirect_stderr(io.StringIO()):
-        results = DDGS().text(query, max_results=max_results)
+    """Search the web using the configured search provider and return formatted results."""
+    provider = get_search_provider()
+    results = provider.search(query, max_results=max_results)
     if not results:
         return None
     lines = []
     for r in results:
-        lines.append(f"- {r['title']}\n  {r['href']}\n  {r['body']}")
+        lines.append(f"- {r['title']}\n  {r['url']}\n  {r['snippet']}")
     return "\n".join(lines)
 
 
@@ -597,20 +590,17 @@ SPAM_TITLE_PATTERNS = [
 
 
 def search_jobs(query, max_results=10):
-    """Search for job listings using DuckDuckGo with quality filtering."""
-    if DDGS is None:
-        return []
+    """Search for job listings using the configured search provider with quality filtering."""
+    provider = get_search_provider()
     search_query = f"{query} jobs hiring"
-    import contextlib, io
-    with contextlib.redirect_stderr(io.StringIO()):
-        results = DDGS().text(search_query, max_results=max_results + 10)
+    results = provider.search(search_query, max_results=max_results + 10)
     if not results:
         return []
 
     filtered = []
     title_lower_patterns = SPAM_TITLE_PATTERNS
     for r in results:
-        url = r["href"].lower()
+        url = r["url"].lower()
         title_lower = r["title"].lower()
         # Skip aggregator domains (login walls, no direct apply)
         if any(domain in url for domain in BLOCKED_JOB_DOMAINS):
@@ -618,17 +608,16 @@ def search_jobs(query, max_results=10):
         # Skip listicle / advice content
         if any(pat in title_lower for pat in title_lower_patterns):
             continue
-        filtered.append({"title": r["title"], "url": r["href"], "body": r["body"]})
+        filtered.append({"title": r["title"], "url": r["url"], "body": r["snippet"]})
         if len(filtered) >= max_results:
             break
 
     # If filtering removed everything, do a direct board search
     if not filtered:
         fallback_query = f"{query} apply site:lever.co OR site:greenhouse.io OR site:jobs.ashbyhq.com OR site:boards.greenhouse.io"
-        with contextlib.redirect_stderr(io.StringIO()):
-            results = DDGS().text(fallback_query, max_results=max_results)
+        results = provider.search(fallback_query, max_results=max_results)
         if results:
-            filtered = [{"title": r["title"], "url": r["href"], "body": r["body"]} for r in results[:max_results]]
+            filtered = [{"title": r["title"], "url": r["url"], "body": r["snippet"]} for r in results[:max_results]]
 
     return filtered
 
