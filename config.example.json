@@ -44,7 +44,10 @@
     "scan_interval_hours": 12,
     "reminder_check_interval_minutes": 5,
     "heartbeat_interval_minutes": 30,
-    "notify_channel": "discord"
+    "notify_channel": "discord",
+    "auto_start_web_ui": true,
+    "auto_start_discord": true,
+    "auto_start_telegram": true
   },
   "rate_limits": {
     "drafts_per_session": 10,

@@ -17,6 +17,7 @@ load_dotenv()
 import logging
 import os
 import signal
+import subprocess
 import sys
 import time
 from datetime import datetime, timedelta
@@ -37,6 +38,9 @@ DEFAULTS = {
     "reminder_check_interval_minutes": 5,
     "heartbeat_interval_minutes": 30,
     "notify_channel": "discord",
+    "auto_start_web_ui": True,
+    "auto_start_discord": True,
+    "auto_start_telegram": True,
 }
 
 
@@ -87,6 +91,78 @@ def _remove_pid():
         os.remove(PID_FILE)
     except FileNotFoundError:
         pass
+
+
+# --- Service subprocess management ---
+
+def _build_service_list(cfg):
+    """Build list of services the daemon can auto-start."""
+    return [
+        {
+            "name": "web_ui",
+            "cmd": [sys.executable, os.path.join(BASE_DIR, "web_ui", "server.py")],
+            "process": None,
+            "enabled": cfg.get("auto_start_web_ui", True),
+            "available": True,  # only needs ANTHROPIC_API_KEY, already validated
+        },
+        {
+            "name": "discord",
+            "cmd": [sys.executable, os.path.join(BASE_DIR, "discord_bot.py")],
+            "process": None,
+            "enabled": cfg.get("auto_start_discord", True),
+            "available": bool(os.environ.get("DISCORD_BOT_TOKEN")),
+        },
+        {
+            "name": "telegram",
+            "cmd": [sys.executable, os.path.join(BASE_DIR, "telegram_bot.py")],
+            "process": None,
+            "enabled": cfg.get("auto_start_telegram", True),
+            "available": bool(os.environ.get("TELEGRAM_BOT_TOKEN")),
+        },
+    ]
+
+
+def _start_service(svc, log, log_file):
+    """Spawn a service subprocess with output going to the daemon log."""
+    try:
+        svc["process"] = subprocess.Popen(
+            svc["cmd"],
+            stdout=log_file,
+            stderr=log_file,
+        )
+        log.info("Started %s (PID %d)", svc["name"], svc["process"].pid)
+    except Exception as e:
+        log.error("Failed to start %s: %s", svc["name"], e)
+
+
+def _stop_services(services, log):
+    """Terminate all running service subprocesses."""
+    for svc in services:
+        proc = svc["process"]
+        if proc and proc.poll() is None:
+            log.info("Stopping %s (PID %d)...", svc["name"], proc.pid)
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                log.warning("Killing %s (PID %d)", svc["name"], proc.pid)
+                proc.kill()
+                proc.wait()
+
+
+def _check_services(services, log, log_file, running):
+    """Restart any service that has exited unexpectedly."""
+    if not running:
+        return
+    for svc in services:
+        proc = svc["process"]
+        if proc is None:
+            continue
+        rc = proc.poll()
+        if rc is not None:
+            log.warning("%s exited (code %d), restarting in 3s", svc["name"], rc)
+            time.sleep(3)
+            _start_service(svc, log, log_file)
 
 
 # --- Notification delivery ---
@@ -328,6 +404,15 @@ def run():
     if not api_available:
         log.warning("ANTHROPIC_API_KEY not set — API-dependent tasks (briefing, scan) disabled")
 
+    # Start managed services (web_ui, discord, telegram)
+    services = _build_service_list(cfg)
+    log_fh = open(LOG_FILE, "a")
+    for svc in services:
+        if svc["enabled"] and svc["available"]:
+            _start_service(svc, log, log_fh)
+        elif svc["enabled"] and not svc["available"]:
+            log.info("Skipping %s (credentials not configured)", svc["name"])
+
     while running:
         now = memory.local_now()
 
@@ -357,6 +442,9 @@ def run():
             log.info("Heartbeat — daemon alive (PID %d)", os.getpid())
             last_heartbeat = now
 
+        # Check managed services and restart any that crashed
+        _check_services(services, log, log_fh, running)
+
         # Sleep 30 seconds between cycles
         for _ in range(30):
             if not running:
@@ -364,6 +452,8 @@ def run():
             time.sleep(1)
 
     log.info("Daemon stopped.")
+    _stop_services(services, log)
+    log_fh.close()
     _remove_pid()
 
 
