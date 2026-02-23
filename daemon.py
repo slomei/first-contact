@@ -91,29 +91,35 @@ def _remove_pid():
 
 # --- Notification delivery ---
 
-def _send_notification(text, log, channel="discord"):
-    """Send a notification via the configured channel. Falls back to log-only."""
-    if channel == "discord":
-        try:
-            _send_discord_notification(text)
-            return
-        except Exception as e:
-            log.warning("Discord notification failed: %s", e)
-    elif channel == "telegram":
-        try:
-            _send_telegram_notification(text)
-            return
-        except Exception as e:
-            log.warning("Telegram notification failed: %s", e)
-    elif channel == "email":
-        try:
-            import notifications
-            notifications.send_email_notification("First Contact Alert", text)
-            return
-        except Exception as e:
-            log.warning("Email notification failed: %s", e)
-    # Fallback: log only
-    log.info("Notification (no delivery): %s", text[:200])
+def _send_notification(text, log, channels=None):
+    """Send a notification to all configured channels. Falls back to log-only."""
+    if channels is None:
+        channels = ["discord"]
+    if isinstance(channels, str):
+        channels = [channels]
+    delivered = False
+    for channel in channels:
+        if channel == "discord":
+            try:
+                _send_discord_notification(text)
+                delivered = True
+            except Exception as e:
+                log.warning("Discord notification failed: %s", e)
+        elif channel == "telegram":
+            try:
+                _send_telegram_notification(text)
+                delivered = True
+            except Exception as e:
+                log.warning("Telegram notification failed: %s", e)
+        elif channel == "email":
+            try:
+                import notifications
+                notifications.send_email_notification("First Contact Alert", text)
+                delivered = True
+            except Exception as e:
+                log.warning("Email notification failed: %s", e)
+    if not delivered:
+        log.info("Notification (no delivery): %s", text[:200])
 
 
 def _send_discord_notification(text):
@@ -162,7 +168,7 @@ def _send_telegram_notification(text):
 
 # --- Scheduled tasks ---
 
-def _run_briefing(log, channel):
+def _run_briefing(log, channels):
     """Generate and send the daily briefing."""
     import briefing
     log.info("Running daily briefing...")
@@ -173,13 +179,17 @@ def _run_briefing(log, channel):
             email_data, tasks_data, jobs_data, reminders_data, watchlist_data,
             cost, calendar_data=calendar_data, scan_data=scan_data,
         )
-        _send_notification(text, log, channel)
+        _send_notification(text, log, channels)
         log.info("Briefing sent (cost: $%.4f)", cost)
+        # Update last_sent in config so restarts don't re-fire today
+        full_cfg = memory.load_config()
+        full_cfg.setdefault("briefing", {})["last_sent"] = memory.local_now().strftime("%Y-%m-%d")
+        memory.save_config(full_cfg)
     except Exception as e:
         log.error("Briefing failed: %s", e)
 
 
-def _run_email_check(log, channel):
+def _run_email_check(log, channels):
     """Check for new important emails and notify."""
     import notifications
     log.info("Checking email...")
@@ -192,7 +202,7 @@ def _run_email_check(log, channel):
         if high:
             for email_data, priority in high:
                 text = notifications.format_notification_discord(email_data, priority)
-                _send_notification(text, log, channel)
+                _send_notification(text, log, channels)
             log.info("Sent %d high-priority email notification(s)", len(high))
         else:
             log.info("No new high-priority emails")
@@ -200,7 +210,7 @@ def _run_email_check(log, channel):
         log.error("Email check failed: %s", e)
 
 
-def _run_job_scan(log, channel):
+def _run_job_scan(log, channels):
     """Run a job scan and notify on strong matches."""
     import job_scanner
     log.info("Running job scan...")
@@ -213,21 +223,21 @@ def _run_job_scan(log, channel):
         if high:
             text = job_scanner.format_scan_notification_discord(results)
             if text:
-                _send_notification(text, log, channel)
+                _send_notification(text, log, channels)
         log.info("Scan complete: %d strong, %d possible (cost: $%.4f)",
                  len(high), len(results.get("medium", [])), results["cost"])
     except Exception as e:
         log.error("Job scan failed: %s", e)
 
 
-def _run_reminder_check(log, channel):
+def _run_reminder_check(log, channels):
     """Check for due reminders and send notifications."""
     import tasks as task_mod
     try:
         triggered = task_mod.check_due_reminders()
         for r in triggered:
             text = f"**Reminder:** {r['description']}"
-            _send_notification(text, log, channel)
+            _send_notification(text, log, channels)
         if triggered:
             log.info("Delivered %d reminder(s)", len(triggered))
     except Exception as e:
@@ -235,6 +245,14 @@ def _run_reminder_check(log, channel):
 
 
 # --- Main loop ---
+
+def _next_occurrence(now, hour, minute):
+    """Return the next datetime at hour:minute from now (today or tomorrow)."""
+    candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if candidate <= now:
+        candidate += timedelta(days=1)
+    return candidate
+
 
 def run():
     """Main daemon loop."""
@@ -261,10 +279,15 @@ def run():
         _remove_pid()
         sys.exit(0)
 
-    channel = cfg.get("notify_channel", "discord")
-    log.info("Daemon started (PID %d, channel=%s)", os.getpid(), channel)
+    # Bug fix: read ALL configured notification channels, not just one
+    full_cfg = memory.load_config()
+    channels = full_cfg.get("notification_channels", [])
+    if not channels:
+        # Fallback to legacy single-channel setting
+        channels = [cfg.get("notify_channel", "discord")]
+    log.info("Daemon started (PID %d, channels=%s)", os.getpid(), ",".join(channels))
 
-    # Parse scheduled times
+    # Parse scheduled briefing time
     briefing_hour, briefing_min = 7, 0
     try:
         parts = cfg["briefing_time"].split(":")
@@ -277,13 +300,27 @@ def run():
     reminder_interval = timedelta(minutes=cfg.get("reminder_check_interval_minutes", 5))
     heartbeat_interval = timedelta(minutes=cfg.get("heartbeat_interval_minutes", 30))
 
-    # Track last run times (use timezone-aware epoch to avoid naive vs aware comparison)
-    _epoch = datetime(2000, 1, 1, tzinfo=memory.get_timezone())
-    last_email = _epoch
-    last_scan = _epoch
-    last_reminder = _epoch
-    last_heartbeat = _epoch
-    last_briefing_date = None
+    now = memory.local_now()
+
+    # Bug fix: initialize last-run times to NOW so interval tasks wait one
+    # full cycle before first execution — no more fire-on-startup.
+    last_email = now
+    last_scan = now
+    last_reminder = now
+    last_heartbeat = now
+
+    # Bug fix: compute next briefing time instead of firing retroactively.
+    # If briefing was already sent today (per config), push to tomorrow.
+    next_briefing = _next_occurrence(now, briefing_hour, briefing_min)
+    last_sent_str = full_cfg.get("briefing", {}).get("last_sent")
+    if last_sent_str:
+        try:
+            last_sent_date = datetime.strptime(last_sent_str, "%Y-%m-%d").date()
+            if last_sent_date == now.date() and next_briefing.date() == now.date():
+                next_briefing += timedelta(days=1)
+        except ValueError:
+            pass
+    log.info("Next briefing scheduled for %s", next_briefing.strftime("%Y-%m-%d %H:%M"))
 
     # Check for API key early
     api_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -294,27 +331,25 @@ def run():
     while running:
         now = memory.local_now()
 
-        # Daily briefing — run once per day at the configured time
-        if api_available:
-            today = now.date()
-            if last_briefing_date != today:
-                if now.hour > briefing_hour or (now.hour == briefing_hour and now.minute >= briefing_min):
-                    _run_briefing(log, channel)
-                    last_briefing_date = today
+        # Daily briefing — fire only when the scheduled time arrives
+        if api_available and now >= next_briefing:
+            _run_briefing(log, channels)
+            next_briefing = _next_occurrence(now, briefing_hour, briefing_min)
+            log.info("Next briefing scheduled for %s", next_briefing.strftime("%Y-%m-%d %H:%M"))
 
         # Email check
         if now - last_email >= email_interval:
-            _run_email_check(log, channel)
+            _run_email_check(log, channels)
             last_email = now
 
         # Job scan
         if api_available and now - last_scan >= scan_interval:
-            _run_job_scan(log, channel)
+            _run_job_scan(log, channels)
             last_scan = now
 
         # Reminder check
         if now - last_reminder >= reminder_interval:
-            _run_reminder_check(log, channel)
+            _run_reminder_check(log, channels)
             last_reminder = now
 
         # Heartbeat

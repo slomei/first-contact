@@ -78,6 +78,7 @@ def test_daemon_functions_exist():
     assert callable(daemon._run_reminder_check)
     assert callable(daemon._get_config)
     assert callable(daemon._send_notification)
+    assert callable(daemon._next_occurrence)
 
 
 def test_daemon_config_loads():
@@ -89,6 +90,43 @@ def test_daemon_config_loads():
     assert "briefing_time" in cfg
     assert "email_check_interval_minutes" in cfg
     assert "notify_channel" in cfg
+
+
+def test_daemon_next_occurrence_future():
+    """_next_occurrence returns today if scheduled time is still ahead."""
+    import daemon
+    from datetime import datetime
+    import memory
+    tz = memory.get_timezone()
+    # 6:00 AM, briefing at 8:00 — should be today at 8:00
+    now = datetime(2026, 3, 1, 6, 0, 0, tzinfo=tz)
+    nxt = daemon._next_occurrence(now, 8, 0)
+    assert nxt.date() == now.date()
+    assert nxt.hour == 8 and nxt.minute == 0
+
+
+def test_daemon_next_occurrence_past():
+    """_next_occurrence returns tomorrow if scheduled time already passed."""
+    import daemon
+    from datetime import datetime
+    import memory
+    tz = memory.get_timezone()
+    # 9:33 PM, briefing at 8:00 — should be tomorrow at 8:00
+    now = datetime(2026, 3, 1, 21, 33, 0, tzinfo=tz)
+    nxt = daemon._next_occurrence(now, 8, 0)
+    assert nxt.date() == now.date() + daemon.timedelta(days=1)
+    assert nxt.hour == 8 and nxt.minute == 0
+
+
+def test_daemon_send_notification_accepts_list():
+    """_send_notification accepts a list of channels without error."""
+    import daemon
+    import logging
+    log = logging.getLogger("test_daemon")
+    # Should not raise with empty channels (falls back to log-only)
+    daemon._send_notification("test", log, channels=[])
+    # Should not raise with unknown channel
+    daemon._send_notification("test", log, channels=["nonexistent"])
 
 
 def test_import_batch_api():
