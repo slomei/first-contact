@@ -6,7 +6,7 @@ A personal AI agent built from scratch with the Anthropic API. Not a chatbot —
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Anthropic API](https://img.shields.io/badge/Anthropic-Claude-blueviolet.svg)](https://www.anthropic.com/)
 
-<video src="demo.mp4" width="100%" controls></video>
+<video src="https://github.com/user-attachments/assets/abc5fe1d-5ae5-4878-8715-ff036865b6d5" width="100%" controls></video>
 
 **[Watch the demo on Vimeo](https://vimeo.com/1167090219)**
 
