@@ -26,7 +26,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 
 **Plugin system.** Add new tools without modifying core code. Drop a Python file into `plugins/` with a tool definition and handler function, and it's auto-discovered on startup. Plugins receive read-only copies of config and conversation history. Ships with an example dice-roller plugin. See `plugins/README.md` for the full spec.
 
-**18 integrated tools:**
+**18 core tools** (plus any from plugins):
 
 - **Web search** — DuckDuckGo-powered, with page fetching and content extraction
 - **Gmail** — Read your inbox, search emails, draft replies. Multi-account support. Draft-only: the agent creates drafts, you send them
@@ -64,7 +64,15 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 
 **Two-tier help system.** Type `/help` for a category overview, `/help <category>` for detailed commands. Help text is shared across all interfaces from a single source of truth (`help_data.py`), formatted appropriately for each platform.
 
-**Transparent status.** The `/status` command shows everything at a glance: active model, project, context usage, session cost, daemon status, last briefing, last scan results, pending tasks, reminders, and memory counts.
+**Service registry.** A centralized module (`service_registry.py`) tracks which integrations are configured and healthy — Discord, Telegram, Gmail, Calendar, web search, job search. The `/status` command shows available integrations. Onboarding, the daemon, and the system prompt all read from the registry instead of each doing their own credential checks.
+
+**Shared conversation loop.** All four interfaces delegate to a single `conversation.py` module that handles the API call, tool execution loop, streaming, and confirmations. Adding a new interface means wiring up callbacks — all capabilities come for free.
+
+**Interface parity.** Nine features work identically across all four interfaces: conversation loop, prompt caching, context compression, human-in-the-loop confirmations, suggested workflows, model switching, project switching, token/cost tracking, and conversation persistence.
+
+**Transparent status.** The `/status` command shows everything at a glance: active model, project, context usage, session cost, available integrations, daemon status, last briefing, last scan results, pending tasks, reminders, and memory counts.
+
+**Suggested workflows.** After onboarding, the agent shows personalized suggestions based on what you configured — email triage if Gmail is connected, calendar checks if Calendar is set up, daemon tips if Discord/Telegram are available. Shown once on first startup across all interfaces.
 
 ## Architecture
 
@@ -76,16 +84,17 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
      │              │              │              │
      └──────────────┴──────┬──────┴──────────────┘
                            │
-                    ┌──────▼──────────────┐
-                    │      Shared Core        │
-                    │  conversation.py        │
-                    │  memory.py · models.py  │
-                    │  tools.py · tasks.py    │
-                    │  briefing · documents   │
-                    │  notifications · files  │
-                    │  help_data · creative   │
-                    │  job_scanner · daemon   │
-                    └────────────┬────────────┘
+                    ┌──────▼──────────────────┐
+                    │       Shared Core          │
+                    │  conversation.py           │
+                    │  memory.py · models.py     │
+                    │  tools.py · tasks.py       │
+                    │  service_registry · plugins │
+                    │  briefing · documents      │
+                    │  notifications · files     │
+                    │  help_data · creative      │
+                    │  job_scanner · daemon      │
+                    └────────────┬───────────────┘
                                  │
               ┌──────────┬───────┼───────┬──────────┐
               ▼          ▼       ▼       ▼          ▼
@@ -95,7 +104,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
          └────────┘ └────────┘ └───┘ └────────┘ └────────┘
 ```
 
-**21 Python modules:**
+**23 Python modules:**
 
 | File | Purpose |
 |------|---------|
@@ -106,7 +115,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 | `conversation.py` | Shared conversation turn loop — all 4 interfaces delegate here |
 | `memory.py` | Persistent memory, semantic search, system prompt, projects |
 | `models.py` | Model routing, API calls, pricing, context compression, specialists |
-| `tools.py` | 18 tool definitions and execution engine |
+| `tools.py` | 18 core tool definitions + plugin routing |
 | `tasks.py` | Task and reminder system with natural language dates |
 | `documents.py` | PDF generation (cover letters, generic documents) |
 | `briefing.py` | Daily briefing aggregation (7 data sources) |
@@ -119,6 +128,8 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 | `creative.py` | Creative project tools (world bible, characters, locations) |
 | `skills_loader.py` | Extensible skills system (keyword matching, specialist prompt injection) |
 | `files.py` | Project file management (import, list, remove, validation) |
+| `service_registry.py` | Centralized integration status checks (6 built-in services) |
+| `plugins/` | Plugin loader — auto-discovers user-installable tool packages |
 | `sync.py` | File sync with version conflict resolution |
 
 The four interfaces are thin layers. All logic lives in the shared core — model routing, tool execution, memory, notifications. Adding a new interface means writing the I/O adapter; all tools and capabilities come for free.
@@ -224,7 +235,7 @@ This isn't an afterthought — security is baked into the architecture.
 
 **Rate limits everywhere.** 10 drafts per session, 10 web fetches per session, 20 notifications per hour, 3 manual job scans per day. Prevents runaway API costs and abuse.
 
-**Human-in-the-loop.** Calendar events require confirmation. File overwrites require confirmation. Everything destructive asks first.
+**Human-in-the-loop.** Calendar events and code execution require confirmation on all four interfaces (terminal prompt, web UI dialog, Discord DM, Telegram inline keyboard). Everything destructive asks first.
 
 **User-gated messaging.** Discord and Telegram bots only respond to your user ID. Nobody else can interact with your agent.
 
@@ -242,7 +253,7 @@ First Contact responds to natural conversation and also supports direct commands
 | **Scanning** | `/scan`, `/scan results`, `/scan status`, `/scan queries`, `/scan query add\|remove`, `/scan on\|off` |
 | **Tasks** | `/task add`, `/tasks`, `/task done`, `/task remove`, `/task edit`, `/task note`, `/tasks done`, `/remind`, `/reminders`, `/remind cancel` |
 | **Web** | `/web`, `/fetch`, `/read`, `/write`, `/run`, `/pdf` |
-| **System** | `/help`, `/status`, `/briefing`, `/notify`, `/project`, `/watch`, `/digest`, `/tokens`, `/billing`, `/delegates`, `/skills`, `/setup`, `/update`, `/reset`, `/characters`, `/locations` |
+| **System** | `/help`, `/status`, `/briefing`, `/notify`, `/project`, `/watch`, `/digest`, `/tokens`, `/billing`, `/delegates`, `/skills`, `/plugins`, `/setup`, `/update`, `/reset`, `/characters`, `/locations` |
 
 Claude also uses tools autonomously when they'd help — searching the web mid-conversation, saving facts to memory, checking your calendar when you ask about availability.
 
