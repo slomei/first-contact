@@ -22,6 +22,7 @@ import anthropic
 import conversation
 import memory
 import models
+import onboarding
 import tools
 import files
 
@@ -321,6 +322,19 @@ async def handler(ws):
             "type": "conversation_list",
             "conversations": _list_conversations(),
         }))
+
+        # Show suggested workflows on first connection after onboarding
+        config = memory.load_config()
+        if not config.get("suggestions_shown"):
+            workflows = onboarding.get_suggested_workflows()
+            if workflows:
+                lines = "\n".join(f"  {i}. {s}" for i, s in enumerate(workflows, 1))
+                await ws.send(json.dumps({
+                    "type": "status",
+                    "content": f"Based on your setup, try these first:\n{lines}",
+                }))
+                config["suggestions_shown"] = True
+                memory.save_config(config)
 
         async for raw in ws:
             try:
