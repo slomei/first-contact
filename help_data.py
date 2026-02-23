@@ -2,7 +2,7 @@
 Shared help categories and per-interface formatters.
 
 Single source of truth for all help text across terminal, Discord,
-Telegram, and GUI interfaces.
+and Telegram interfaces.
 """
 
 HELP_CATEGORIES = {
@@ -359,51 +359,4 @@ def format_telegram_error(query):
     return (
         f"Unknown category: {query}\n"
         f"Available: {', '.join(HELP_CATEGORIES.keys())}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# GUI formatters (Gradio markdown)
-# ---------------------------------------------------------------------------
-
-def format_gui_overview():
-    """Format the help overview as Gradio markdown."""
-    lines = [
-        "### Available Commands",
-        "",
-        "| Category | Description |",
-        "|----------|-------------|",
-    ]
-    for name, cat in HELP_CATEGORIES.items():
-        lines.append(f"| `/help {name}` | {cat['desc']} |")
-    lines.append("")
-    lines.append("Type `/help <category>` for detailed commands.")
-    return "\n".join(lines)
-
-
-def format_gui_category(name):
-    """Format a single category as Gradio markdown. Returns string or None."""
-    result = fuzzy_match_category(name)
-    if not result:
-        return None
-    key, cat = result
-
-    lines = [
-        f"### {key.upper()} \u2014 {cat['desc']}",
-        "",
-        "| Command | Description |",
-        "|---------|-------------|",
-    ]
-    for cmd, desc in cat["commands"]:
-        lines.append(f"| `{cmd}` | {desc} |")
-    if cat.get("tip"):
-        lines.append(f"\n*{cat['tip']}*")
-    return "\n".join(lines)
-
-
-def format_gui_error(query):
-    """Format a 'category not found' error for GUI."""
-    return (
-        f"Unknown category: `{query}`\n\n"
-        f"Available: {', '.join(f'`{k}`' for k in HELP_CATEGORIES)}"
     )

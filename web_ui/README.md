@@ -2,7 +2,7 @@
 
 Standalone HTML/CSS/JS frontend that connects to the Python backend via WebSocket. Foundation for the eventual Tauri desktop app.
 
-This is a new interface alongside `chat.py`, `gui.py`, `discord_bot.py`, and `telegram_bot.py`. It does not replace any of them.
+This is a new interface alongside `chat.py`, `discord_bot.py`, and `telegram_bot.py`. It does not replace any of them.
 
 ## Quick Start
 
@@ -39,7 +39,6 @@ web_ui/
 - Per-connection state (`Connection` class) — own conversation history, model, token counters
 - Streams API responses via `client.messages.stream()`
 - Tool loop (up to 10 turns) matching `chat.py`'s pattern
-- `confirm_fn=None` (auto-approve, same as gui.py/discord)
 
 **Frontend** is vanilla HTML/CSS/JS — no framework, no build step.
 

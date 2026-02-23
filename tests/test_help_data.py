@@ -90,21 +90,3 @@ def test_format_telegram_category():
 def test_format_telegram_error():
     text = help_data.format_telegram_error("zzz")
     assert "Unknown category" in text
-
-
-def test_format_gui_overview():
-    text = help_data.format_gui_overview()
-    assert "/help" in text
-    assert "| Category |" in text
-
-
-def test_format_gui_category():
-    text = help_data.format_gui_category("jobs")
-    assert text is not None
-    assert "JOBS" in text
-    assert "| Command |" in text
-
-
-def test_format_gui_error():
-    text = help_data.format_gui_error("zzz")
-    assert "Unknown category" in text

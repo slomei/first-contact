@@ -29,7 +29,7 @@ All business logic — model routing, tool execution, memory, tasks, notificatio
 | `TelegramAdapter` | `telegram_bot.py` | Requires python-telegram-bot Bot + chat_id |
 | `WebAdapter` | `web_ui/server.py` | Requires active WebSocket connection |
 
-The standalone interface files (`chat.py`, `gui.py`, `discord_bot.py`, `telegram_bot.py`, `web_ui/server.py`) continue to work independently. The adapters provide a uniform API for systems that need to interact with interfaces generically — notification dispatch, daemon integration, and future shared logic.
+The standalone interface files (`chat.py`, `discord_bot.py`, `telegram_bot.py`, `web_ui/server.py`) continue to work independently. The adapters provide a uniform API for systems that need to interact with interfaces generically — notification dispatch, daemon integration, and future shared logic.
 
 ## Creating a New Interface
 

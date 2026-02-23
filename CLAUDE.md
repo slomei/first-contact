@@ -6,9 +6,9 @@
 
 ## Project Overview
 
-First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Five interfaces (terminal, web UI, Gradio GUI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
+First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Four interfaces (terminal, web UI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
 
-**Status:** Shipped. All 166 tests passing. Live on GitHub.
+**Status:** Shipped. All 163 tests passing. Live on GitHub.
 
 ---
 
@@ -20,7 +20,6 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 |------|-------------|
 | `chat.py` | Terminal chatbot — primary interface. Streaming output, markdown stripping, session cost tracking, startup diagnostics. |
 | `web_ui/` | WebSocket-based web frontend (server.py + vanilla HTML/CSS/JS). Per-connection state, streaming responses, tool loop, token tracking, context compression, conversation persistence, `/prompt` command. Designed as Tauri desktop app foundation. |
-| `gui.py` | Web GUI via Gradio. Returns markdown strings from command handlers. |
 | `discord_bot.py` | Discord bot (prefix: `!fc`). Background loops for reminders, email, briefing, scans. Async with typing indicators. |
 | `telegram_bot.py` | Telegram bot. Same command set as Discord, adapted for Telegram's API. |
 | `interfaces/` | Interface adapter pattern. `InterfaceAdapter` ABC in `base_adapter.py`, adapters for all 4 interfaces (terminal, discord, telegram, web), example implementation, README. |
@@ -40,7 +39,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `batch_api.py` | Batch API wrapper — submit, poll, retrieve for Anthropic Messages Batches endpoint. Used by job_scanner for fit assessments at 50% cost. |
 | `daemon.py` | Single entry point for all services. Spawns and supervises web_ui, discord, and telegram as subprocesses (auto-restart on crash). Also runs scheduled tasks: daily briefings, email checks (30 min), job scans (12 hr), reminder checks (5 min). PID management, graceful SIGTERM/SIGINT, notification routing. Configurable via `auto_start_*` keys. |
 | `onboarding.py` | 20-step interactive setup wizard. Covers profile, communication style, integrations (Discord, Telegram, Gmail, Calendar), notification preferences, and Haiku-driven personality calibration. Works across all interfaces. |
-| `help_data.py` | Single source of truth for all help text. `HELP_CATEGORIES` dict with per-interface formatters (terminal ANSI box-drawing, Discord markdown, Telegram plain text, GUI Gradio markdown). Fuzzy prefix matching. |
+| `help_data.py` | Single source of truth for all help text. `HELP_CATEGORIES` dict with per-interface formatters (terminal ANSI box-drawing, Discord markdown, Telegram plain text). Fuzzy prefix matching. |
 | `creative.py` | Creative project tools — world bible PDF parsing via pdfplumber, character/location JSON lookup. Used for the First Light screenplay project. |
 | `skills_loader.py` | Extensible skills system — loads `.md` skill files from `skills/` directory, keyword matching, default base skills per specialist, injects matched skill content into specialist system prompts during delegation. |
 | `files.py` | Project file management — import, list, remove files. Validation, large-file detection, conversation injection formatting. Used by all interfaces and web UI drag-and-drop. |
@@ -57,7 +56,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `tests/test_tools.py` | Tool system — TOOLS list, required fields, status text, file sandboxing, description conciseness, cached tools. |
 | `tests/test_tasks.py` | Tasks — add/roundtrip, natural date parsing. |
 | `tests/test_onboarding.py` | Onboarding — calibration flow, step ordering, error handling. |
-| `tests/test_help_data.py` | Help system — categories, fuzzy matching, all 4 interface formatters. |
+| `tests/test_help_data.py` | Help system — categories, fuzzy matching, all 3 interface formatters. |
 | `tests/test_notes_status.py` | Notes, reminders, draft rate limits, daemon PID, config loading. |
 | `tests/test_skills.py` | Skills system — skill loading, keyword matching, default skills, specialist prompt injection. |
 | `tests/test_files.py` | File management — extension validation, import/list/remove, large file detection, path resolution. |
@@ -203,7 +202,7 @@ The system prompt (`memory.py`) includes three behavioral directives built from 
 4. File sandbox — `read_file` restricted to project directory, no dotfiles, no system paths
 5. Credential lockdown — `.env` + `chmod 600` on tokens
 6. Rate limits — 10 drafts/session, 10 fetches/session, 20 notifications/hour, 3 scans/day
-7. Human-in-the-loop — confirmation required for calendar events and code execution on all interfaces (terminal `input()`, web UI WebSocket confirm dialog, Discord yes/no DM, Telegram inline keyboard). Gradio auto-approves (known limitation). `tools.clean_confirm_prompt()` strips terminal `[y/N]:` suffixes for non-terminal interfaces
+7. Human-in-the-loop — confirmation required for calendar events and code execution on all interfaces (terminal `input()`, web UI WebSocket confirm dialog, Discord yes/no DM, Telegram inline keyboard). `tools.clean_confirm_prompt()` strips terminal `[y/N]:` suffixes for non-terminal interfaces
 8. User-gated messaging — Discord/Telegram bots respond only to configured user ID
 9. Anti-injection on drafts — external email content marked as untrusted data
 
@@ -290,9 +289,6 @@ The system prompt enforces these behaviors (see System Prompt Behaviors above):
 **Telegram (`telegram_bot.py`):**
 - Confirmation flow: `make_telegram_confirm_fn()` sends `InlineKeyboardMarkup` with Confirm/Cancel buttons, blocks worker thread on `threading.Event` (60s timeout). `CallbackQueryHandler` (registered before `MessageHandler`) handles button presses. Text yes/no fallback via `_pending_confirms` interception in `handle_message`. Requires `concurrent_updates=True` on the Application builder so callback queries are processed while the message handler awaits tool execution
 
-**Gradio GUI (`gui.py`):**
-- Confirmation: auto-approves all tools (`confirm_fn=None`). Gradio's generator-based streaming cannot receive user input mid-generation. Status note appended for `create_calendar_event` and `run_python` calls. Known limitation
-
 **Onboarding:**
 - Generates `Claude.md` (personal context), updated `config.json`, `setup_env.sh` (chmod 600)
 
@@ -307,7 +303,7 @@ The system prompt enforces these behaviors (see System Prompt Behaviors above):
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 166 tests across 13 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 163 tests across 13 test files.
 
 ---
 

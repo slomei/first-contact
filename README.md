@@ -14,11 +14,11 @@ A personal AI agent built from scratch with the Anthropic API. Not a chatbot —
 
 ## What Is This?
 
-First Contact is a personal AI agent that connects to your email, calendar, job boards, and the web — then helps you manage all of it through natural conversation. Five interfaces (terminal, web UI, Gradio GUI, Discord, Telegram) share a single core. It runs locally, stores everything on your machine, and never sends an email without your explicit approval. Built security-first: draft-only email, credential lockdown, untrusted web content isolation, human-in-the-loop for every write operation.
+First Contact is a personal AI agent that connects to your email, calendar, job boards, and the web — then helps you manage all of it through natural conversation. Four interfaces (terminal, web UI, Discord, Telegram) share a single core. It runs locally, stores everything on your machine, and never sends an email without your explicit approval. Built security-first: draft-only email, credential lockdown, untrusted web content isolation, human-in-the-loop for every write operation.
 
 ## Features
 
-**Five interfaces, one agent.** Talk to First Contact through the terminal, a standalone web UI, a Gradio GUI, Discord, or Telegram. All five share the same brain, memory, and tools.
+**Four interfaces, one agent.** Talk to First Contact through the terminal, a standalone web UI, Discord, or Telegram. All four share the same brain, memory, and tools.
 
 **Smart model routing.** Every request is routed to the right Claude model for the job. Haiku handles research and summaries. Sonnet handles conversation and code. Opus handles cover letters, deep analysis, and creative writing. A director model evaluates each message and can delegate to specialist agents (researcher, writer, coder, analyst) when the task calls for it.
 
@@ -63,14 +63,14 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 ## Architecture
 
 ```
-┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
-│ Terminal  │  │  Web UI  │  │  Gradio  │  │ Discord  │  │ Telegram │
-│ (chat.py) │  │ (web_ui/)│  │ (gui.py) │  │(disc_bot)│  │(tele_bot)│
-└────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘
-     │              │             │              │              │
-     └──────────────┴─────────┬──┴──────────────┴──────────────┘
-                                 │
-                    ┌────────────▼────────────┐
+┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
+│ Terminal  │  │  Web UI  │  │ Discord  │  │ Telegram │
+│ (chat.py) │  │ (web_ui/)│  │(disc_bot)│  │(tele_bot)│
+└────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘
+     │              │              │              │
+     └──────────────┴──────┬──────┴──────────────┘
+                           │
+                    ┌──────▼──────────────┐
                     │      Shared Core        │
                     │  memory.py · models.py  │
                     │  tools.py · tasks.py    │
@@ -88,13 +88,12 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
          └────────┘ └────────┘ └───┘ └────────┘ └────────┘
 ```
 
-**19 Python modules:**
+**18 Python modules:**
 
 | File | Purpose |
 |------|---------|
 | `chat.py` | Terminal interface — primary interactive chat |
 | `web_ui/server.py` | WebSocket server — standalone web frontend (vanilla HTML/CSS/JS client) |
-| `gui.py` | Web GUI interface (Gradio) |
 | `discord_bot.py` | Discord bot with background monitoring loops |
 | `telegram_bot.py` | Telegram bot |
 | `memory.py` | Persistent memory, semantic search, system prompt, projects |
@@ -112,7 +111,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 | `skills_loader.py` | Extensible skills system (keyword matching, specialist prompt injection) |
 | `sync.py` | File sync with version conflict resolution |
 
-The five interfaces are thin layers. All logic lives in the shared core — model routing, tool execution, memory, notifications. Adding a new interface means writing the I/O adapter; all tools and capabilities come for free.
+The four interfaces are thin layers. All logic lives in the shared core — model routing, tool execution, memory, notifications. Adding a new interface means writing the I/O adapter; all tools and capabilities come for free.
 
 **Building new interfaces:** The `interfaces/` directory contains an `InterfaceAdapter` abstract base class that defines the contract for new interfaces. Subclass it, implement the abstract methods (receive input, send output, send files, notifications, confirmation), and wire up the shared core. See `interfaces/example_adapter.py` for a reference. The existing interfaces predate this pattern and work independently.
 

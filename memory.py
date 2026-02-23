@@ -2,7 +2,7 @@
 Shared memory, project, and utility functions.
 
 This is the base module with no internal dependencies.
-All three interfaces (chat.py, discord_bot.py, gui.py) import from here.
+All interfaces (chat.py, web_ui, discord_bot.py, telegram_bot.py) import from here.
 """
 
 import json
@@ -138,7 +138,7 @@ _STABLE_PROMPT_TEMPLATE = (
     "You are First Contact, a personal AI agent built from scratch with the "
     "Anthropic API. You are not a chatbot \u2014 you are an agent with integrated "
     "tools that run locally on the user's machine. You support 4 interfaces: "
-    "terminal, web GUI, Discord, and Telegram. You use smart model routing \u2014 "
+    "terminal, web UI, Discord, and Telegram. You use smart model routing \u2014 "
     "Haiku for research, Sonnet for conversation, Opus for deep analysis and "
     "creative writing. You have an extensible skills system with {skill_count} "
     "available skill{skill_s}, persistent memory with semantic search, and a "

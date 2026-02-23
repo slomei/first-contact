@@ -1502,7 +1502,7 @@ def execute_tool(name, tool_input, confirm_fn=None):
     """Execute a tool and return (result_string, is_error).
 
     confirm_fn(prompt_text) -> bool: callback for interactive confirmations.
-    confirm_fn=None means auto-approve (used by discord/gui).
+    confirm_fn=None means auto-approve.
     Hard blocks (URL in email query, query >150 chars) always block regardless.
     """
     global _email_content_loaded, _last_email_results, _web_content_loaded

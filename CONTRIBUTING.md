@@ -36,7 +36,7 @@ Your interface also needs to wire up the shared core:
 - Call `tools.execute_tool()` for tool execution
 - Pass your `confirm` method as `confirm_fn` for destructive operations
 
-Everything else — model routing, memory, tool logic — comes from the shared core. The four existing interfaces (`chat.py`, `gui.py`, `discord_bot.py`, `telegram_bot.py`) predate this pattern and work independently.
+Everything else — model routing, memory, tool logic — comes from the shared core. The existing interfaces (`chat.py`, `discord_bot.py`, `telegram_bot.py`, `web_ui/server.py`) predate this pattern and work independently.
 
 ## Code Style
 
