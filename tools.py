@@ -103,11 +103,7 @@ def search_notes(query):
 TOOLS = [
     {
         "name": "web_search",
-        "description": (
-            "Search the web using DuckDuckGo. Use this when the user asks about "
-            "current events, recent news, or anything you're unsure about that "
-            "could benefit from up-to-date information."
-        ),
+        "description": "Search the web via DuckDuckGo.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -125,10 +121,7 @@ TOOLS = [
     },
     {
         "name": "read_file",
-        "description": (
-            "Read the contents of a file from the local filesystem. Use this when "
-            "the user references a file or asks about file contents."
-        ),
+        "description": "Read a file from the local filesystem.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -142,10 +135,7 @@ TOOLS = [
     },
     {
         "name": "write_file",
-        "description": (
-            "Write content to a file in the project's workspace/ directory. Use this when "
-            "the user asks you to create, save, or write a file."
-        ),
+        "description": "Write content to a file in workspace/.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -163,13 +153,7 @@ TOOLS = [
     },
     {
         "name": "remember",
-        "description": (
-            "Save a fact to persistent memory. Use this when the user shares a "
-            "personal preference, important detail, or explicitly asks you to "
-            "remember something. Saves to global memory by default (available "
-            "across all projects). Set project_specific=true to save only to "
-            "the current project."
-        ),
+        "description": "Save a fact to persistent memory. Global by default; set project_specific=true for project-only.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -187,10 +171,7 @@ TOOLS = [
     },
     {
         "name": "forget",
-        "description": (
-            "Remove a fact from persistent memory. Use this when the user asks "
-            "you to forget something previously remembered."
-        ),
+        "description": "Remove a fact from persistent memory.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -204,10 +185,7 @@ TOOLS = [
     },
     {
         "name": "list_memories",
-        "description": (
-            "List all facts stored in persistent memory. Use this when the user "
-            "asks what you remember about them."
-        ),
+        "description": "List all stored memory facts.",
         "input_schema": {
             "type": "object",
             "properties": {},
@@ -216,11 +194,7 @@ TOOLS = [
     },
     {
         "name": "save_note",
-        "description": (
-            "Save a timestamped note to the daily notes file. Use this when the user "
-            "says things like 'save this thought', 'note this down', 'remind me about this', "
-            "or wants to capture an idea, link, or research finding."
-        ),
+        "description": "Save a timestamped note to the daily notes file.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -234,11 +208,7 @@ TOOLS = [
     },
     {
         "name": "run_python",
-        "description": (
-            "Run Python code in the project's workspace/ directory. Use this when the user "
-            "asks you to execute, run, or test code. The code runs in a sandboxed "
-            "environment with a 30-second timeout."
-        ),
+        "description": "Execute Python code in workspace/ with 30s timeout.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -252,11 +222,7 @@ TOOLS = [
     },
     {
         "name": "job_search",
-        "description": (
-            "Search for job listings using DuckDuckGo. Use this when the user asks "
-            "about job openings, hiring, career opportunities, or wants to find work. "
-            "Results are saved so the user can review and save them with /work save."
-        ),
+        "description": "Search for job listings via DuckDuckGo.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -274,10 +240,7 @@ TOOLS = [
     },
     {
         "name": "check_email",
-        "description": (
-            "Check for recent unread emails. Use when the user asks about "
-            "their email or inbox."
-        ),
+        "description": "Check recent unread emails.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -291,10 +254,7 @@ TOOLS = [
     },
     {
         "name": "read_email",
-        "description": (
-            "Read the full body of a specific email by its index number "
-            "from the last email listing."
-        ),
+        "description": "Read full email body by message ID.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -308,10 +268,7 @@ TOOLS = [
     },
     {
         "name": "search_email",
-        "description": (
-            "Search emails by keyword. Use when the user asks to find "
-            "specific emails."
-        ),
+        "description": "Search emails by keyword.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -329,10 +286,7 @@ TOOLS = [
     },
     {
         "name": "create_task",
-        "description": (
-            "Create a task in the user's task list. Use when the user asks you to "
-            "add a task, track something to do, or mentions something they need to get done."
-        ),
+        "description": "Create a task with optional due date and priority.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -355,10 +309,7 @@ TOOLS = [
     },
     {
         "name": "create_reminder",
-        "description": (
-            "Set a reminder for the user. Use when the user asks to be reminded "
-            "about something at a specific time."
-        ),
+        "description": "Set a reminder for a specific time.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -376,11 +327,7 @@ TOOLS = [
     },
     {
         "name": "web_fetch",
-        "description": (
-            "Fetch and read a web page. Use when the user shares a URL, asks "
-            "about a job posting, says 'read this' or 'check this link', or when "
-            "a search result needs more detail than the snippet provides."
-        ),
+        "description": "Fetch and read a web page by URL.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -394,12 +341,7 @@ TOOLS = [
     },
     {
         "name": "generate_pdf",
-        "description": (
-            "Generate a PDF document. Use for cover letters (provide job_id "
-            "or company+title), or generic documents from text. For cover "
-            "letters the system uses Opus to write the letter and formats it "
-            "as a professional PDF with the user's contact header."
-        ),
+        "description": "Generate a PDF: cover_letter (from saved job or company+title) or document (from text).",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -438,10 +380,7 @@ TOOLS = [
     },
     {
         "name": "get_calendar_events",
-        "description": (
-            "Check Google Calendar events for a date range. Use when the user "
-            "asks about their schedule, availability, or upcoming events."
-        ),
+        "description": "Get Google Calendar events for a date range.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -459,10 +398,7 @@ TOOLS = [
     },
     {
         "name": "create_calendar_event",
-        "description": (
-            "Create a Google Calendar event. ALWAYS requires user confirmation "
-            "before saving. Use when the user asks to schedule something."
-        ),
+        "description": "Create a Google Calendar event. Requires user confirmation.",
         "input_schema": {
             "type": "object",
             "properties": {

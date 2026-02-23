@@ -8,7 +8,7 @@
 
 First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Five interfaces (terminal, web UI, Gradio GUI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
 
-**Status:** Pre-ship. All 143 tests passing. Ready for GitHub.
+**Status:** Pre-ship. All 150 tests passing. Ready for GitHub.
 
 ---
 
@@ -36,7 +36,8 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `documents.py` | PDF generation via reportlab. Cover letters with auto-fit-to-one-page (progressive margin/font reduction, Opus shortening as last resort). Generic PDF generation. Falls back to plain text if reportlab not installed. |
 | `briefing.py` | Daily briefing aggregation — 7 data sources: email, calendar, tasks, jobs, reminders, watchlist, scan results. Formats for Discord, Telegram, and terminal. |
 | `notifications.py` | Email classification (high/medium/low priority by sender domain + keywords), rate limiting (20/hour), seen-message dedup (7-day prune), audit logging, Discord/Telegram/email formatters. |
-| `job_scanner.py` | Proactive job scanning — multi-platform DuckDuckGo search, Haiku fit assessment against user profile, dedup via seen_jobs.json, rate limiting (3 manual scans/day). |
+| `job_scanner.py` | Proactive job scanning — multi-platform DuckDuckGo search, Haiku fit assessment against user profile, dedup via seen_jobs.json, rate limiting (3 manual scans/day). Batch API for >=5 jobs (50% cost). |
+| `batch_api.py` | Batch API wrapper — submit, poll, retrieve for Anthropic Messages Batches endpoint. Used by job_scanner for fit assessments at 50% cost. |
 | `daemon.py` | Background scheduler — daily briefings, email checks (30 min), job scans (12 hr), reminder checks (5 min). PID management, graceful SIGTERM/SIGINT, notification routing. Runs detached or foreground. |
 | `onboarding.py` | 20-step interactive setup wizard. Covers profile, communication style, integrations (Discord, Telegram, Gmail, Calendar), notification preferences, and Haiku-driven personality calibration. Works across all interfaces. |
 | `help_data.py` | Single source of truth for all help text. `HELP_CATEGORIES` dict with per-interface formatters (terminal ANSI box-drawing, Discord markdown, Telegram plain text, GUI Gradio markdown). Fuzzy prefix matching. |
@@ -50,7 +51,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | File | Description |
 |------|-------------|
 | `tests/conftest.py` | Pytest fixtures — isolated temp dirs, test config, monkeypatched paths. |
-| `tests/test_imports.py` | Smoke tests — all 13 core modules import without errors. |
+| `tests/test_imports.py` | Smoke tests — all 14 core modules import without errors. |
 | `tests/test_memory.py` | Memory system — config, profiles, memories, semantic search, cross-project, system prompt. |
 | `tests/test_models.py` | Model routing — MODELS dict, pricing, short names, token estimation, usage tracking. |
 | `tests/test_tools.py` | Tool system — TOOLS list, required fields, status text, file sandboxing. |
@@ -60,6 +61,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `tests/test_notes_status.py` | Notes, reminders, draft rate limits, daemon PID, config loading. |
 | `tests/test_skills.py` | Skills system — skill loading, keyword matching, specialist prompt injection. |
 | `tests/test_files.py` | File management — extension validation, import/list/remove, large file detection, path resolution. |
+| `tests/test_batch_api.py` | Batch API — module loads, functions exist. |
 
 ### Config & Data Files
 
@@ -275,7 +277,7 @@ The system prompt enforces these behaviors (see System Prompt Behaviors above):
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 143 tests across 10 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 150 tests across 11 test files.
 
 ---
 

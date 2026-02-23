@@ -35,6 +35,8 @@ class Connection:
         self.session_input_tokens = 0
         self.session_output_tokens = 0
         self.session_cost = 0.0
+        self.session_cache_creation_tokens = 0
+        self.session_cache_read_tokens = 0
 
 
 async def handle_message(ws, conn, data):
@@ -49,7 +51,7 @@ async def handle_message(ws, conn, data):
 
     conn.history.append({"role": "user", "content": user_msg})
 
-    system_prompt = memory.build_system_prompt(
+    system_prompt = memory.build_system_prompt_cached(
         memory.memories, query=user_msg
     )
 
@@ -78,11 +80,19 @@ async def handle_message(ws, conn, data):
             # Token accounting
             input_tokens = final.usage.input_tokens
             output_tokens = final.usage.output_tokens
+            cache_creation = getattr(final.usage, 'cache_creation_input_tokens', 0) or 0
+            cache_read = getattr(final.usage, 'cache_read_input_tokens', 0) or 0
             prices = models.PRICING.get(conn.active_model, {"input": 0, "output": 0})
-            msg_cost = (input_tokens * prices["input"] + output_tokens * prices["output"]) / 1_000_000
+            input_cost = input_tokens * prices["input"]
+            output_cost = output_tokens * prices["output"]
+            cache_write_cost = cache_creation * prices["input"] * models.CACHE_WRITE_MULTIPLIER
+            cache_read_cost = cache_read * prices["input"] * models.CACHE_READ_MULTIPLIER
+            msg_cost = (input_cost + output_cost + cache_write_cost + cache_read_cost) / 1_000_000
             total_input += input_tokens
             total_output += output_tokens
             total_cost += msg_cost
+            conn.session_cache_creation_tokens += cache_creation
+            conn.session_cache_read_tokens += cache_read
 
             if final.stop_reason == "tool_use":
                 # Build assistant content for history
@@ -138,6 +148,8 @@ async def handle_message(ws, conn, data):
             "output_tokens": total_output,
             "cost": round(total_cost, 6),
             "session_cost": round(conn.session_cost, 4),
+            "cache_creation_tokens": conn.session_cache_creation_tokens,
+            "cache_read_tokens": conn.session_cache_read_tokens,
         }))
 
     except Exception as e:
@@ -257,6 +269,8 @@ async def handler(ws):
                 conn.session_input_tokens = 0
                 conn.session_output_tokens = 0
                 conn.session_cost = 0.0
+                conn.session_cache_creation_tokens = 0
+                conn.session_cache_read_tokens = 0
                 await ws.send(json.dumps({
                     "type": "status",
                     "content": "New conversation started.",

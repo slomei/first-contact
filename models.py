@@ -38,6 +38,10 @@ PRICING = {
     "claude-opus-4-6":   {"input": 15.00, "output": 75.00},
 }
 
+# Prompt caching cost multipliers (relative to base input price)
+CACHE_WRITE_MULTIPLIER = 1.25
+CACHE_READ_MULTIPLIER = 0.10
+
 # Reverse lookup: model ID -> short name
 MODEL_SHORT_NAMES = {v: k.lstrip("/") for k, v in MODELS.items()}
 
@@ -98,17 +102,30 @@ session_input_tokens = 0
 session_output_tokens = 0
 session_cost = 0.0
 session_compressions = 0
+session_cache_creation_tokens = 0
+session_cache_read_tokens = 0
 session_message_count = 0
 context_indicator_interval = 10  # Show context usage every N messages
 
 
-def track_usage(input_tokens, output_tokens, model):
+def track_usage(input_tokens, output_tokens, model, *,
+                cache_creation_input_tokens=0, cache_read_input_tokens=0,
+                batch_discount=False):
     """Track token usage and cost. Returns the cost for this call."""
     global session_input_tokens, session_output_tokens, session_cost
+    global session_cache_creation_tokens, session_cache_read_tokens
     prices = PRICING.get(model, {"input": 0, "output": 0})
-    cost = (input_tokens * prices["input"] + output_tokens * prices["output"]) / 1_000_000
+    input_cost = input_tokens * prices["input"]
+    output_cost = output_tokens * prices["output"]
+    cache_write_cost = cache_creation_input_tokens * prices["input"] * CACHE_WRITE_MULTIPLIER
+    cache_read_cost = cache_read_input_tokens * prices["input"] * CACHE_READ_MULTIPLIER
+    cost = (input_cost + output_cost + cache_write_cost + cache_read_cost) / 1_000_000
+    if batch_discount:
+        cost *= 0.5
     session_input_tokens += input_tokens
     session_output_tokens += output_tokens
+    session_cache_creation_tokens += cache_creation_input_tokens
+    session_cache_read_tokens += cache_read_input_tokens
     session_cost += cost
     return cost
 

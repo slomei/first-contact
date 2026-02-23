@@ -334,7 +334,14 @@ def run_scan(queries=None, progress_fn=None, scan_type="manual"):
     assessed_results = []
 
     if all_results:
-        assessed_results, cost = _assess_fit_batch(all_results, progress_fn)
+        use_batch = len(all_results) >= 5
+        if use_batch:
+            try:
+                assessed_results, cost = _assess_fit_batch_api(all_results, progress_fn)
+            except Exception:
+                assessed_results, cost = _assess_fit_batch(all_results, progress_fn)
+        else:
+            assessed_results, cost = _assess_fit_batch(all_results, progress_fn)
         total_cost += cost
 
     # Classify results
@@ -461,6 +468,93 @@ def _assess_fit_batch(jobs, progress_fn=None):
 
         if progress_fn and i + batch_size < len(jobs):
             progress_fn(f"Assessed {min(i + batch_size, len(jobs))}/{len(jobs)}...")
+
+    return assessed, total_cost
+
+
+def _assess_fit_batch_api(jobs, progress_fn=None):
+    """Assess fit for jobs using the Batch API (50% cost discount).
+
+    Returns (assessed_jobs_list, total_cost).
+    Falls back to sequential on any error (caller handles the exception).
+    """
+    import models
+    import batch_api
+
+    fit_prompt = _build_fit_prompt()
+    assessed = []
+    total_cost = 0.0
+
+    # Build batch requests
+    requests = []
+    for i, job in enumerate(jobs):
+        text = f"Title: {job['title']}\nURL: {job['url']}\n\n{job['body'][:1500]}"
+        requests.append({
+            "custom_id": f"job_{i}",
+            "model": "claude-haiku-4-5",
+            "max_tokens": 200,
+            "messages": [{"role": "user", "content": fit_prompt + text}],
+        })
+
+    if progress_fn:
+        progress_fn(f"Submitting {len(requests)} jobs to Batch API...")
+
+    # Submit and poll
+    batch = batch_api.submit_batch(requests)
+
+    if progress_fn:
+        progress_fn(f"Batch submitted ({batch.id}). Waiting for results...")
+
+    batch_api.poll_until_done(batch.id, poll_interval=30, timeout=7200)
+
+    if progress_fn:
+        progress_fn("Batch complete. Retrieving results...")
+
+    results = batch_api.retrieve_results(batch.id)
+
+    # Parse results
+    for i, job in enumerate(jobs):
+        custom_id = f"job_{i}"
+        entry = results.get(custom_id)
+
+        if entry and entry.result.type == "succeeded":
+            message = entry.result.message
+            result_text = message.content[0].text.strip()
+
+            # Track usage with batch discount
+            cost = models.track_usage(
+                message.usage.input_tokens,
+                message.usage.output_tokens,
+                "claude-haiku-4-5",
+                batch_discount=True,
+            )
+            total_cost += cost
+
+            try:
+                parsed = json.loads(result_text)
+            except json.JSONDecodeError:
+                match = re.search(r'\{.*\}', result_text, re.DOTALL)
+                if match:
+                    parsed = json.loads(match.group(0))
+                else:
+                    parsed = {"score": 1, "reason": "Could not parse assessment"}
+
+            job["score"] = parsed.get("score", 1)
+            job["reason"] = parsed.get("reason", "")
+            job["clean_title"] = parsed.get("title", job["title"])
+            job["company"] = parsed.get("company", "")
+            job["location"] = parsed.get("location", "")
+            assessed.append(job)
+        else:
+            job["score"] = 0
+            job["reason"] = "Batch assessment failed"
+            job["clean_title"] = job["title"]
+            job["company"] = ""
+            job["location"] = ""
+            assessed.append(job)
+
+    if progress_fn:
+        progress_fn(f"Assessed {len(assessed)} jobs via Batch API (50% discount)")
 
     return assessed, total_cost
 

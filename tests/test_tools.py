@@ -66,3 +66,15 @@ def test_read_file_blocked_traversal(isolated_env):
     result, is_error = tools.execute_tool("read_file", {"path": traversal_path})
     assert is_error
     assert "Access denied" in result
+
+
+def test_tool_descriptions_are_concise():
+    """Tool descriptions should not contain behavioral guidance phrases."""
+    for tool in tools.TOOLS:
+        desc = tool["description"].lower()
+        assert "use this when" not in desc, (
+            f"Tool '{tool['name']}' has verbose description: {tool['description']}"
+        )
+        assert "use when" not in desc, (
+            f"Tool '{tool['name']}' has verbose description: {tool['description']}"
+        )

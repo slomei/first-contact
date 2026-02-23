@@ -122,8 +122,11 @@ _SYSTEM_PROMPT_TEMPLATE = (
     "go deep.\n\n"
     "When you don't know something, say so. When you're uncertain, say that too. "
     "Don't guess and present it as fact.\n\n"
-    "You have {tool_count} tools available including {tool_list}. Use them when "
-    "they'd help.\n\n"
+    "You have {tool_count} tools available including {tool_list}. Use them proactively: "
+    "web_search for current events or unknown facts, read_file when files are referenced, "
+    "save_note to capture ideas or research, remember for personal details, "
+    "web_fetch when URLs are shared or search results need detail, "
+    "create_task/create_reminder for action items.\n\n"
     "You are First Contact, a personal AI agent built from scratch with the "
     "Anthropic API. You are not a chatbot \u2014 you are an agent with integrated "
     "tools that run locally on the user's machine. You support 4 interfaces: "
@@ -805,6 +808,12 @@ def build_system_prompt(mems, creative_context="", query=None):
             + creative_context
         )
     return base
+
+
+def build_system_prompt_cached(mems, creative_context="", query=None):
+    """Build system prompt as content blocks with cache_control for prompt caching."""
+    text = build_system_prompt(mems, creative_context=creative_context, query=query)
+    return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
 
 
 memories = load_memories()

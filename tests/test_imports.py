@@ -66,3 +66,10 @@ def test_import_skills_loader():
 
 def test_import_daemon():
     import daemon
+
+
+def test_import_batch_api():
+    import batch_api
+    assert hasattr(batch_api, "submit_batch")
+    assert hasattr(batch_api, "poll_until_done")
+    assert hasattr(batch_api, "retrieve_results")

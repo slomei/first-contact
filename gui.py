@@ -39,6 +39,8 @@ class SessionState:
         self.input_tokens = 0
         self.output_tokens = 0
         self.cost = 0.0
+        self.cache_creation_tokens = 0
+        self.cache_read_tokens = 0
 
 
 def get_model_choices():
@@ -1860,7 +1862,7 @@ def bot_response(history, state):
         with models.get_client().messages.stream(
             model=state.active_model,
             max_tokens=4096,
-            system=memory.build_system_prompt(memory.memories),
+            system=memory.build_system_prompt_cached(memory.memories),
             messages=state.conversation_history,
             tools=tools.TOOLS,
         ) as stream:
@@ -1877,10 +1879,18 @@ def bot_response(history, state):
         # Track tokens/cost
         inp = final.usage.input_tokens
         out = final.usage.output_tokens
+        cache_creation = getattr(final.usage, 'cache_creation_input_tokens', 0) or 0
+        cache_read = getattr(final.usage, 'cache_read_input_tokens', 0) or 0
         prices = models.PRICING.get(state.active_model, {"input": 0, "output": 0})
-        msg_cost = (inp * prices["input"] + out * prices["output"]) / 1_000_000
+        input_cost = inp * prices["input"]
+        output_cost = out * prices["output"]
+        cache_write_cost = cache_creation * prices["input"] * models.CACHE_WRITE_MULTIPLIER
+        cache_read_cost = cache_read * prices["input"] * models.CACHE_READ_MULTIPLIER
+        msg_cost = (input_cost + output_cost + cache_write_cost + cache_read_cost) / 1_000_000
         state.input_tokens += inp
         state.output_tokens += out
+        state.cache_creation_tokens += cache_creation
+        state.cache_read_tokens += cache_read
         state.cost += msg_cost
 
         if final.stop_reason == "tool_use":
@@ -1981,9 +1991,12 @@ def process_message(history, state):
 
 def format_cost(state):
     """Format token/cost display for the sidebar."""
+    cache_line = ""
+    if state.cache_read_tokens:
+        cache_line = f"\n\n**Cache:** {state.cache_creation_tokens:,} written / {state.cache_read_tokens:,} read"
     return (
         f"**Tokens:** {state.input_tokens:,} in / {state.output_tokens:,} out\n\n"
-        f"**Cost:** ${state.cost:.4f}\n\n"
+        f"**Cost:** ${state.cost:.4f}{cache_line}\n\n"
         f"**Model:** {MODEL_ID_TO_DISPLAY.get(state.active_model, state.active_model)}"
     )
 
@@ -2000,6 +2013,8 @@ def new_chat(state):
     state.input_tokens = 0
     state.output_tokens = 0
     state.cost = 0.0
+    state.cache_creation_tokens = 0
+    state.cache_read_tokens = 0
     return [], state, format_cost(state)
 
 

@@ -230,3 +230,16 @@ def test_build_system_prompt_with_query(isolated_env):
     prompt = memory.build_system_prompt(["project fact"], query="tell me about Python")
     assert isinstance(prompt, str)
     assert len(prompt) > 0
+
+
+def test_build_system_prompt_cached_returns_list(isolated_env):
+    """build_system_prompt_cached returns a list with cache_control."""
+    result = memory.build_system_prompt_cached([])
+    assert isinstance(result, list)
+    assert len(result) == 1
+    block = result[0]
+    assert block["type"] == "text"
+    assert "cache_control" in block
+    assert block["cache_control"] == {"type": "ephemeral"}
+    assert isinstance(block["text"], str)
+    assert len(block["text"]) > 0

@@ -156,8 +156,12 @@ def check_compression():
 def print_session_summary():
     """Print a final cost summary for the session."""
     if models.session_input_tokens or models.session_output_tokens:
+        cache_info = ""
+        if models.session_cache_read_tokens:
+            cache_info = (f" | cache: {models.session_cache_creation_tokens} written, "
+                          f"{models.session_cache_read_tokens} read")
         print(f"{memory.DIM}Session total: {models.session_input_tokens} in / "
-              f"{models.session_output_tokens} out \u2014 "
+              f"{models.session_output_tokens} out{cache_info} \u2014 "
               f"${models.session_cost:.4f}{memory.RESET}")
 
 
@@ -252,6 +256,8 @@ def chat_turn():
     total_input = 0
     total_output = 0
     total_cost = 0
+    total_cache_creation = 0
+    total_cache_read = 0
 
     # Inject creative context when first-light project is active
     creative_ctx = ""
@@ -281,7 +287,7 @@ def chat_turn():
                 with models.get_client().messages.stream(
                     model=models.active_model,
                     max_tokens=4096,
-                    system=memory.build_system_prompt(memory.memories, creative_context=creative_ctx, query=last_user_query),
+                    system=memory.build_system_prompt_cached(memory.memories, creative_context=creative_ctx, query=last_user_query),
                     messages=models.conversation_history,
                     tools=tools.TOOLS,
                 ) as stream:
@@ -306,10 +312,18 @@ def chat_turn():
 
             input_tokens = final.usage.input_tokens
             output_tokens = final.usage.output_tokens
+            cache_creation = getattr(final.usage, 'cache_creation_input_tokens', 0) or 0
+            cache_read = getattr(final.usage, 'cache_read_input_tokens', 0) or 0
             prices = models.PRICING.get(models.active_model, {"input": 0, "output": 0})
-            msg_cost = (input_tokens * prices["input"] + output_tokens * prices["output"]) / 1_000_000
+            input_cost = input_tokens * prices["input"]
+            output_cost = output_tokens * prices["output"]
+            cache_write_cost = cache_creation * prices["input"] * models.CACHE_WRITE_MULTIPLIER
+            cache_read_cost = cache_read * prices["input"] * models.CACHE_READ_MULTIPLIER
+            msg_cost = (input_cost + output_cost + cache_write_cost + cache_read_cost) / 1_000_000
             total_input += input_tokens
             total_output += output_tokens
+            total_cache_creation += cache_creation
+            total_cache_read += cache_read
             total_cost += msg_cost
 
             if final.stop_reason == "tool_use":
@@ -353,9 +367,12 @@ def chat_turn():
     # Update session totals
     models.session_input_tokens += total_input
     models.session_output_tokens += total_output
+    models.session_cache_creation_tokens += total_cache_creation
+    models.session_cache_read_tokens += total_cache_read
     models.session_cost += total_cost
 
-    print(f"\n{memory.DIM}  [{total_input} in / {total_output} out \u2014 ${total_cost:.4f}]  "
+    cache_info = f" | cache: {total_cache_read}" if total_cache_read else ""
+    print(f"\n{memory.DIM}  [{total_input} in / {total_output} out{cache_info} \u2014 ${total_cost:.4f}]  "
           f"session: ${models.session_cost:.4f}{memory.RESET}\n")
 
 
@@ -2655,6 +2672,9 @@ if __name__ == "__main__":
             print(f"{memory.DIM}Conversation: ~{tokens:,} / {models.TOKEN_THRESHOLD:,} tokens ({pct}%)")
             print(f"  [{bar}]")
             print(f"  {len(exchanges)} exchanges, {len(models.conversation_history)} messages")
+            if models.session_cache_read_tokens or models.session_cache_creation_tokens:
+                print(f"  Cache: {models.session_cache_creation_tokens:,} written / "
+                      f"{models.session_cache_read_tokens:,} read")
             if tokens >= models.TOKEN_THRESHOLD:
                 print(f"  \u26a0 Above threshold \u2014 will compress on next response")
             print(memory.RESET)
