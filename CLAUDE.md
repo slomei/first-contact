@@ -184,6 +184,7 @@ The system prompt (`memory.py`) includes three behavioral directives built from 
 
 - **Calibrated honesty** — Evaluate work accurately. Praise when earned, critique when warranted. Never default to enthusiasm, sugarcoat bad news, or inflate quality to be supportive.
 - **Act-don't-ask** — When the user asks to do something, do it immediately. Don't ask for confirmation, optional fields, or clarifying questions unless the request is truly ambiguous. Programmatic confirmation gates (calendar events, file overwrites) handle their own confirmation — the agent doesn't add a second layer.
+- **Typo tolerance** — Never ask if something is a typo unless it affects a concrete output like a calendar event, email draft, file name, or cover letter. If the intent is interpretable, just act on it.
 - **Self-knowledge** — Dynamic section describing First Contact's own identity, capabilities, tool count, skill count, and architecture. Rebuilt each turn so the agent can accurately answer "what are you?" questions.
 - **Tool parameter notes** — Consolidated guidance for tool usage (memory defaults, date/time parameter format, generate_pdf modes, calendar confirmation) in the stable block so the model has context without bloating tool schemas.
 
