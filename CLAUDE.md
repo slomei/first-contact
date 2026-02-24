@@ -8,7 +8,7 @@
 
 First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Four interfaces (terminal, web UI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
 
-**Status:** Shipped. All 374 tests passing. Live on GitHub.
+**Status:** Shipped. All 389 tests passing. Live on GitHub.
 
 ---
 
@@ -32,9 +32,9 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `memory.py` | Persistent memory (global + per-project), semantic search via sentence-transformers, system prompt builder (stable/dynamic split for prompt caching), project switching, cross-project awareness, user profile, config I/O. |
 | `models.py` | Model routing (Haiku/Sonnet/Opus), API calls, token tracking, pricing, context compression (fast-tier summarized at 20K tokens), specialist delegation (researcher/writer/coder/analyst). Provider dispatch via `_get_provider()` — all model IDs use tier lookups (`fast`/`standard`/`quality`). |
 | `providers/` | Provider abstraction — `__init__.py` (ABC, registry, factory), `compat.py` (Anthropic-compatible wrapper types), `anthropic_provider.py` (zero-overhead pass-through), `openai_provider.py` (OpenAI SDK wrapper), `gemini_provider.py` (Google GenAI wrapper). |
-| `tools.py` | 25 core tool definitions (`TOOLS` list) and `execute_tool()` dispatch. Gmail, Calendar, web search, file I/O, code execution, job search, notes, tasks, reminders, PDF generation. Unknown tool names fall through to plugins. `get_cached_tools()` merges core + plugin tools with `cache_control` on the last tool. `_rebuild_cached_tools()` refreshes after plugin reload. |
+| `tools.py` | 27 core tool definitions (`TOOLS` list) and `execute_tool()` dispatch. Gmail, Calendar, web search, file I/O, code execution, job search, notes, tasks, reminders, PDF generation, DOCX/XLSX creation. Unknown tool names fall through to plugins. `get_cached_tools()` merges core + plugin tools with `cache_control` on the last tool. `_rebuild_cached_tools()` refreshes after plugin reload. |
 | `tasks.py` | Task system (add/edit/done/remove, priority levels, due dates) and reminder system (natural language date parsing via dateutil). Stored per-project in `tasks.json`, reminders global in `reminders.json`. |
-| `documents.py` | PDF generation via reportlab. Cover letters with auto-fit-to-one-page (progressive margin/font reduction, Opus shortening as last resort). Generic PDF generation. Falls back to plain text if reportlab not installed. |
+| `documents.py` | PDF generation via reportlab, Word document (.docx) creation via python-docx, and spreadsheet (.xlsx) creation via openpyxl. Cover letters with auto-fit-to-one-page (progressive margin/font reduction, Opus shortening as last resort). Generic PDF generation. Falls back to plain text/CSV if optional deps not installed. |
 | `briefing.py` | Daily briefing aggregation — 7 data sources: email, calendar, tasks, jobs, reminders, watchlist, scan results. Formats for Discord, Telegram, and terminal. |
 | `notifications.py` | Email classification (high/medium/low priority by sender domain + keywords), rate limiting (20/hour), seen-message dedup (7-day prune), audit logging, Discord/Telegram/email formatters. |
 | `insights.py` | Proactive insights engine — cross-references tasks, email, calendar, jobs, reminders via Sonnet to surface actionable connections. 6 data-gathering functions, minimum-source gate (≥2), NO_INSIGHTS parsing. Daemon-only (every 6 hours). |
@@ -82,6 +82,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `tests/test_plugin_generator.py` | Plugin generator — name validation, directory scaffolding, tool count, overwrite protection, importability, metadata. |
 | `tests/test_search_providers.py` | Search providers — ABC compliance, registry/factory, config selection, all 4 provider request/response format, missing key errors. |
 | `tests/test_insights.py` | Insights engine — source gathering, minimum-source gate, model tier, system prompt, response parsing (NO_INSIGHTS + insight text), error handling. |
+| `tests/test_documents.py` | Document creation — DOCX (paragraphs, headings, fallback), XLSX (data rows, headers, column widths, fallback), tool dispatch for both. |
 
 ### Config & Data Files
 
@@ -223,9 +224,9 @@ The director (Sonnet) can route messages to specialist agents:
 
 Specialists can be augmented with skills — `.md` files in the `skills/` directory with YAML front matter defining `name`, `description`, `specialist`, `model_preference`, `default`, and `trigger_keywords`. When a message is delegated, `skills_loader.get_default_skill()` loads the base instructions for that specialist, then `match_skill()` finds the best keyword match and layers it on top. Ships with 9 built-in skills: 4 base specialist skills (researcher, writer, coder, analyst) + 5 task skills (cover_letter, research, code_review, email_draft, job_analysis). Users can customize specialist behavior by editing base skill files or add new skills by dropping `.md` files into `skills/`.
 
-### 25 Integrated Tools
+### 27 Integrated Tools
 
-`web_search`, `read_file`, `write_file`, `remember`, `forget`, `list_memories`, `save_note`, `run_python`, `job_search`, `check_email`, `read_email`, `search_email`, `create_task`, `create_reminder`, `list_tasks`, `complete_task`, `edit_task`, `remove_task`, `add_task_note`, `list_reminders`, `cancel_reminder`, `web_fetch`, `generate_pdf`, `get_calendar_events`, `create_calendar_event`
+`web_search`, `read_file`, `write_file`, `remember`, `forget`, `list_memories`, `save_note`, `run_python`, `job_search`, `check_email`, `read_email`, `search_email`, `create_task`, `create_reminder`, `list_tasks`, `complete_task`, `edit_task`, `remove_task`, `add_task_note`, `list_reminders`, `cancel_reminder`, `web_fetch`, `generate_pdf`, `create_docx`, `create_xlsx`, `get_calendar_events`, `create_calendar_event`
 
 ### Memory System
 
@@ -424,7 +425,7 @@ All four interfaces share these features via the shared core:
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 374 tests across 24 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 389 tests across 25 test files.
 
 ---
 

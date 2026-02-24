@@ -32,9 +32,9 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 
 **Plugin ecosystem.** Create plugins with the built-in template generator: `python plugin_generator.py my_plugin`. Scaffolds a complete plugin with metadata, stub tools, and documentation. Browse community plugins in the [plugin directory](plugins/DIRECTORY.md). Plugins run with full process access — review source code before installing third-party plugins.
 
-**MCP server.** Expose First Contact's tools to external AI clients via the [Model Context Protocol](https://modelcontextprotocol.io/). Claude Desktop, Cursor, and any MCP-compatible client can discover and call all 25 core tools (plus plugins) directly — email, calendar, web search, tasks, memory, files — without going through the chat interface. Configurable tool blacklist for safety (`run_python` blocked by default). Optional dependency: install `mcp` to enable.
+**MCP server.** Expose First Contact's tools to external AI clients via the [Model Context Protocol](https://modelcontextprotocol.io/). Claude Desktop, Cursor, and any MCP-compatible client can discover and call all 27 core tools (plus plugins) directly — email, calendar, web search, tasks, memory, files — without going through the chat interface. Configurable tool blacklist for safety (`run_python` blocked by default). Optional dependency: install `mcp` to enable.
 
-**25 core tools** (plus any from plugins):
+**27 core tools** (plus any from plugins):
 
 - **Web search** — configurable search provider (DuckDuckGo default, Brave/Google/SerpAPI), with page fetching and content extraction
 - **Gmail** — Read your inbox, search emails, draft replies. Multi-account support. Draft-only: the agent creates drafts, you send them
@@ -126,9 +126,9 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 | `models.py` | Model routing, provider dispatch, API calls, pricing, context compression, specialists |
 | `providers/` | Provider abstraction — Anthropic, OpenAI, Gemini with Anthropic-compatible wrapper |
 | `search_providers/` | Search provider abstraction — DuckDuckGo, Brave, Google, SerpAPI |
-| `tools.py` | 25 core tool definitions + plugin routing |
+| `tools.py` | 27 core tool definitions + plugin routing |
 | `tasks.py` | Task and reminder system with natural language dates |
-| `documents.py` | PDF generation (cover letters, generic documents) |
+| `documents.py` | Document generation — PDF (cover letters, generic), DOCX, XLSX |
 | `briefing.py` | Daily briefing aggregation (7 data sources) |
 | `notifications.py` | Email classification and notification routing |
 | `insights.py` | Proactive cross-source insight synthesis (daemon-only, Sonnet tier) |

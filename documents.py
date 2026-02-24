@@ -24,6 +24,21 @@ except ImportError:
     HexColor = black = gray = None
     ParagraphStyle = SimpleDocTemplate = Paragraph = Spacer = HRFlowable = None
 
+try:
+    from docx import Document as _DocxDocument
+    from docx.shared import Pt as _Pt
+    _DOCX_AVAILABLE = True
+except ImportError:
+    _DOCX_AVAILABLE = False
+
+try:
+    from openpyxl import Workbook as _Workbook
+    from openpyxl.styles import Font as _Font
+    from openpyxl.utils import get_column_letter as _get_column_letter
+    _XLSX_AVAILABLE = True
+except ImportError:
+    _XLSX_AVAILABLE = False
+
 import memory
 
 # --- Constants ---
@@ -366,6 +381,96 @@ def generate_pdf(title, body_text, output_path):
         story.append(Paragraph(safe, styles["body"]))
 
     doc.build(story)
+    return output_path
+
+
+# --- Word Document ---
+
+def create_docx(content, filename, title=None):
+    """Create a Word document (.docx) from text content.
+
+    Args:
+        content: Body text (paragraphs separated by blank lines)
+        filename: Output filename (must end in .docx)
+        title: Optional heading at the top of the document
+
+    Returns:
+        The output file path.
+    """
+    workspace = memory.get_workspace_dir()
+    output_path = os.path.join(workspace, filename)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    if not _DOCX_AVAILABLE:
+        # Fallback: save as plain text
+        txt_path = output_path.rsplit(".", 1)[0] + ".txt"
+        with open(txt_path, "w") as f:
+            if title:
+                f.write(f"{title}\n{'=' * len(title)}\n\n")
+            f.write(content)
+        return txt_path
+
+    doc = _DocxDocument()
+    if title:
+        doc.add_heading(title, level=1)
+    for chunk in content.split("\n\n"):
+        chunk = chunk.strip()
+        if chunk:
+            doc.add_paragraph(chunk)
+    doc.save(output_path)
+    return output_path
+
+
+# --- Spreadsheet ---
+
+def create_xlsx(data, filename, headers=None, sheet_name="Sheet1"):
+    """Create a spreadsheet (.xlsx) from structured data.
+
+    Args:
+        data: List of lists (rows of cell values)
+        filename: Output filename (must end in .xlsx)
+        headers: Optional list of column header strings (bold first row)
+        sheet_name: Worksheet name (default "Sheet1")
+
+    Returns:
+        The output file path.
+    """
+    workspace = memory.get_workspace_dir()
+    output_path = os.path.join(workspace, filename)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    if not _XLSX_AVAILABLE:
+        # Fallback: save as CSV (tab-separated)
+        csv_path = output_path.rsplit(".", 1)[0] + ".csv"
+        with open(csv_path, "w") as f:
+            if headers:
+                f.write("\t".join(str(h) for h in headers) + "\n")
+            for row in data:
+                f.write("\t".join(str(cell) for cell in row) + "\n")
+        return csv_path
+
+    wb = _Workbook()
+    ws = wb.active
+    ws.title = sheet_name
+
+    if headers:
+        ws.append(headers)
+        for cell in ws[1]:
+            cell.font = _Font(bold=True)
+
+    for row in data:
+        ws.append(row)
+
+    # Auto-adjust column widths
+    for col_idx, col_cells in enumerate(ws.columns, 1):
+        max_len = 0
+        for cell in col_cells:
+            val_len = len(str(cell.value or ""))
+            if val_len > max_len:
+                max_len = val_len
+        ws.column_dimensions[_get_column_letter(col_idx)].width = max_len + 2
+
+    wb.save(output_path)
     return output_path
 
 

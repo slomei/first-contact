@@ -464,6 +464,56 @@ TOOLS = [
         },
     },
     {
+        "name": "create_docx",
+        "description": "Create a Word document (.docx) from text content.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "Body text (paragraphs separated by blank lines)",
+                },
+                "filename": {
+                    "type": "string",
+                    "description": "Output filename (must end in .docx)",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Optional heading at the top",
+                },
+            },
+            "required": ["content", "filename"],
+        },
+    },
+    {
+        "name": "create_xlsx",
+        "description": "Create a spreadsheet (.xlsx) from structured data.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {"type": "array"},
+                    "description": "Rows of cell values (list of lists)",
+                },
+                "filename": {
+                    "type": "string",
+                    "description": "Output filename (must end in .xlsx)",
+                },
+                "headers": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional column headers (bold first row)",
+                },
+                "sheet_name": {
+                    "type": "string",
+                    "description": "Worksheet name (default Sheet1)",
+                },
+            },
+            "required": ["data", "filename"],
+        },
+    },
+    {
         "name": "get_calendar_events",
         "description": "Get Google Calendar events for a date range.",
         "input_schema": {
@@ -1589,6 +1639,8 @@ def tool_status_text(name, tool_input):
         "cancel_reminder": f'Cancelling reminder #{tool_input.get("reminder_id", "")}',
         "web_fetch": f'Fetching page: {tool_input.get("url", "")}',
         "generate_pdf": f'Generating PDF: {tool_input.get("type", "document")}',
+        "create_docx": f'Creating Word doc: {tool_input.get("filename", "")}',
+        "create_xlsx": f'Creating spreadsheet: {tool_input.get("filename", "")}',
         "get_calendar_events": f'Checking calendar: {tool_input.get("start_date", "")}',
         "create_calendar_event": f'Creating event: "{tool_input.get("title", "")}"',
     }
@@ -2152,6 +2204,35 @@ def execute_tool(name, tool_input, confirm_fn=None):
 
             documents.generate_pdf(title, body, filepath)
             return f"PDF generated: {filepath}", False
+
+    elif name == "create_docx":
+        import documents
+
+        content = tool_input.get("content", "")
+        filename = tool_input.get("filename", "document.docx")
+        title = tool_input.get("title")
+
+        if not filename.endswith(".docx"):
+            return "Filename must end in .docx", True
+
+        filepath = documents.create_docx(content, filename, title=title)
+        return f"Word document created: {filepath}", False
+
+    elif name == "create_xlsx":
+        import documents
+
+        data = tool_input.get("data", [])
+        filename = tool_input.get("filename", "spreadsheet.xlsx")
+        headers = tool_input.get("headers")
+        sheet_name = tool_input.get("sheet_name", "Sheet1")
+
+        if not filename.endswith(".xlsx"):
+            return "Filename must end in .xlsx", True
+        if not data:
+            return "No data provided for the spreadsheet.", True
+
+        filepath = documents.create_xlsx(data, filename, headers=headers, sheet_name=sheet_name)
+        return f"Spreadsheet created: {filepath}", False
 
     # Try plugin tools before giving up
     try:
