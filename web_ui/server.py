@@ -574,6 +574,48 @@ async def handler(ws):
                 await handle_file_upload(ws, conn, data)
                 await send_file_list(ws, conn)
 
+            elif msg_type == "file_preview":
+                fname = data.get("name", "")
+                fdir = data.get("dir", "")
+                memory.active_project = conn.active_project
+                if fdir == "workspace":
+                    fpath = os.path.join(memory.get_workspace_dir(), os.path.basename(fname))
+                else:
+                    fpath = os.path.join(memory.get_files_dir(), os.path.basename(fname))
+                if os.path.isfile(fpath):
+                    size = os.path.getsize(fpath)
+                    preview = None
+                    text_exts = {
+                        '.txt', '.md', '.json', '.py', '.csv', '.js', '.html',
+                        '.css', '.xml', '.yaml', '.yml', '.toml', '.ini',
+                        '.cfg', '.log', '.sh', '.bash', '.zsh',
+                    }
+                    ext = os.path.splitext(fname)[1].lower()
+                    if ext in text_exts:
+                        try:
+                            with open(fpath, "r", encoding="utf-8") as f:
+                                lines = []
+                                for _ in range(30):
+                                    line = f.readline()
+                                    if not line:
+                                        break
+                                    lines.append(line)
+                            preview = "".join(lines)
+                        except (UnicodeDecodeError, OSError, StopIteration):
+                            pass
+                    await ws.send(json.dumps({
+                        "type": "file_preview_result",
+                        "name": fname,
+                        "dir": fdir,
+                        "size": size,
+                        "preview": preview,
+                    }))
+                else:
+                    await ws.send(json.dumps({
+                        "type": "error",
+                        "content": f"File not found: {fname}",
+                    }))
+
             elif msg_type == "file_download":
                 fname = data.get("name", "")
                 fdir = data.get("dir", "")

@@ -660,6 +660,92 @@ body {
 .file-item-name:hover {
   color: var(--accent);
 }
+.file-preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.file-preview-panel {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  max-width: 560px;
+  width: 90%;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+.file-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.file-preview-name {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.file-preview-size {
+  font-size: 0.73rem;
+  color: var(--text-faint);
+  margin-bottom: 14px;
+}
+.file-preview-content {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  overflow: auto;
+  max-height: 40vh;
+  white-space: pre;
+  margin-bottom: 14px;
+  tab-size: 4;
+}
+.file-preview-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.file-preview-actions button {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.file-preview-actions button:hover {
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+.file-preview-actions .btn-open {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.file-preview-actions .btn-open:hover {
+  background: var(--accent);
+  color: var(--bg-primary);
+}
+.file-preview-actions .btn-delete {
+  color: #ef4444;
+  border-color: rgba(239,68,68,0.3);
+}
+.file-preview-actions .btn-delete:hover {
+  background: rgba(239,68,68,0.1);
+}
 .file-remove {
   background: none;
   border: none;
@@ -1147,6 +1233,10 @@ function handleServerMessage(data) {
       renderFileList(data.files || []);
       break;
 
+    case 'file_preview_result':
+      showFilePreview(data);
+      break;
+
     case 'file_download_result':
       if (data.content) {
         const bytes = Uint8Array.from(atob(data.content), c => c.charCodeAt(0));
@@ -1503,10 +1593,66 @@ function renderFileList(files) {
     const label = f.dir === 'workspace' ? `${escapeHtml(f.name)}` : escapeHtml(f.name);
     const badge = f.dir === 'workspace' ? ' <span style="opacity:0.5;font-size:0.6rem">ws</span>' : '';
     return `<div class="file-item">
-      <span class="file-item-name" title="${escapeHtml(f.name)} (${f.dir})" onclick="downloadProjectFile('${escapeHtml(f.name)}', '${f.dir}')">${label}${badge}</span>
+      <span class="file-item-name" title="${escapeHtml(f.name)} (${f.dir})" onclick="inspectProjectFile('${escapeHtml(f.name)}', '${f.dir}')">${label}${badge}</span>
       <button class="file-remove" onclick="removeProjectFile(this, '${escapeHtml(f.name)}', '${f.dir}')">×</button>
     </div>`;
   }).join('');
+}
+
+function inspectProjectFile(name, dir) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'file_preview', name: name, dir: dir }));
+  }
+}
+
+function showFilePreview(data) {
+  const existing = document.querySelector('.file-preview-overlay');
+  if (existing) existing.remove();
+
+  const name = data.name || 'file';
+  const dir = data.dir || 'files';
+  const size = data.size || 0;
+  const preview = data.preview;
+
+  let sizeStr;
+  if (size < 1024) sizeStr = size + ' B';
+  else if (size < 1048576) sizeStr = (size / 1024).toFixed(1) + ' KB';
+  else sizeStr = (size / 1048576).toFixed(1) + ' MB';
+
+  const dirLabel = dir === 'workspace' ? 'workspace' : 'files';
+  const previewHtml = preview != null
+    ? `<div class="file-preview-content">${escapeHtml(preview)}</div>`
+    : '';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'file-preview-overlay';
+  overlay.innerHTML = `
+    <div class="file-preview-panel">
+      <div class="file-preview-header">
+        <span class="file-preview-name">${escapeHtml(name)}</span>
+      </div>
+      <div class="file-preview-size">${sizeStr} · ${dirLabel}</div>
+      ${previewHtml}
+      <div class="file-preview-actions">
+        <button class="btn-delete" id="fpDelete">Delete</button>
+        <button class="btn-open" id="fpOpen">Open</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+  overlay.querySelector('#fpOpen').addEventListener('click', () => {
+    overlay.remove();
+    downloadProjectFile(name, dir);
+  });
+  overlay.querySelector('#fpDelete').addEventListener('click', () => {
+    overlay.remove();
+    removeProjectFile(null, name, dir);
+  });
 }
 
 function downloadProjectFile(name, dir) {
@@ -1516,7 +1662,7 @@ function downloadProjectFile(name, dir) {
 }
 
 function removeProjectFile(btn, name, dir) {
-  btn.parentElement.remove();
+  if (btn) btn.parentElement.remove();
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'file_delete', name: name, dir: dir }));
   }

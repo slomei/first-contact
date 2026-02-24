@@ -122,6 +122,10 @@ function handleServerMessage(data) {
             // Handled by index.html's sidebar; no-op here
             break;
 
+        case "file_preview_result":
+            // Handled by index.html's sidebar; no-op here
+            break;
+
         case "file_download_result":
             // Handled by index.html's sidebar; no-op here
             break;
