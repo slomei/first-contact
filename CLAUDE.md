@@ -267,11 +267,12 @@ Tool definitions also use prompt caching: `get_cached_tools()` returns `TOOLS` w
 
 ### System Prompt Behaviors
 
-The system prompt (`memory.py`) includes four behavioral directives built from actual usage patterns:
+The system prompt (`memory.py`) includes five behavioral directives built from actual usage patterns:
 
 - **Calibrated honesty** — Evaluate work accurately. Praise when earned, critique when warranted. Never default to enthusiasm, sugarcoat bad news, or inflate quality to be supportive.
 - **Act-don't-ask** — When the user asks to do something, do it immediately. Don't ask for confirmation, optional fields, or clarifying questions unless the request is truly ambiguous. Programmatic confirmation gates (calendar events, file overwrites) handle their own confirmation — the agent doesn't add a second layer.
 - **Typo tolerance** — Never ask if something is a typo unless it affects a concrete output like a calendar event, email draft, file name, or cover letter. If the intent is interpretable, just act on it.
+- **Memory restraint** — Never use `remember` or `forget` unless the user explicitly asks. No unsolicited memory reorganization, consolidation, or updates — not when reading files, not when learning new info mid-conversation. Profile learning is handled post-conversation by `user_model.py`.
 - **Self-knowledge** — Dynamic section describing First Contact's own identity, capabilities, tool count, skill count, and architecture. Rebuilt each turn so the agent can accurately answer "what are you?" questions.
 - **Tool parameter notes** — Consolidated guidance for tool usage (memory defaults, date/time parameter format, generate_pdf modes, calendar confirmation) in the stable block so the model has context without bloating tool schemas.
 - **Search restraint** — Explicit "when NOT to search" rules: don't search when the answer is in conversation/memories, when the user asks about their own data (use the right tool instead), or when following up on an already-discussed topic.
@@ -384,6 +385,7 @@ The system prompt enforces these behaviors (see System Prompt Behaviors above):
 - Streaming responses, tool activity indicators, model switching, project switching (`set_project` message), accent color picker. Model selector dropdown and per-message badges are provider-aware — populated dynamically from the server via a `models` message on connect, displaying actual model IDs (e.g. `gpt-4o` not `sonnet`) from the active provider
 - Two distinct drop zones: **chat input area** (`.input-wrapper`) queues files as temporary attachment chips sent with the next message (never persisted); **sidebar drop zone** (`#dropZone`) saves files to the project's `files/` directory (persistent). Paperclip button also queues to chips. Chips show below the input row with × remove buttons. Both zones use `preventDefault`/`stopPropagation` to prevent the browser from opening files in a new tab
 - **Server-synced sidebar file list:** The `#fileList` sidebar is populated from the server via `{"type": "file_list"}` messages, showing files from both `files/` (uploads) and `workspace/` (tool-written). `send_file_list(ws, conn)` is called on connect, after `handle_file_upload`, after `file_delete`, and after any file-writing tool completes (`write_file`, `save_note`, `generate_pdf`, `create_docx`, `create_xlsx`). Tool detection uses a `used_tools` set populated by `on_tool_start`, checked against `FILE_WRITE_TOOLS` after the turn. Workspace files get a "ws" badge in the sidebar. Sidebar × button sends `{"type": "file_delete"}` to the server, which removes the file from disk (`files.remove_file()` for uploads, `os.remove()` with `basename` path sanitization for workspace files) and re-sends the file list. Files persist across page reloads
+- Status and error messages (`addStatusMessage` in index.html, `showStatus` in app.js) render as small centered italic text (`.status-msg` class), not chat bubbles. Keeps system feedback visually distinct from conversation
 - `/prompt [text|clear]` command — view, set, or clear custom system prompt instructions
 - Context compression at 20K tokens (same threshold as terminal, via shared `models.compress_conversation()`)
 - Conversation auto-save on new chat and disconnect (via shared `models.save_conversation()`)
