@@ -122,6 +122,10 @@ function handleServerMessage(data) {
             // Handled by index.html's sidebar; no-op here
             break;
 
+        case "file_download_result":
+            // Handled by index.html's sidebar; no-op here
+            break;
+
         case "response":
             // Finalize the current bubble with the complete response
             if (currentBubble && data.content) {

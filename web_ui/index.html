@@ -655,6 +655,10 @@ body {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.68rem;
   color: var(--text-secondary);
+  cursor: pointer;
+}
+.file-item-name:hover {
+  color: var(--accent);
 }
 .file-remove {
   background: none;
@@ -1142,6 +1146,19 @@ function handleServerMessage(data) {
     case 'file_list':
       renderFileList(data.files || []);
       break;
+
+    case 'file_download_result':
+      if (data.content) {
+        const bytes = Uint8Array.from(atob(data.content), c => c.charCodeAt(0));
+        const blob = new Blob([bytes]);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = data.name || 'download';
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+      break;
   }
 }
 
@@ -1486,10 +1503,16 @@ function renderFileList(files) {
     const label = f.dir === 'workspace' ? `${escapeHtml(f.name)}` : escapeHtml(f.name);
     const badge = f.dir === 'workspace' ? ' <span style="opacity:0.5;font-size:0.6rem">ws</span>' : '';
     return `<div class="file-item">
-      <span class="file-item-name" title="${escapeHtml(f.name)} (${f.dir})">${label}${badge}</span>
+      <span class="file-item-name" title="${escapeHtml(f.name)} (${f.dir})" onclick="downloadProjectFile('${escapeHtml(f.name)}', '${f.dir}')">${label}${badge}</span>
       <button class="file-remove" onclick="removeProjectFile(this, '${escapeHtml(f.name)}', '${f.dir}')">×</button>
     </div>`;
   }).join('');
+}
+
+function downloadProjectFile(name, dir) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'file_download', name: name, dir: dir }));
+  }
 }
 
 function removeProjectFile(btn, name, dir) {

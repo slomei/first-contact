@@ -574,6 +574,28 @@ async def handler(ws):
                 await handle_file_upload(ws, conn, data)
                 await send_file_list(ws, conn)
 
+            elif msg_type == "file_download":
+                fname = data.get("name", "")
+                fdir = data.get("dir", "")
+                memory.active_project = conn.active_project
+                if fdir == "workspace":
+                    fpath = os.path.join(memory.get_workspace_dir(), os.path.basename(fname))
+                else:
+                    fpath = os.path.join(memory.get_files_dir(), os.path.basename(fname))
+                if os.path.isfile(fpath):
+                    with open(fpath, "rb") as f:
+                        raw = f.read()
+                    await ws.send(json.dumps({
+                        "type": "file_download_result",
+                        "name": fname,
+                        "content": base64.b64encode(raw).decode("ascii"),
+                    }))
+                else:
+                    await ws.send(json.dumps({
+                        "type": "error",
+                        "content": f"File not found: {fname}",
+                    }))
+
             elif msg_type == "file_delete":
                 fname = data.get("name", "")
                 fdir = data.get("dir", "")
