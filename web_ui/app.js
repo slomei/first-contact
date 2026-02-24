@@ -362,10 +362,12 @@ function getExtension(filename) {
 
 chatArea.addEventListener("dragover", (e) => {
     e.preventDefault();
+    e.stopPropagation();
     chatArea.closest("main").classList.add("drag-over");
 });
 
 chatArea.addEventListener("dragleave", (e) => {
+    e.stopPropagation();
     // Only remove if we're leaving the main area entirely
     if (!e.relatedTarget || !chatArea.closest("main").contains(e.relatedTarget)) {
         chatArea.closest("main").classList.remove("drag-over");
@@ -374,6 +376,7 @@ chatArea.addEventListener("dragleave", (e) => {
 
 chatArea.addEventListener("drop", (e) => {
     e.preventDefault();
+    e.stopPropagation();
     chatArea.closest("main").classList.remove("drag-over");
 
     if (!ws || ws.readyState !== WebSocket.OPEN) return;

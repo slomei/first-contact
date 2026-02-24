@@ -241,6 +241,11 @@ body {
   position: relative;
   z-index: 2;
 }
+.chat-container.drag-over {
+  outline: 2px dashed var(--accent, #888);
+  outline-offset: -4px;
+  background: rgba(128,128,128,0.06);
+}
 
 .chat-messages {
   width: 100%;
@@ -1271,7 +1276,29 @@ document.getElementById('modelSelect').addEventListener('change', () => {
   }
 });
 
-// ═══ FILE DROP ═══
+// ═══ CHAT AREA DROP ═══
+const chatContainer = document.getElementById('chatContainer');
+chatContainer.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  chatContainer.classList.add('drag-over');
+});
+chatContainer.addEventListener('dragleave', (e) => {
+  e.stopPropagation();
+  if (!chatContainer.contains(e.relatedTarget)) {
+    chatContainer.classList.remove('drag-over');
+  }
+});
+chatContainer.addEventListener('drop', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  chatContainer.classList.remove('drag-over');
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const files = Array.from(e.dataTransfer.files);
+  if (files.length) uploadFiles(files);
+});
+
+// ═══ SIDEBAR FILE DROP ═══
 const dropZone = document.getElementById('dropZone');
 dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
 dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('dragover'); });
