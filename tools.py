@@ -559,6 +559,25 @@ TOOLS = [
             "required": ["title", "start_datetime"],
         },
     },
+    {
+        "name": "save_attachment",
+        "description": "Save a chat-attached binary file (PDF, DOCX, XLSX, image) to the project in its original format.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "description": "Name of the attached file (as shown in the chat)",
+                },
+                "destination": {
+                    "type": "string",
+                    "enum": ["files", "workspace"],
+                    "description": "Save to project files/ (persistent) or workspace/ (scratch). Default: files.",
+                },
+            },
+            "required": ["filename"],
+        },
+    },
 ]
 
 
@@ -1648,6 +1667,7 @@ def tool_status_text(name, tool_input):
         "create_xlsx": f'Creating spreadsheet: {tool_input.get("filename", "")}',
         "get_calendar_events": f'Checking calendar: {tool_input.get("start_date", "")}',
         "create_calendar_event": f'Creating event: "{tool_input.get("title", "")}"',
+        "save_attachment": f'Saving attachment: {tool_input.get("filename", "")}',
     }
     return labels.get(name, f"Using tool: {name}")
 
@@ -2251,6 +2271,20 @@ def execute_tool(name, tool_input, confirm_fn=None):
 
         filepath = documents.create_xlsx(data, filename, headers=headers, sheet_name=sheet_name)
         return f"Spreadsheet created: {filepath}", False
+
+    elif name == "save_attachment":
+        import files as _files
+        filename = tool_input.get("filename", "")
+        dest = tool_input.get("destination", "files")
+        if not filename:
+            return "Error: filename is required.", True
+        result_path = _files.save_temp_attachment(filename, dest)
+        if result_path:
+            return f"Saved {filename} to {result_path}", False
+        available = _files.list_temp_attachments()
+        if available:
+            return f"No attachment '{filename}' found. Available: {', '.join(available)}", True
+        return "No attachments available to save. Files are only available for saving during the session they were attached.", True
 
     # Try plugin tools before giving up
     try:

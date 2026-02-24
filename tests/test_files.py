@@ -1,6 +1,7 @@
 """Tests for the files module — project file management."""
 
 import os
+import shutil
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -531,3 +532,134 @@ class TestImageFile:
         ok, err = files.check_file_importable(path)
         assert not ok
         assert "too large" in err.lower()
+
+
+class TestTempAttachments:
+    """Tests for binary attachment preservation (temp attachment store)."""
+
+    def setup_method(self):
+        """Clear temp attachments before each test."""
+        files._temp_attachments.clear()
+
+    def teardown_method(self):
+        """Clean up any leftover temp files."""
+        files.cleanup_temp_attachments()
+
+    def test_store_and_get(self, isolated_env):
+        """store_temp_attachment registers a file, get_temp_attachment retrieves it."""
+        path = os.path.join(isolated_env, "test.pdf")
+        with open(path, "wb") as f:
+            f.write(b"%PDF-1.4 content")
+        files.store_temp_attachment("test.pdf", path)
+        assert files.get_temp_attachment("test.pdf") == path
+
+    def test_get_missing(self):
+        """get_temp_attachment returns None for unregistered names."""
+        assert files.get_temp_attachment("nonexistent.pdf") is None
+
+    def test_get_deleted_file(self, isolated_env):
+        """get_temp_attachment returns None if the file was deleted from disk."""
+        path = os.path.join(isolated_env, "gone.pdf")
+        with open(path, "wb") as f:
+            f.write(b"%PDF")
+        files.store_temp_attachment("gone.pdf", path)
+        os.unlink(path)
+        assert files.get_temp_attachment("gone.pdf") is None
+
+    def test_list_temp_attachments(self, isolated_env):
+        """list_temp_attachments returns names of files that exist on disk."""
+        p1 = os.path.join(isolated_env, "a.pdf")
+        p2 = os.path.join(isolated_env, "b.png")
+        for p in [p1, p2]:
+            with open(p, "wb") as f:
+                f.write(b"data")
+        files.store_temp_attachment("a.pdf", p1)
+        files.store_temp_attachment("b.png", p2)
+        result = files.list_temp_attachments()
+        assert "a.pdf" in result
+        assert "b.png" in result
+
+    def test_save_temp_attachment_to_files(self, isolated_env):
+        """save_temp_attachment copies to project files/ directory."""
+        src = os.path.join(isolated_env, "report.pdf")
+        with open(src, "wb") as f:
+            f.write(b"%PDF-1.4 report data")
+        files.store_temp_attachment("report.pdf", src, is_temp=True)
+
+        dest = files.save_temp_attachment("report.pdf", "files")
+        assert dest is not None
+        assert os.path.isfile(dest)
+        assert memory.get_files_dir() in dest
+        with open(dest, "rb") as f:
+            assert f.read() == b"%PDF-1.4 report data"
+        # Temp source should be deleted
+        assert not os.path.isfile(src)
+        # Should be removed from store
+        assert "report.pdf" not in files._temp_attachments
+
+    def test_save_temp_attachment_to_workspace(self, isolated_env):
+        """save_temp_attachment copies to project workspace/ directory."""
+        src = os.path.join(isolated_env, "data.xlsx")
+        with open(src, "wb") as f:
+            f.write(b"PK\x03\x04 xlsx data")
+        files.store_temp_attachment("data.xlsx", src, is_temp=True)
+
+        dest = files.save_temp_attachment("data.xlsx", "workspace")
+        assert dest is not None
+        assert os.path.isfile(dest)
+        assert memory.get_workspace_dir() in dest
+
+    def test_save_preserves_permanent_source(self, isolated_env):
+        """save_temp_attachment with is_temp=False does not delete the original."""
+        src = os.path.join(isolated_env, "photo.png")
+        with open(src, "wb") as f:
+            f.write(b"\x89PNG image data")
+        files.store_temp_attachment("photo.png", src, is_temp=False)
+
+        dest = files.save_temp_attachment("photo.png", "files")
+        assert dest is not None
+        assert os.path.isfile(dest)
+        # Original should still exist
+        assert os.path.isfile(src)
+
+    def test_save_nonexistent_returns_none(self):
+        """save_temp_attachment returns None for unknown filenames."""
+        result = files.save_temp_attachment("ghost.pdf")
+        assert result is None
+
+    def test_cleanup_removes_temp_only(self, isolated_env):
+        """cleanup_temp_attachments removes temp files but not permanent ones."""
+        temp_path = os.path.join(isolated_env, "temp.pdf")
+        perm_path = os.path.join(isolated_env, "perm.png")
+        for p in [temp_path, perm_path]:
+            with open(p, "wb") as f:
+                f.write(b"data")
+        files.store_temp_attachment("temp.pdf", temp_path, is_temp=True)
+        files.store_temp_attachment("perm.png", perm_path, is_temp=False)
+
+        files.cleanup_temp_attachments()
+        assert not os.path.isfile(temp_path)
+        assert os.path.isfile(perm_path)
+        assert len(files._temp_attachments) == 0
+
+    def test_binary_attachment_extensions(self):
+        """BINARY_ATTACHMENT_EXTENSIONS contains expected formats."""
+        for ext in [".pdf", ".docx", ".xlsx", ".png", ".jpg", ".jpeg", ".gif", ".webp"]:
+            assert ext in files.BINARY_ATTACHMENT_EXTENSIONS
+
+    def test_format_file_for_injection_preserved(self):
+        """format_file_for_injection with preserved=True includes save note."""
+        msg, name, lines = files.format_file_for_injection(
+            "/a/b/report.pdf", "Extracted text content", preserved=True
+        )
+        assert "save_attachment" in msg
+        assert "original binary attached" in msg
+        assert name == "report.pdf"
+
+    def test_format_file_for_injection_not_preserved(self):
+        """format_file_for_injection without preserved flag has no save note."""
+        msg, name, lines = files.format_file_for_injection(
+            "/a/b/readme.txt", "Hello world"
+        )
+        assert "save_attachment" not in msg
+        assert "original binary attached" not in msg

@@ -2940,20 +2940,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 tmp.close()
                 image_block = files.encode_image_for_api(tmp.name)
                 attachment_blocks.append(("image", "photo.jpg", image_block))
+                files.store_temp_attachment("photo.jpg", tmp.name, is_temp=True)
                 await send_reply(chat_id, "Attached photo", bot)
             except Exception as e:
                 await send_reply(chat_id, f"Failed to process photo: {e}", bot)
             finally:
-                try:
-                    os.unlink(tmp.name)
-                except Exception:
-                    pass
+                # Don't unlink — preserved for save_attachment
+                pass
 
     # Handle document attachments
     if update.message.document:
         doc = update.message.document
         doc_name = doc.file_name or "document"
         ok, ext = files.validate_extension(doc_name)
+        is_binary = ext.lower() in files.BINARY_ATTACHMENT_EXTENSIONS if ok else False
         if ok and doc.file_size <= files.MAX_IMAGE_SIZE:
             import tempfile
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
@@ -2968,15 +2968,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     extracted = files.read_file_contents(tmp.name)
                     line_count = extracted.count("\n") + 1
-                    attachment_blocks.append(("text", doc_name, f"[Attached file: {doc_name}]\n```\n{extracted}\n```"))
+                    preserved_tag = " (original binary attached — use save_attachment to save)" if is_binary else ""
+                    attachment_blocks.append(("text", doc_name, f"[Attached file: {doc_name}]{preserved_tag}\n```\n{extracted}\n```"))
                     await send_reply(chat_id, f"Attached {doc_name} ({line_count} lines)", bot)
+                # Preserve binary temp files for save_attachment
+                if is_binary:
+                    files.store_temp_attachment(doc_name, tmp.name, is_temp=True)
             except Exception as e:
                 await send_reply(chat_id, f"Failed to read {doc_name}: {e}", bot)
             finally:
-                try:
-                    os.unlink(tmp.name)
-                except Exception:
-                    pass
+                if not is_binary:
+                    try:
+                        os.unlink(tmp.name)
+                    except Exception:
+                        pass
         elif ok:
             await send_reply(chat_id, f"Skipped {doc_name}: too large ({doc.file_size // 1024}KB)", bot)
 
@@ -2988,6 +2993,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for kind, name, data in attachment_blocks:
                 if kind == "image":
                     content_blocks.append(data)
+                    content_blocks.append({"type": "text", "text": f"[Attached image: {name}] (original binary attached — use save_attachment to save)"})
                 else:
                     content_blocks.append({"type": "text", "text": data})
             if text:

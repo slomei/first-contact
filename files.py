@@ -11,6 +11,64 @@ import shutil
 import memory
 import parsers
 
+# Temp attachment store — maps display name to {path, is_temp}
+_temp_attachments = {}
+
+BINARY_ATTACHMENT_EXTENSIONS = {
+    ".pdf", ".docx", ".xlsx",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp",
+}
+
+
+def store_temp_attachment(name, path, is_temp=True):
+    """Register a file for later binary retrieval via save_attachment."""
+    _temp_attachments[name] = {"path": path, "is_temp": is_temp}
+
+
+def get_temp_attachment(name):
+    """Get file path for a named attachment, or None."""
+    entry = _temp_attachments.get(name)
+    if entry and os.path.isfile(entry["path"]):
+        return entry["path"]
+    return None
+
+
+def list_temp_attachments():
+    """Return names of available temp attachments."""
+    return [n for n, e in _temp_attachments.items() if os.path.isfile(e["path"])]
+
+
+def save_temp_attachment(name, dest_dir="files"):
+    """Copy a temp attachment to project files/ or workspace/. Returns dest path or None."""
+    entry = _temp_attachments.get(name)
+    if not entry or not os.path.isfile(entry["path"]):
+        return None
+    if dest_dir == "workspace":
+        dest = os.path.join(memory.get_workspace_dir(), name)
+    else:
+        dest = os.path.join(memory.get_files_dir(), name)
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    shutil.copy2(entry["path"], dest)
+    if entry["is_temp"]:
+        try:
+            os.unlink(entry["path"])
+        except OSError:
+            pass
+    del _temp_attachments[name]
+    return dest
+
+
+def cleanup_temp_attachments():
+    """Remove all temp attachment files and clear the store."""
+    for name, entry in list(_temp_attachments.items()):
+        if entry["is_temp"]:
+            try:
+                os.unlink(entry["path"])
+            except OSError:
+                pass
+    _temp_attachments.clear()
+
+
 ALLOWED_EXTENSIONS = {
     ".txt", ".md", ".py", ".js", ".json", ".csv", ".html", ".css",
     ".yml", ".yaml", ".toml", ".cfg", ".log", ".xml", ".sh", ".bat",
@@ -179,14 +237,18 @@ def read_file_contents(filepath):
         return f.read()
 
 
-def format_file_for_injection(filepath, contents):
+def format_file_for_injection(filepath, contents, preserved=False):
     """Format file contents for conversation history injection.
 
     Returns (message_str, filename, line_count).
+    If preserved=True, adds a note that the original binary is available via save_attachment.
     """
     filename = os.path.basename(filepath)
     line_count = contents.count("\n") + (1 if contents and not contents.endswith("\n") else 0)
-    message = f"[File: {filename}]\n```\n{contents}\n```"
+    tag = f"[File: {filename}]"
+    if preserved:
+        tag += " (original binary attached — use save_attachment to save)"
+    message = f"{tag}\n```\n{contents}\n```"
     return message, filename, line_count
 
 

@@ -2979,6 +2979,8 @@ async def on_message(message):
             await send_reply(dm, f"*Skipped {att.filename}: too large ({att.size // 1024}KB)*")
             continue
 
+        is_binary = ext.lower() in files.BINARY_ATTACHMENT_EXTENSIONS
+
         import tempfile
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
         try:
@@ -2991,15 +2993,20 @@ async def on_message(message):
             else:
                 extracted = files.read_file_contents(tmp.name)
                 _, _, line_count = files.extract_file_for_chat(tmp.name)
-                attachment_blocks.append(("text", att.filename, f"[Attached file: {att.filename}]\n```\n{extracted}\n```"))
+                preserved_tag = " (original binary attached — use save_attachment to save)" if is_binary else ""
+                attachment_blocks.append(("text", att.filename, f"[Attached file: {att.filename}]{preserved_tag}\n```\n{extracted}\n```"))
                 await send_reply(dm, f"*Attached {att.filename} ({line_count} lines)*")
+            # Preserve binary temp files for save_attachment
+            if is_binary:
+                files.store_temp_attachment(att.filename, tmp.name, is_temp=True)
         except Exception as e:
             await send_reply(dm, f"*Failed to read {att.filename}: {e}*")
         finally:
-            try:
-                os.unlink(tmp.name)
-            except Exception:
-                pass
+            if not is_binary:
+                try:
+                    os.unlink(tmp.name)
+                except Exception:
+                    pass
 
     if attachment_blocks:
         has_images = any(r[0] == "image" for r in attachment_blocks)
@@ -3009,6 +3016,7 @@ async def on_message(message):
             for kind, name, data in attachment_blocks:
                 if kind == "image":
                     content_blocks.append(data)
+                    content_blocks.append({"type": "text", "text": f"[Attached image: {name}] (original binary attached — use save_attachment to save)"})
                 else:
                     content_blocks.append({"type": "text", "text": data})
             if content:

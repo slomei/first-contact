@@ -8,7 +8,7 @@
 
 First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Four interfaces (terminal, web UI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
 
-**Status:** Shipped. All 449 tests passing. Live on GitHub.
+**Status:** Shipped. All 467 tests passing. Live on GitHub.
 
 ---
 
@@ -32,7 +32,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `memory.py` | Persistent memory (global + per-project), semantic search via sentence-transformers, system prompt builder (stable/dynamic split for prompt caching), project switching, cross-project awareness, user profile, config I/O. |
 | `models.py` | Model routing (Haiku/Sonnet/Opus), API calls, token tracking, pricing, context compression (fast-tier summarized at 20K tokens), specialist delegation (researcher/writer/coder/analyst). Provider dispatch via `_get_provider()` — all model IDs use tier lookups (`fast`/`standard`/`quality`). |
 | `providers/` | Provider abstraction — `__init__.py` (ABC, registry, factory), `compat.py` (Anthropic-compatible wrapper types), `anthropic_provider.py` (zero-overhead pass-through), `openai_provider.py` (OpenAI SDK wrapper), `gemini_provider.py` (Google GenAI wrapper). |
-| `tools.py` | 27 core tool definitions (`TOOLS` list) and `execute_tool()` dispatch. Gmail, Calendar, web search, file I/O, code execution, job search, notes, tasks, reminders, PDF generation, DOCX/XLSX creation. Unknown tool names fall through to plugins; plugin execution errors surface the error type to the user (never silently swallowed). `get_cached_tools()` merges core + plugin tools with `cache_control` on the last tool. `_rebuild_cached_tools()` refreshes after plugin reload, logs to stderr on failure. |
+| `tools.py` | 28 core tool definitions (`TOOLS` list) and `execute_tool()` dispatch. Gmail, Calendar, web search, file I/O, code execution, job search, notes, tasks, reminders, PDF generation, DOCX/XLSX creation, attachment saving. Unknown tool names fall through to plugins; plugin execution errors surface the error type to the user (never silently swallowed). `get_cached_tools()` merges core + plugin tools with `cache_control` on the last tool. `_rebuild_cached_tools()` refreshes after plugin reload, logs to stderr on failure. |
 | `tasks.py` | Task system (add/edit/done/remove, priority levels, due dates) and reminder system (natural language date parsing via dateutil). Stored per-project in `tasks.json`, reminders global in `reminders.json`. |
 | `documents.py` | PDF generation via reportlab, Word document (.docx) creation via python-docx, and spreadsheet (.xlsx) creation via openpyxl. Cover letters with auto-fit-to-one-page (progressive margin/font reduction, Opus shortening as last resort). Generic PDF generation. Falls back to plain text/CSV if optional deps not installed. |
 | `briefing.py` | Daily briefing aggregation — 7 data sources: email, calendar, tasks, jobs, reminders, watchlist, scan results. Formats for Discord, Telegram, and terminal. |
@@ -46,7 +46,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `help_data.py` | Single source of truth for all help text. `HELP_CATEGORIES` dict with per-interface formatters (terminal ANSI box-drawing, Discord markdown, Telegram plain text). Fuzzy prefix matching. |
 | `creative.py` | Creative project tools — world bible PDF parsing via pdfplumber, character/location JSON lookup. Used for the First Light screenplay project. |
 | `skills_loader.py` | Extensible skills system — loads `.md` skill files from `skills/` directory, keyword matching, default base skills per specialist, injects matched skill content into specialist system prompts during delegation. |
-| `files.py` | Project file management — import, list, remove files. Validation, large-file detection, conversation injection formatting. `extract_file_for_chat()` for temporary attachment injection, `write_binary_file_contents()` for binary uploads. Image support: `is_image_file()`, `encode_image_for_api()` for multimodal content blocks (PNG, JPG, JPEG, GIF, WebP). Used by all interfaces and web UI drag-and-drop. Binary documents (PDF, DOCX, XLSX) routed through `parsers.py`. |
+| `files.py` | Project file management — import, list, remove files. Validation, large-file detection, conversation injection formatting. `extract_file_for_chat()` for temporary attachment injection, `write_binary_file_contents()` for binary uploads. Image support: `is_image_file()`, `encode_image_for_api()` for multimodal content blocks (PNG, JPG, JPEG, GIF, WebP). Binary attachment preservation: `_temp_attachments` dict, `store_temp_attachment()`, `save_temp_attachment()`, `cleanup_temp_attachments()` — keeps original binary files available for `save_attachment` tool during the session. Used by all interfaces and web UI drag-and-drop. Binary documents (PDF, DOCX, XLSX) routed through `parsers.py`. |
 | `parsers.py` | Binary document text extraction — PDF (pdfplumber), DOCX (python-docx), XLSX (openpyxl). Optional deps with clear error messages. Used by `files.py` and `tools.py` read_file. |
 | `plugin_generator.py` | Plugin template generator — scaffolds new plugins with correct directory structure, metadata (`plugin.json`), stub tools, and documentation. CLI via argparse, also importable. Validates names, prevents overwrites. |
 | `plugins/` | Plugin system — `__init__.py` loader discovers `.py` files and packages (directories with `__init__.py`), validates required attributes (`PLUGIN_NAME`, `TOOLS`, `execute`), routes tool calls. `example_plugin.py` reference implementation (dice roller). `DIRECTORY.md` community plugin registry. `README.md` for plugin authors. |
@@ -228,9 +228,9 @@ The director (Sonnet) can route messages to specialist agents:
 
 Specialists can be augmented with skills — `.md` files in the `skills/` directory with YAML front matter defining `name`, `description`, `specialist`, `model_preference`, `default`, and `trigger_keywords`. When a message is delegated, `skills_loader.get_default_skill()` loads the base instructions for that specialist, then `match_skill()` finds the best keyword match and layers it on top. Ships with 9 built-in skills: 4 base specialist skills (researcher, writer, coder, analyst) + 5 task skills (cover_letter, research, code_review, email_draft, job_analysis). Users can customize specialist behavior by editing base skill files or add new skills by dropping `.md` files into `skills/`.
 
-### 27 Integrated Tools
+### 28 Integrated Tools
 
-`web_search`, `read_file`, `write_file`, `remember`, `forget`, `list_memories`, `save_note`, `run_python`, `job_search`, `check_email`, `read_email`, `search_email`, `create_task`, `create_reminder`, `list_tasks`, `complete_task`, `edit_task`, `remove_task`, `add_task_note`, `list_reminders`, `cancel_reminder`, `web_fetch`, `generate_pdf`, `create_docx`, `create_xlsx`, `get_calendar_events`, `create_calendar_event`
+`web_search`, `read_file`, `write_file`, `remember`, `forget`, `list_memories`, `save_note`, `run_python`, `job_search`, `check_email`, `read_email`, `search_email`, `create_task`, `create_reminder`, `list_tasks`, `complete_task`, `edit_task`, `remove_task`, `add_task_note`, `list_reminders`, `cancel_reminder`, `web_fetch`, `generate_pdf`, `create_docx`, `create_xlsx`, `get_calendar_events`, `create_calendar_event`, `save_attachment`
 
 ### Memory System
 
@@ -273,7 +273,7 @@ The system prompt (`memory.py`) includes six behavioral directives built from ac
 - **Act-don't-ask** — When the user asks to do something, do it immediately. Don't ask for confirmation, optional fields, or clarifying questions unless the request is truly ambiguous. Programmatic confirmation gates (calendar events, file overwrites) handle their own confirmation — the agent doesn't add a second layer.
 - **Typo tolerance** — Never ask if something is a typo unless it affects a concrete output like a calendar event, email draft, file name, or cover letter. If the intent is interpretable, just act on it.
 - **Memory restraint** — Never use `remember` or `forget` unless the user explicitly asks. No unsolicited memory reorganization, consolidation, or updates — not when reading files, not when learning new info mid-conversation. Profile learning is handled post-conversation by `user_model.py`.
-- **Format preservation** — When a user attaches a file and asks to save it, preserve the original format. Don't offer to save a PDF as text/markdown or convert a spreadsheet to CSV. If only extracted text is available, tell the user and ask how to proceed.
+- **Format preservation** — When a user attaches a file and asks to save it, preserve the original format. Use `save_attachment` to save binary files (PDF, DOCX, XLSX, images) in their original format. Don't offer to save a PDF as text/markdown or convert a spreadsheet to CSV.
 - **Self-knowledge** — Dynamic section describing First Contact's own identity, capabilities, tool count, skill count, and architecture. Rebuilt each turn so the agent can accurately answer "what are you?" questions.
 - **Tool parameter notes** — Consolidated guidance for tool usage (memory defaults, date/time parameter format, generate_pdf modes, calendar confirmation) in the stable block so the model has context without bloating tool schemas.
 - **Search restraint** — Explicit "when NOT to search" rules: don't search when the answer is in conversation/memories, when the user asks about their own data (use the right tool instead), or when following up on an already-discussed topic.
@@ -436,7 +436,7 @@ All four interfaces share these features via the shared core:
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks. Tool execution errors always surface to the user with the error type (e.g. `ValueError`) — never silently swallowed. File extraction failures in attachments report which file failed. Plugin load failures log to stderr.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 449 tests across 26 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 467 tests across 26 test files.
 
 ---
 

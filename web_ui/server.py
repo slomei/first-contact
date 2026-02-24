@@ -105,6 +105,8 @@ def _extract_attached_files(attached_files):
 
     Returns list of tuples: (kind, name, content) where kind is "image" or "text".
     Image items have an API image block dict as content; text items have a string.
+    Binary attachments (images, PDF, DOCX, XLSX) are preserved as temp files for
+    later retrieval via save_attachment.
     """
     results = []
     for item in attached_files:
@@ -113,6 +115,8 @@ def _extract_attached_files(attached_files):
         ok, ext = files.validate_extension(name)
         if not ok:
             continue
+
+        is_binary = ext.lower() in files.BINARY_ATTACHMENT_EXTENSIONS
 
         # Write to temp file for extraction (especially binary formats)
         try:
@@ -132,14 +136,21 @@ def _extract_attached_files(attached_files):
                 results.append(("image", name, image_block))
             else:
                 extracted = files.read_file_contents(tmp.name)
-                results.append(("text", name, f"[Attached file: {name}]\n```\n{extracted}\n```"))
+                preserved_tag = " (original binary attached — use save_attachment to save)" if is_binary else ""
+                results.append(("text", name, f"[Attached file: {name}]{preserved_tag}\n```\n{extracted}\n```"))
+
+            # Preserve binary temp files for save_attachment
+            if is_binary:
+                files.store_temp_attachment(name, tmp.name, is_temp=True)
         except Exception as e:
             results.append(("text", name, f"[Failed to extract {name}: {type(e).__name__}]"))
         finally:
-            try:
-                os.unlink(tmp.name)
-            except Exception:
-                pass
+            # Only unlink non-binary temp files
+            if not is_binary:
+                try:
+                    os.unlink(tmp.name)
+                except Exception:
+                    pass
 
     return results
 
@@ -161,6 +172,7 @@ async def handle_message(ws, conn, data):
                 for kind, name, data_item in extracted:
                     if kind == "image":
                         content_blocks.append(data_item)  # image block dict
+                        content_blocks.append({"type": "text", "text": f"[Attached image: {name}] (original binary attached — use save_attachment to save)"})
                     else:
                         content_blocks.append({"type": "text", "text": data_item})
                 if user_msg:
@@ -473,7 +485,7 @@ async def handle_file_upload(ws, conn, data):
     }))
 
 
-FILE_WRITE_TOOLS = {"write_file", "save_note", "generate_pdf", "create_docx", "create_xlsx"}
+FILE_WRITE_TOOLS = {"write_file", "save_note", "generate_pdf", "create_docx", "create_xlsx", "save_attachment"}
 
 
 async def send_file_list(ws, conn):
@@ -736,6 +748,7 @@ async def handler(ws):
         pass
     finally:
         _save_conversation(conn)
+        files.cleanup_temp_attachments()
         print(f"Client disconnected ({ws.remote_address})")
 
 

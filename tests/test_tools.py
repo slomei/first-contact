@@ -92,3 +92,55 @@ def test_tool_descriptions_are_concise():
         assert "use when" not in desc, (
             f"Tool '{tool['name']}' has verbose description: {tool['description']}"
         )
+
+
+def test_save_attachment_in_tools():
+    """save_attachment tool exists in TOOLS list with correct schema."""
+    tool = next((t for t in tools.TOOLS if t["name"] == "save_attachment"), None)
+    assert tool is not None, "save_attachment tool not found in TOOLS"
+    assert "filename" in tool["input_schema"]["properties"]
+    assert "destination" in tool["input_schema"]["properties"]
+    assert "filename" in tool["input_schema"]["required"]
+
+
+def test_tool_count():
+    """TOOLS list has 28 core tools."""
+    assert len(tools.TOOLS) == 28
+
+
+def test_save_attachment_status_text():
+    """save_attachment has a status text entry."""
+    result = tools.tool_status_text("save_attachment", {"filename": "report.pdf"})
+    assert "report.pdf" in result
+
+
+def test_save_attachment_no_filename(isolated_env):
+    """save_attachment returns error when filename is empty."""
+    result, is_error = tools.execute_tool("save_attachment", {"filename": ""})
+    assert is_error
+    assert "required" in result.lower()
+
+
+def test_save_attachment_no_attachments(isolated_env):
+    """save_attachment returns error when no attachments available."""
+    import files
+    files._temp_attachments.clear()
+    result, is_error = tools.execute_tool("save_attachment", {"filename": "test.pdf"})
+    assert is_error
+    assert "No attachments available" in result
+
+
+def test_save_attachment_success(isolated_env):
+    """save_attachment copies file to project files/ directory."""
+    import files
+    files._temp_attachments.clear()
+
+    src = os.path.join(isolated_env, "report.pdf")
+    with open(src, "wb") as f:
+        f.write(b"%PDF-1.4 test content")
+    files.store_temp_attachment("report.pdf", src, is_temp=True)
+
+    result, is_error = tools.execute_tool("save_attachment", {"filename": "report.pdf"})
+    assert not is_error
+    assert "Saved" in result
+    assert "report.pdf" in result

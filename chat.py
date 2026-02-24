@@ -122,6 +122,7 @@ def _clean_exit():
         user_model.maybe_extract(models.conversation_history)
     except Exception:
         pass
+    files.cleanup_temp_attachments()
     print("Goodbye!")
 
 
@@ -639,20 +640,29 @@ if __name__ == "__main__":
                 continue
 
             # Image files — encode as multimodal content block
+            filename = os.path.basename(resolved)
+            _, ext = os.path.splitext(resolved)
+            is_binary = ext.lower() in files.BINARY_ATTACHMENT_EXTENSIONS
+
             if files.is_image_file(resolved):
                 try:
                     image_block = files.encode_image_for_api(resolved)
                 except ValueError as e:
                     print(f"{memory.DIM}{e}{memory.RESET}\n")
                     continue
-                filename = os.path.basename(resolved)
-                content = [image_block, {"type": "text", "text": f"[Attached image: {filename}]"}]
+                files.store_temp_attachment(filename, resolved, is_temp=False)
+                content = [image_block, {"type": "text", "text": f"[Attached image: {filename}] (original binary attached — use save_attachment to save)"}]
                 models.conversation_history.append({"role": "user", "content": content})
                 print(f"{memory.DIM}Attached image {filename}{memory.RESET}\n")
                 continue
 
             try:
-                msg, filename, line_count = files.extract_file_for_chat(resolved)
+                if is_binary:
+                    contents = files.read_file_contents(resolved)
+                    msg, filename, line_count = files.format_file_for_injection(resolved, contents, preserved=True)
+                    files.store_temp_attachment(filename, resolved, is_temp=False)
+                else:
+                    msg, filename, line_count = files.extract_file_for_chat(resolved)
             except ValueError as e:
                 print(f"{memory.DIM}{e}{memory.RESET}\n")
                 continue
