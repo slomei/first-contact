@@ -1721,6 +1721,10 @@ def execute_tool(name, tool_input, confirm_fn=None):
                     filepath = candidate
                     break
 
+        # Relative paths resolve against BASE_DIR (project root), not CWD
+        if not os.path.isabs(filepath):
+            filepath = os.path.join(memory.BASE_DIR, filepath)
+
         # --- Path restriction: only allow reads within project directory ---
         resolved = os.path.realpath(os.path.expanduser(filepath))
         allowed_bases = [os.path.realpath(memory.BASE_DIR)]
@@ -1767,7 +1771,7 @@ def execute_tool(name, tool_input, confirm_fn=None):
             f.write(content)
             if not content.endswith("\n"):
                 f.write("\n")
-        return f"Wrote to {memory.active_project}/workspace/{filename}", False
+        return f"Wrote to projects/{memory.active_project}/workspace/{filename}", False
 
     elif name == "remember":
         fact = tool_input["fact"]
@@ -1814,7 +1818,7 @@ def execute_tool(name, tool_input, confirm_fn=None):
         text = tool_input["text"]
         filepath = save_note(text)
         date_str = memory.local_now().strftime("%Y-%m-%d")
-        return f"Note saved to {memory.active_project}/notes/{date_str}.md", False
+        return f"Note saved to projects/{memory.active_project}/notes/{date_str}.md", False
 
     elif name == "run_python":
         code = tool_input["code"]
