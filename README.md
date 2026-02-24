@@ -32,9 +32,9 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 
 **Plugin ecosystem.** Create plugins with the built-in template generator: `python plugin_generator.py my_plugin`. Scaffolds a complete plugin with metadata, stub tools, and documentation. Browse community plugins in the [plugin directory](plugins/DIRECTORY.md). Plugins run with full process access — review source code before installing third-party plugins.
 
-**MCP server.** Expose First Contact's tools to external AI clients via the [Model Context Protocol](https://modelcontextprotocol.io/). Claude Desktop, Cursor, and any MCP-compatible client can discover and call all 27 core tools (plus plugins) directly — email, calendar, web search, tasks, memory, files — without going through the chat interface. Configurable tool blacklist for safety (`run_python` blocked by default). Optional dependency: install `mcp` to enable.
+**MCP server.** Expose First Contact's tools to external AI clients via the [Model Context Protocol](https://modelcontextprotocol.io/). Claude Desktop, Cursor, and any MCP-compatible client can discover and call all 28 core tools (plus plugins) directly — email, calendar, web search, tasks, memory, files — without going through the chat interface. Configurable tool blacklist for safety (`run_python` blocked by default). Optional dependency: install `mcp` to enable.
 
-**27 core tools** (plus any from plugins):
+**28 core tools** (plus any from plugins):
 
 - **Web search** — configurable search provider (DuckDuckGo default, Brave/Google/SerpAPI), with page fetching and content extraction
 - **Gmail** — Read your inbox, search emails, draft replies. Multi-account support. Draft-only: the agent creates drafts, you send them
@@ -51,7 +51,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 - **Notification routing** — Background email monitoring with priority filtering, delivered to Discord, Telegram, email, or all three
 - **Markdown notes** — Capture timestamped thoughts, research, and links organized as daily markdown files. Searchable across your project
 
-**File attachments.** Attach files directly in conversation on all four interfaces — terminal (`/attach <path>`), web UI (drag-and-drop onto chat input area or paperclip button), Discord (file attachments), Telegram (document attachments). Text files are injected as context; binary documents (PDF, DOCX, XLSX) are parsed to text via `parsers.py`. Web UI attachments queue as chips below the input row and send with the next message (temporary, never persisted to disk). The sidebar drop zone remains a separate path for persistent project files. The sidebar file list is server-synced — it shows files from both the `files/` (uploads) and `workspace/` (tool-written) directories, refreshes on page load, after uploads, and after any file-writing tool completes. Click any file to inspect it in a preview modal — text files show the first 30 lines, PDFs render in the browser's native viewer, images show a thumbnail. Open or delete from the modal.
+**File attachments.** Attach files directly in conversation on all four interfaces — terminal (`/attach <path>`), web UI (drag-and-drop onto chat input area or paperclip button), Discord (file attachments), Telegram (document attachments). Text files are injected as context; binary documents (PDF, DOCX, XLSX) are parsed to text via `parsers.py`. Binary attachments (PDF, DOCX, XLSX, images) are preserved in their original format during the session — when the user asks to save one, the agent uses the `save_attachment` tool to copy the original binary to the project, not a text reconstruction. Web UI attachments queue as chips below the input row and send with the next message (temporary, never persisted to disk). The sidebar drop zone remains a separate path for persistent project files. The sidebar file list is server-synced — it shows files from both the `files/` (uploads) and `workspace/` (tool-written) directories, refreshes on page load, after uploads, and after any file-writing tool completes. Click any file to inspect it in a preview modal — text files show the first 30 lines, PDFs render in the browser's native viewer, images show a thumbnail. Open or delete from the modal.
 
 **Image input.** Send images to the agent across all four interfaces for visual analysis. Supports PNG, JPG, GIF, and WebP. Images are encoded as multimodal content blocks for Claude's vision capability. Works via `/attach` (terminal), drag-and-drop (web UI), file attachments (Discord), and photo messages (Telegram).
 
@@ -133,7 +133,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 | `models.py` | Model routing, provider dispatch, API calls, pricing, context compression, specialists |
 | `providers/` | Provider abstraction — Anthropic, OpenAI, Gemini with Anthropic-compatible wrapper |
 | `search_providers/` | Search provider abstraction — DuckDuckGo, Brave, Google, SerpAPI |
-| `tools.py` | 27 core tool definitions + plugin routing |
+| `tools.py` | 28 core tool definitions + plugin routing |
 | `tasks.py` | Task and reminder system with natural language dates |
 | `documents.py` | Document generation — PDF (cover letters, generic), DOCX, XLSX |
 | `briefing.py` | Daily briefing aggregation (7 data sources) |
