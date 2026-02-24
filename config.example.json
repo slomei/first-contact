@@ -52,7 +52,8 @@
     "auto_start_discord": true,
     "auto_start_telegram": true,
     "hot_reload": false,
-    "insights_interval_hours": 6
+    "insights_interval_hours": 6,
+    "pattern_detection_interval_hours": 24
   },
   "rate_limits": {
     "drafts_per_session": 10,
@@ -81,5 +82,10 @@
     "tools": [],
     "credits": [],
     "target_roles": []
+  },
+  "user_model": {
+    "enabled": true,
+    "extraction_enabled": true,
+    "pattern_detection_enabled": true
   }
 }

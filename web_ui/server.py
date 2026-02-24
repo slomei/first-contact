@@ -205,6 +205,44 @@ async def handle_message(ws, conn, data):
         await ws.send(json.dumps({"type": "status", "content": msg}))
         return
 
+    if user_msg.startswith("/profile"):
+        import user_model
+        arg = user_msg[8:].strip().lower()
+        if arg == "clear":
+            user_model.clear_profile()
+            msg = "User profile cleared."
+        elif arg.startswith("remove "):
+            target = arg[7:].strip()
+            removed = user_model.remove_entry(target)
+            if not removed:
+                for e in user_model.load_profile():
+                    if target.lower() in e.get("text", "").lower():
+                        removed = user_model.remove_entry(e["id"])
+                        break
+            msg = "Entry removed." if removed else "No matching entry found."
+        else:
+            entries = user_model.load_profile()
+            if not entries:
+                msg = "No learned profile entries yet. These are extracted automatically from conversations."
+            else:
+                groups = {}
+                for e in entries:
+                    groups.setdefault(e.get("category", "facts"), []).append(e)
+                labels = {"facts": "Facts", "preferences": "Preferences", "patterns": "Patterns", "goals": "Goals"}
+                lines = [f"**Learned User Profile** ({len(entries)} entries)\n"]
+                for cat in ["facts", "preferences", "patterns", "goals"]:
+                    items = groups.get(cat, [])
+                    if not items:
+                        continue
+                    lines.append(f"**{labels[cat]}:**")
+                    for item in items:
+                        conf = f" ({item['confidence']:.0%})" if item.get("confidence") else ""
+                        lines.append(f"- {item['text']}{conf}")
+                    lines.append("")
+                msg = "\n".join(lines)
+        await ws.send(json.dumps({"type": "status", "content": msg}))
+        return
+
     if not multimodal_appended:
         conn.history.append({"role": "user", "content": user_msg})
 
@@ -324,9 +362,15 @@ def _save_conversation(conn):
     """Save a connection's conversation history via the shared core."""
     if len(conn.history) >= 2:
         try:
-            return models.save_conversation(conn.history)
+            result = models.save_conversation(conn.history)
+        except Exception:
+            result = None
+        try:
+            import user_model
+            user_model.maybe_extract(conn.history)
         except Exception:
             pass
+        return result
     return None
 
 

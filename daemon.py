@@ -48,6 +48,7 @@ DEFAULTS = {
     "auto_start_telegram": True,
     "hot_reload": False,
     "insights_interval_hours": 6,
+    "pattern_detection_interval_hours": 24,
 }
 
 
@@ -452,6 +453,19 @@ def _run_insights(log, channels):
         log.error("Insights analysis failed: %s", e)
 
 
+def _run_pattern_detection(log, channels):
+    """Analyze user data for behavioral patterns."""
+    import user_model
+    try:
+        count, cost = user_model.detect_patterns()
+        if count:
+            log.info("Pattern detection found %d new entries (cost: $%.4f)", count, cost)
+        else:
+            log.info("No new patterns detected (cost: $%.4f)", cost)
+    except Exception as e:
+        log.error("Pattern detection failed: %s", e)
+
+
 # --- Main loop ---
 
 def _next_occurrence(now, hour, minute):
@@ -508,6 +522,7 @@ def run(hot_reload=False):
     reminder_interval = timedelta(minutes=cfg.get("reminder_check_interval_minutes", 5))
     heartbeat_interval = timedelta(minutes=cfg.get("heartbeat_interval_minutes", 30))
     insights_interval = timedelta(hours=cfg.get("insights_interval_hours", 6))
+    pattern_interval = timedelta(hours=cfg.get("pattern_detection_interval_hours", 24))
 
     now = memory.local_now()
 
@@ -518,6 +533,7 @@ def run(hot_reload=False):
     last_reminder = now
     last_heartbeat = now
     last_insights = now
+    last_pattern = now
 
     # Bug fix: compute next briefing time instead of firing retroactively.
     # If briefing was already sent today (per config), push to tomorrow.
@@ -588,6 +604,11 @@ def run(hot_reload=False):
         if api_available and now - last_insights >= insights_interval:
             _run_insights(log, channels)
             last_insights = now
+
+        # Pattern detection
+        if api_available and now - last_pattern >= pattern_interval:
+            _run_pattern_detection(log, channels)
+            last_pattern = now
 
         # Heartbeat
         if now - last_heartbeat >= heartbeat_interval:

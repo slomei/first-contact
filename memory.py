@@ -824,6 +824,15 @@ def _build_stable_prompt():
     if connected:
         base += f"\n\nConnected integrations: {', '.join(connected)}"
 
+    # User model — persistent learned profile
+    try:
+        import user_model
+        profile_text = user_model.format_for_prompt()
+        if profile_text:
+            base += f"\n\n{profile_text}"
+    except Exception:
+        pass
+
     return base
 
 
@@ -1119,6 +1128,7 @@ def reset_all_data(include_config=False):
     files_to_remove = [
         os.path.join(BASE_DIR, "memory.json"),
         os.path.join(BASE_DIR, "reminders.json"),
+        os.path.join(BASE_DIR, "user_profile.json"),
         os.path.join(BASE_DIR, "Claude.md"),
     ]
     if include_config:

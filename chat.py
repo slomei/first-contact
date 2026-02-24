@@ -117,6 +117,11 @@ def _clean_exit():
         print("\nSave interrupted — exiting.")
     except Exception:
         pass
+    try:
+        import user_model
+        user_model.maybe_extract(models.conversation_history)
+    except Exception:
+        pass
     print("Goodbye!")
 
 
@@ -1048,6 +1053,49 @@ if __name__ == "__main__":
                         print(f"  {memory.CYAN}{p['name']:<20}{memory.RESET} {p['description']}")
                         print(f"  {memory.DIM}{'':20} {p['tool_count']} tool{'s' if p['tool_count'] != 1 else ''}{memory.RESET}")
                     print(f"\n{memory.DIM}Use /plugins reload to re-scan the plugins/ directory.{memory.RESET}\n")
+            continue
+
+        if command_lower == "/profile" or command_lower.startswith("/profile "):
+            import user_model
+            profile_arg = command[8:].strip() if len(command) > 8 else ""
+            profile_arg_lower = profile_arg.lower()
+
+            if profile_arg_lower == "clear":
+                user_model.clear_profile()
+                print(f"{memory.DIM}User profile cleared.{memory.RESET}\n")
+            elif profile_arg_lower.startswith("remove "):
+                target = profile_arg[7:].strip()
+                # Try as ID first, then text match
+                removed = user_model.remove_entry(target)
+                if not removed:
+                    entries = user_model.load_profile()
+                    for e in entries:
+                        if target.lower() in e.get("text", "").lower():
+                            removed = user_model.remove_entry(e["id"])
+                            break
+                if removed:
+                    print(f"{memory.DIM}Entry removed.{memory.RESET}\n")
+                else:
+                    print(f"{memory.DIM}No matching entry found.{memory.RESET}\n")
+            else:
+                entries = user_model.load_profile()
+                if not entries:
+                    print(f"{memory.DIM}No learned profile entries yet. These are extracted automatically from conversations.{memory.RESET}\n")
+                else:
+                    groups = {}
+                    for e in entries:
+                        groups.setdefault(e.get("category", "facts"), []).append(e)
+                    labels = {"facts": "Facts", "preferences": "Preferences", "patterns": "Patterns", "goals": "Goals"}
+                    print(f"\n{memory.CYAN}Learned User Profile ({len(entries)} entries):{memory.RESET}")
+                    for cat in ["facts", "preferences", "patterns", "goals"]:
+                        items = groups.get(cat, [])
+                        if not items:
+                            continue
+                        print(f"  {memory.CYAN}{labels[cat]}:{memory.RESET}")
+                        for item in items:
+                            conf = f" ({item['confidence']:.0%})" if item.get("confidence") else ""
+                            print(f"    {item['text']}{memory.DIM}{conf}{memory.RESET}")
+                    print(f"\n{memory.DIM}Use /profile remove <text> to remove an entry, /profile clear to reset.{memory.RESET}\n")
             continue
 
         if command_lower == "/email" or command_lower.startswith("/email "):
@@ -2643,6 +2691,11 @@ if __name__ == "__main__":
                 if result:
                     title, filepath = result
                     print(f"{memory.DIM}Conversation saved: {title}{memory.RESET}")
+                try:
+                    import user_model
+                    user_model.maybe_extract(models.conversation_history)
+                except Exception:
+                    pass
                 models.conversation_history.clear()
             print("New conversation started.\n")
             continue

@@ -807,6 +807,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 models.save_conversation(state.conversation_history)
             except Exception:
                 pass
+            try:
+                import user_model
+                user_model.maybe_extract(state.conversation_history)
+            except Exception:
+                pass
         state.conversation_history = []
         state.input_tokens = 0
         state.output_tokens = 0
@@ -1679,6 +1684,44 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await send_reply(chat_id, f"Plugins reloaded. {count} plugin{'s' if count != 1 else ''} loaded.", bot)
         else:
             await send_reply(chat_id, build_plugins_text(), bot)
+        return
+
+    # --- Profile ---
+    if content_lower == "/profile" or content_lower.startswith("/profile "):
+        import user_model
+        profile_arg = content[8:].strip().lower() if len(content) > 8 else ""
+        if profile_arg == "clear":
+            user_model.clear_profile()
+            await send_reply(chat_id, "User profile cleared.", bot)
+        elif profile_arg.startswith("remove "):
+            target = profile_arg[7:].strip()
+            removed = user_model.remove_entry(target)
+            if not removed:
+                for e in user_model.load_profile():
+                    if target.lower() in e.get("text", "").lower():
+                        removed = user_model.remove_entry(e["id"])
+                        break
+            await send_reply(chat_id, "Entry removed." if removed else "No matching entry found.", bot)
+        else:
+            entries = user_model.load_profile()
+            if not entries:
+                await send_reply(chat_id, "No learned profile entries yet.", bot)
+            else:
+                groups = {}
+                for e in entries:
+                    groups.setdefault(e.get("category", "facts"), []).append(e)
+                labels = {"facts": "Facts", "preferences": "Preferences", "patterns": "Patterns", "goals": "Goals"}
+                lines = [f"Learned User Profile ({len(entries)} entries)\n"]
+                for cat in ["facts", "preferences", "patterns", "goals"]:
+                    items = groups.get(cat, [])
+                    if not items:
+                        continue
+                    lines.append(f"{labels[cat]}:")
+                    for item in items:
+                        conf = f" ({item['confidence']:.0%})" if item.get("confidence") else ""
+                        lines.append(f"  - {item['text']}{conf}")
+                    lines.append("")
+                await send_reply(chat_id, "\n".join(lines), bot)
         return
 
     # --- Conversations ---

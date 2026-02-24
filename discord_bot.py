@@ -762,6 +762,11 @@ async def on_message(message):
                 models.save_conversation(state.conversation_history)
             except Exception:
                 pass
+            try:
+                import user_model
+                user_model.maybe_extract(state.conversation_history)
+            except Exception:
+                pass
         state.conversation_history = []
         state.input_tokens = 0
         state.output_tokens = 0
@@ -1694,6 +1699,44 @@ async def on_message(message):
             await send_reply(dm, f"Plugins reloaded. {count} plugin{'s' if count != 1 else ''} loaded.")
         else:
             await send_reply(dm, build_plugins_text())
+        return
+
+    # --- Profile ---
+    if command_lower == "!profile" or command_lower.startswith("!profile "):
+        import user_model
+        profile_arg = command[8:].strip().lower() if len(command) > 8 else ""
+        if profile_arg == "clear":
+            user_model.clear_profile()
+            await send_reply(dm, "*User profile cleared.*")
+        elif profile_arg.startswith("remove "):
+            target = profile_arg[7:].strip()
+            removed = user_model.remove_entry(target)
+            if not removed:
+                for e in user_model.load_profile():
+                    if target.lower() in e.get("text", "").lower():
+                        removed = user_model.remove_entry(e["id"])
+                        break
+            await send_reply(dm, "*Entry removed.*" if removed else "*No matching entry found.*")
+        else:
+            entries = user_model.load_profile()
+            if not entries:
+                await send_reply(dm, "*No learned profile entries yet.*")
+            else:
+                groups = {}
+                for e in entries:
+                    groups.setdefault(e.get("category", "facts"), []).append(e)
+                labels = {"facts": "Facts", "preferences": "Preferences", "patterns": "Patterns", "goals": "Goals"}
+                lines = [f"**Learned User Profile** ({len(entries)} entries)\n"]
+                for cat in ["facts", "preferences", "patterns", "goals"]:
+                    items = groups.get(cat, [])
+                    if not items:
+                        continue
+                    lines.append(f"**{labels[cat]}:**")
+                    for item in items:
+                        conf = f" ({item['confidence']:.0%})" if item.get("confidence") else ""
+                        lines.append(f"- {item['text']}{conf}")
+                    lines.append("")
+                await send_reply(dm, "\n".join(lines))
         return
 
     # --- Conversations ---

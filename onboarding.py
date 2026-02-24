@@ -1037,6 +1037,24 @@ class OnboardingWizard:
         memory.save_config(config)
         results.append("Updated config.json")
 
+        # Seed user model from onboarding data
+        try:
+            import user_model
+            if d.get("name"):
+                user_model.add_entry("facts", f"User's name is {d['name']}", 1.0, "onboarding")
+            if d.get("work"):
+                user_model.add_entry("facts", f"User works as {d['work']}", 1.0, "onboarding")
+            if d.get("location") and d["location"].lower() != "skip":
+                user_model.add_entry("facts", f"User is located in {d['location']}", 1.0, "onboarding")
+            if d.get("email") and d["email"].lower() != "skip":
+                user_model.add_entry("facts", f"User's email is {d['email']}", 1.0, "onboarding")
+            if d.get("use_case"):
+                user_model.add_entry("goals", f"Primary use case: {d['use_case']}", 0.9, "onboarding")
+            if d.get("comm_style"):
+                user_model.add_entry("preferences", f"Preferred communication style: {d['comm_style']}", 0.9, "onboarding")
+        except Exception:
+            pass
+
         # 3. Create setup_env.sh
         env_lines = self._build_env_script()
         if env_lines:
