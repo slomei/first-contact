@@ -402,6 +402,7 @@ def _list_conversations():
 
 async def handle_file_upload(ws, conn, data):
     """Handle file uploads from the web client (drag-and-drop)."""
+    memory.active_project = conn.active_project
     uploaded = data.get("files", [])
     if not uploaded:
         await ws.send(json.dumps({
@@ -580,10 +581,15 @@ async def handler(ws):
                 if fdir == "workspace":
                     workspace_dir = memory.get_workspace_dir()
                     fpath = os.path.join(workspace_dir, os.path.basename(fname))
+                    print(f"[file_delete] workspace: {fpath} exists={os.path.isfile(fpath)}")
                     if os.path.isfile(fpath):
                         os.remove(fpath)
                 else:
-                    files.remove_file(fname)
+                    target = os.path.join(memory.get_files_dir(), fname)
+                    print(f"[file_delete] files: {target} exists={os.path.isfile(target)}")
+                    ok, msg = files.remove_file(fname)
+                    if not ok:
+                        print(f"[file_delete] FAILED: {msg}")
                 await send_file_list(ws, conn)
 
             elif msg_type == "confirm_response":

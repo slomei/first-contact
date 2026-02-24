@@ -228,9 +228,12 @@ function removeTypingIndicator() {
 
 function showStatus(text) {
     const el = document.createElement("div");
-    el.className = "message assistant";
-    el.style.fontStyle = "italic";
+    el.style.textAlign = "center";
+    el.style.padding = "4px 0";
+    el.style.fontSize = "0.75rem";
     el.style.color = "var(--fc-text-dim)";
+    el.style.fontStyle = "italic";
+    el.style.opacity = "0.7";
     el.textContent = text;
     chatArea.appendChild(el);
     autoScroll();
