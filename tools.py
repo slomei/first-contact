@@ -573,8 +573,9 @@ def _rebuild_cached_tools():
         plugin_tools = plugins.get_all_plugin_tools()
         if plugin_tools:
             _CACHED_TOOLS.extend(copy.deepcopy(plugin_tools))
-    except Exception:
-        pass
+    except Exception as e:
+        import sys
+        print(f"Warning: Failed to load plugin tools: {type(e).__name__}: {e}", file=sys.stderr)
     if _CACHED_TOOLS:
         _CACHED_TOOLS[-1]["cache_control"] = {"type": "ephemeral"}
 
@@ -2248,8 +2249,8 @@ def execute_tool(name, tool_input, confirm_fn=None):
         )
         if result is not None:
             return result
-    except Exception:
-        pass
+    except Exception as e:
+        return f"Plugin tool '{name}' failed: {type(e).__name__}: {e}", True
 
     return f"Unknown tool: {name}", True
 

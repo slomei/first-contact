@@ -133,8 +133,8 @@ def _extract_attached_files(attached_files):
             else:
                 extracted = files.read_file_contents(tmp.name)
                 results.append(("text", name, f"[Attached file: {name}]\n```\n{extracted}\n```"))
-        except Exception:
-            pass  # Skip files that fail extraction
+        except Exception as e:
+            results.append(("text", name, f"[Failed to extract {name}: {type(e).__name__}]"))
         finally:
             try:
                 os.unlink(tmp.name)

@@ -28,7 +28,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 
 **Extensible skills system.** Specialists can be augmented with skills — markdown files with YAML front matter that get injected into specialist system prompts when keyword-matched. Ships with 9 built-in skills: 4 base specialist skills (researcher, writer, coder, analyst) + 5 task skills (cover letters, research, code review, email drafting, job analysis). Drop a `.md` file into `skills/` to create your own.
 
-**Plugin system.** Add new tools without modifying core code. Drop a Python file into `plugins/` with a tool definition and handler function, and it's auto-discovered on startup. Plugins receive read-only copies of config and conversation history. Ships with an example dice-roller plugin. See `plugins/README.md` for the full spec.
+**Plugin system.** Add new tools without modifying core code. Drop a Python file into `plugins/` with a tool definition and handler function, and it's auto-discovered on startup. Plugins receive read-only copies of config and conversation history. Plugin execution errors surface the error type to the user — never silently swallowed. Ships with an example dice-roller plugin. See `plugins/README.md` for the full spec.
 
 **Plugin ecosystem.** Create plugins with the built-in template generator: `python plugin_generator.py my_plugin`. Scaffolds a complete plugin with metadata, stub tools, and documentation. Browse community plugins in the [plugin directory](plugins/DIRECTORY.md). Plugins run with full process access — review source code before installing third-party plugins.
 
@@ -301,6 +301,8 @@ This isn't an afterthought — security is baked into the architecture.
 **Rate limits everywhere.** 10 drafts per session, 10 web fetches per session, 20 notifications per hour, 3 manual job scans per day. Prevents runaway API costs and abuse.
 
 **Human-in-the-loop.** Calendar events and code execution require confirmation on all four interfaces (terminal prompt, web UI dialog, Discord DM, Telegram inline keyboard). Everything destructive asks first.
+
+**No silent failures.** Tool execution errors always surface to the user with the error type — never silently swallowed. Plugin errors, file extraction failures, and confirmation timeouts all produce visible feedback.
 
 **User-gated messaging.** Discord and Telegram bots only respond to your user ID. Nobody else can interact with your agent.
 

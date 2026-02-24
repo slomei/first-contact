@@ -32,7 +32,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `memory.py` | Persistent memory (global + per-project), semantic search via sentence-transformers, system prompt builder (stable/dynamic split for prompt caching), project switching, cross-project awareness, user profile, config I/O. |
 | `models.py` | Model routing (Haiku/Sonnet/Opus), API calls, token tracking, pricing, context compression (fast-tier summarized at 20K tokens), specialist delegation (researcher/writer/coder/analyst). Provider dispatch via `_get_provider()` — all model IDs use tier lookups (`fast`/`standard`/`quality`). |
 | `providers/` | Provider abstraction — `__init__.py` (ABC, registry, factory), `compat.py` (Anthropic-compatible wrapper types), `anthropic_provider.py` (zero-overhead pass-through), `openai_provider.py` (OpenAI SDK wrapper), `gemini_provider.py` (Google GenAI wrapper). |
-| `tools.py` | 27 core tool definitions (`TOOLS` list) and `execute_tool()` dispatch. Gmail, Calendar, web search, file I/O, code execution, job search, notes, tasks, reminders, PDF generation, DOCX/XLSX creation. Unknown tool names fall through to plugins. `get_cached_tools()` merges core + plugin tools with `cache_control` on the last tool. `_rebuild_cached_tools()` refreshes after plugin reload. |
+| `tools.py` | 27 core tool definitions (`TOOLS` list) and `execute_tool()` dispatch. Gmail, Calendar, web search, file I/O, code execution, job search, notes, tasks, reminders, PDF generation, DOCX/XLSX creation. Unknown tool names fall through to plugins; plugin execution errors surface the error type to the user (never silently swallowed). `get_cached_tools()` merges core + plugin tools with `cache_control` on the last tool. `_rebuild_cached_tools()` refreshes after plugin reload, logs to stderr on failure. |
 | `tasks.py` | Task system (add/edit/done/remove, priority levels, due dates) and reminder system (natural language date parsing via dateutil). Stored per-project in `tasks.json`, reminders global in `reminders.json`. |
 | `documents.py` | PDF generation via reportlab, Word document (.docx) creation via python-docx, and spreadsheet (.xlsx) creation via openpyxl. Cover letters with auto-fit-to-one-page (progressive margin/font reduction, Opus shortening as last resort). Generic PDF generation. Falls back to plain text/CSV if optional deps not installed. |
 | `briefing.py` | Daily briefing aggregation — 7 data sources: email, calendar, tasks, jobs, reminders, watchlist, scan results. Formats for Discord, Telegram, and terminal. |
@@ -134,7 +134,7 @@ first-contact/
 ├── web_ui/
 │   ├── server.py           # WebSocket server (thin adapter)
 │   ├── index.html           # Entry point
-│   ├── app.js              # Client logic (WebSocket, rendering)
+│   ├── app.js              # Client logic (WebSocket, rendering, confirmation dialogs)
 │   ├── styles.css          # Styling (CSS custom properties)
 │   └── README.md           # Architecture & Tauri integration guide
 ├── skills/                 # Specialist skill files (.md with YAML front matter)
@@ -428,7 +428,7 @@ All four interfaces share these features via the shared core:
 - **Lazy imports** to avoid circular dependencies: `tools.py` imports `models` inside functions, `notifications.py` imports `tools` inside `check_new_emails()`.
 - **Dict access on external data** uses `.get()` with defaults. Direct `dict["key"]` only for internal data with known structure.
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
-- **Errors** produce helpful messages, not tracebacks.
+- **Errors** produce helpful messages, not tracebacks. Tool execution errors always surface to the user with the error type (e.g. `ValueError`) — never silently swallowed. File extraction failures in attachments report which file failed. Plugin load failures log to stderr.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
 - **Tests**: pytest with monkeypatched paths (isolated temp dirs). 449 tests across 26 test files.
 

@@ -106,6 +106,18 @@ function handleServerMessage(data) {
             updateTypingIndicator(data.content);
             break;
 
+        case "tool_end":
+            removeTypingIndicator();
+            break;
+
+        case "confirm":
+            showConfirmDialog(data.content);
+            break;
+
+        case "conversation_list":
+            // Handled by index.html's richer UI; no-op here
+            break;
+
         case "response":
             // Finalize the current bubble with the complete response
             if (currentBubble && data.content) {
@@ -238,6 +250,32 @@ function escapeHtml(str) {
     const div = document.createElement("div");
     div.textContent = str;
     return div.innerHTML;
+}
+
+// --- Confirmation Dialog ---
+
+function showConfirmDialog(prompt) {
+    removeTypingIndicator();
+    const el = document.createElement("div");
+    el.className = "message assistant";
+    el.id = "confirmDialog";
+    el.style.whiteSpace = "pre-wrap";
+    el.innerHTML = `<strong>Confirmation required</strong>\n${escapeHtml(prompt)}\n` +
+        `<button onclick="respondConfirm(true)" style="margin-right:8px;cursor:pointer">Approve</button>` +
+        `<button onclick="respondConfirm(false)" style="cursor:pointer">Deny</button>`;
+    chatArea.appendChild(el);
+    autoScroll();
+}
+
+function respondConfirm(approved) {
+    const dialog = document.getElementById("confirmDialog");
+    if (dialog) {
+        dialog.innerHTML = `<em>${approved ? "Approved" : "Denied"}</em>`;
+        dialog.id = "";
+    }
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "confirm_response", approved }));
+    }
 }
 
 // --- Smart Auto-Scroll ---
