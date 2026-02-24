@@ -832,11 +832,7 @@ body {
           </button>
         </div>
         <div class="input-controls">
-          <select class="model-select" id="modelSelect">
-            <option value="sonnet">sonnet</option>
-            <option value="haiku">haiku</option>
-            <option value="opus">opus</option>
-          </select>
+          <select class="model-select" id="modelSelect"></select>
           <span class="input-hint">enter to send · shift+enter new line</span>
         </div>
       </div>
@@ -1011,7 +1007,8 @@ function handleServerMessage(data) {
   switch (data.type) {
     case 'stream':
       if (!currentBubble) {
-        const model = document.getElementById('modelSelect').value;
+        const sel = document.getElementById('modelSelect');
+        const model = sel.options[sel.selectedIndex]?.textContent || sel.value;
         currentBubble = addMessage('assistant', '', model);
         currentRawText = '';
       }
@@ -1074,6 +1071,38 @@ function handleServerMessage(data) {
 
     case 'file_upload_result':
       addStatusMessage(data.content);
+      break;
+
+    case 'models': {
+      const sel = document.getElementById('modelSelect');
+      sel.innerHTML = '';
+      const tierOrder = ['sonnet', 'haiku', 'opus'];
+      for (const tier of tierOrder) {
+        if (data.models[tier]) {
+          const opt = document.createElement('option');
+          opt.value = tier;
+          opt.textContent = data.models[tier];
+          sel.appendChild(opt);
+        }
+      }
+      if (data.active) {
+        // Select the tier whose model ID matches active
+        for (const [tier, mid] of Object.entries(data.models)) {
+          if (mid === data.active) { sel.value = tier; break; }
+        }
+      }
+      break;
+    }
+
+    case 'model_set':
+      if (data.model) {
+        const sel = document.getElementById('modelSelect');
+        // Find the tier that maps to this model ID and select it
+        for (const opt of sel.options) {
+          if (opt.textContent === data.model) { sel.value = opt.value; break; }
+        }
+        addStatusMessage(`Switched to ${data.model}.`);
+      }
       break;
 
     case 'conversation_list':

@@ -133,6 +133,36 @@ function handleServerMessage(data) {
             showStatus(data.content);
             break;
 
+        case "models": {
+            const sel = document.getElementById("modelSelect");
+            sel.innerHTML = "";
+            const tierOrder = ["sonnet", "haiku", "opus"];
+            for (const tier of tierOrder) {
+                if (data.models[tier]) {
+                    const opt = document.createElement("option");
+                    opt.value = tier;
+                    opt.textContent = data.models[tier];
+                    sel.appendChild(opt);
+                }
+            }
+            if (data.active) {
+                for (const [tier, mid] of Object.entries(data.models)) {
+                    if (mid === data.active) { sel.value = tier; break; }
+                }
+            }
+            break;
+        }
+
+        case "model_set":
+            if (data.model) {
+                const sel = document.getElementById("modelSelect");
+                for (const opt of sel.options) {
+                    if (opt.textContent === data.model) { sel.value = opt.value; break; }
+                }
+                showStatus(`Switched to ${data.model}.`);
+            }
+            break;
+
         case "error":
             removeTypingIndicator();
             setStreaming(false);

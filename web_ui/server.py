@@ -298,11 +298,10 @@ async def handle_message(ws, conn, data):
         conn.session_cache_creation_tokens += result["cache_creation_tokens"]
         conn.session_cache_read_tokens += result["cache_read_tokens"]
 
-        short_model = models.MODEL_SHORT_NAMES.get(conn.active_model, conn.active_model)
         await ws.send(json.dumps({
             "type": "response",
             "content": result["text"],
-            "model": short_model,
+            "model": conn.active_model,
             "input_tokens": result["input_tokens"],
             "output_tokens": result["output_tokens"],
             "cost": round(result["cost"], 6),
@@ -478,6 +477,14 @@ async def handler(ws):
             "conversations": _list_conversations(),
         }))
 
+        # Send available models from current provider
+        model_map = _get_model_map()
+        await ws.send(json.dumps({
+            "type": "models",
+            "models": {tier: model_id for tier, model_id in model_map.items()},
+            "active": conn.active_model,
+        }))
+
         # Show suggested workflows on first connection after onboarding
         config = memory.load_config()
         if not config.get("suggestions_shown"):
@@ -543,10 +550,9 @@ async def handler(ws):
                 resolved = _get_model_map().get(model_id, model_id)
                 if resolved in models.MODELS.values():
                     conn.active_model = resolved
-                    short = models.MODEL_SHORT_NAMES.get(resolved, resolved)
                     await ws.send(json.dumps({
-                        "type": "status",
-                        "content": f"Switched to {short}.",
+                        "type": "model_set",
+                        "model": resolved,
                     }))
                 else:
                     await ws.send(json.dumps({
