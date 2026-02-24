@@ -207,8 +207,12 @@ TOOLS = [
                 "code": {
                     "type": "string",
                 },
+                "description": {
+                    "type": "string",
+                    "description": "Plain-language description of what this code does, for the user confirmation dialog.",
+                },
             },
-            "required": ["code"],
+            "required": ["code", "description"],
         },
     },
     {
@@ -1624,7 +1628,7 @@ def tool_status_text(name, tool_input):
         "remember": f'Remembering: "{tool_input.get("fact", "")}"',
         "forget": f'Forgetting: "{tool_input.get("fact", "")}"',
         "list_memories": "Listing memories",
-        "run_python": "Running Python code",
+        "run_python": f'Running code: {tool_input.get("description", "Python code")}',
         "job_search": f'Searching jobs: "{tool_input.get("query", "")}"',
         "check_email": "Checking email inbox",
         "read_email": f'Reading email: {tool_input.get("message_id", "")}',
@@ -1692,9 +1696,8 @@ def execute_tool(name, tool_input, confirm_fn=None):
             elif name == "write_file":
                 prompt += f'\n  File: {tool_input.get("filename", "")}'
             elif name == "run_python":
-                code = tool_input.get("code", "")
-                preview = code[:200] + "..." if len(code) > 200 else code
-                prompt += f"\n  Code: {preview}"
+                desc = tool_input.get("description", "run Python code")
+                prompt += f"\n  Action: {desc}"
             prompt += "\nAllow this? [y/N]: "
             if not confirm_fn(prompt):
                 return f"User denied {name} while email content is in context.", True
@@ -1822,8 +1825,9 @@ def execute_tool(name, tool_input, confirm_fn=None):
 
     elif name == "run_python":
         code = tool_input["code"]
+        desc = tool_input.get("description", "Run Python code")
         if confirm_fn is not None:
-            prompt = f"Code to execute:\n{code}\n\nRun this code? [y/N]: "
+            prompt = f"{desc}\n\nCode:\n{code}\n\nRun this code? [y/N]: "
             if not confirm_fn(prompt):
                 return "User declined to run this code.", False
         return run_code_in_workspace(code)
