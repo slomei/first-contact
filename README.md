@@ -348,7 +348,7 @@ First Contact responds to natural conversation and also supports direct commands
 
 | Category | Commands |
 |----------|----------|
-| **Chat** | `/opus`, `/sonnet`, `/haiku`, `/challenge on\|off`, `/prompt [text\|clear]`, `/new`, `/load`, `/conversations`, `/delete`, `/clear`, `/attach <path>` |
+| **Chat** | `/opus`, `/sonnet`, `/haiku`, `/challenge on\|off`, `/prompt [text\|clear]`, `/new`, `/load`, `/conversations`, `/conversations clear`, `/delete`, `/clear`, `/attach <path>` |
 | **Memory** | `/remember`, `/remember -p`, `/forget`, `/memories`, `/memories search`, `/note`, `/notes`, `/notes search` |
 | **Email** | `/email check`, `/email read`, `/email search`, `/draft reply`, `/draft new`, `/draft work`, `/drafts`, `/email setup` |
 | **Calendar** | `/cal`, `/cal tomorrow`, `/cal week`, `/cal add`, `/cal setup` |
