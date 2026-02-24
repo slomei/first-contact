@@ -382,6 +382,7 @@ The system prompt enforces these behaviors (see System Prompt Behaviors above):
 - Per-connection isolation — each browser tab gets its own conversation history, model, project, and token counters
 - Vanilla HTML/CSS/JS frontend — no framework, no build step
 - Streaming responses, tool activity indicators, model switching, project switching (`set_project` message), accent color picker. Model selector dropdown and per-message badges are provider-aware — populated dynamically from the server via a `models` message on connect, displaying actual model IDs (e.g. `gpt-4o` not `sonnet`) from the active provider
+- File drag-and-drop works on both the sidebar drop zone and the main chat area (with dashed-outline visual feedback). Both routes use `preventDefault`/`stopPropagation` to prevent the browser from opening files in a new tab
 - `/prompt [text|clear]` command — view, set, or clear custom system prompt instructions
 - Context compression at 20K tokens (same threshold as terminal, via shared `models.compress_conversation()`)
 - Conversation auto-save on new chat and disconnect (via shared `models.save_conversation()`)

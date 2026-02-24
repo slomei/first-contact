@@ -51,7 +51,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 - **Notification routing** — Background email monitoring with priority filtering, delivered to Discord, Telegram, email, or all three
 - **Markdown notes** — Capture timestamped thoughts, research, and links organized as daily markdown files. Searchable across your project
 
-**File attachments.** Attach files directly in conversation on all four interfaces — terminal (`/attach <path>`), web UI (drag-and-drop or paperclip button), Discord (file attachments), Telegram (document attachments). Text files are injected as context; binary documents (PDF, DOCX, XLSX) are parsed to text via `parsers.py`. Attachments are temporary per-conversation, not persisted.
+**File attachments.** Attach files directly in conversation on all four interfaces — terminal (`/attach <path>`), web UI (drag-and-drop onto the chat area or sidebar, or paperclip button), Discord (file attachments), Telegram (document attachments). Text files are injected as context; binary documents (PDF, DOCX, XLSX) are parsed to text via `parsers.py`. Attachments are temporary per-conversation, not persisted.
 
 **Image input.** Send images to the agent across all four interfaces for visual analysis. Supports PNG, JPG, GIF, and WebP. Images are encoded as multimodal content blocks for Claude's vision capability. Works via `/attach` (terminal), drag-and-drop (web UI), file attachments (Discord), and photo messages (Telegram).
 
