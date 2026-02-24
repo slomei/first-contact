@@ -1129,6 +1129,10 @@ function handleServerMessage(data) {
     case 'conversation_list':
       renderConversationList(data.conversations || []);
       break;
+
+    case 'file_list':
+      renderFileList(data.files || []);
+      break;
   }
 }
 
@@ -1417,19 +1421,8 @@ function uploadFiles(files) {
 
   let pending = valid.length;
   const fileData = [];
-  const list = document.getElementById('fileList');
 
   for (const file of valid) {
-    // Add to sidebar file list
-    const div = document.createElement('div');
-    div.className = 'file-item';
-    div.innerHTML = `
-      <span class="file-item-name" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</span>
-      <button class="file-remove" onclick="this.parentElement.remove()">×</button>
-    `;
-    list.appendChild(div);
-
-    // Read and queue for upload
     const reader = new FileReader();
     reader.onload = () => {
       fileData.push({ name: file.name, contents: reader.result });
@@ -1463,6 +1456,28 @@ function renderConversationList(conversations) {
       <div class="chat-item-date">${escapeHtml(c.date)}</div>
     </div>
   `).join('');
+}
+
+// ═══ FILE LIST ═══
+function renderFileList(files) {
+  const list = document.getElementById('fileList');
+  if (!files.length) {
+    list.innerHTML = '';
+    return;
+  }
+  list.innerHTML = files.map(f => {
+    const label = f.dir === 'workspace' ? `${escapeHtml(f.name)}` : escapeHtml(f.name);
+    const badge = f.dir === 'workspace' ? ' <span style="opacity:0.5;font-size:0.6rem">ws</span>' : '';
+    return `<div class="file-item">
+      <span class="file-item-name" title="${escapeHtml(f.name)} (${f.dir})">${label}${badge}</span>
+      <button class="file-remove" onclick="removeProjectFile(this, '${escapeHtml(f.name)}', '${f.dir}')">×</button>
+    </div>`;
+  }).join('');
+}
+
+function removeProjectFile(btn, name, dir) {
+  // Remove from DOM immediately; server-side removal could be added later
+  btn.parentElement.remove();
 }
 
 // ═══ ATTACH FILE ═══

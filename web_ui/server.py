@@ -261,7 +261,10 @@ async def handle_message(ws, conn, data):
             loop,
         ).result()
 
+    used_tools = set()
+
     def on_tool_start(name, tool_input):
+        used_tools.add(name)
         status = tools.tool_status_text(name, tool_input)
         asyncio.run_coroutine_threadsafe(
             ws.send(json.dumps({
@@ -309,6 +312,10 @@ async def handle_message(ws, conn, data):
             "cache_creation_tokens": conn.session_cache_creation_tokens,
             "cache_read_tokens": conn.session_cache_read_tokens,
         }))
+
+        # Refresh sidebar file list if any write tools were used
+        if used_tools & FILE_WRITE_TOOLS:
+            await send_file_list(ws, conn)
 
         # Context compression — prevent unbounded history growth
         compression = models.compress_conversation(history=conn.history)
@@ -465,6 +472,31 @@ async def handle_file_upload(ws, conn, data):
     }))
 
 
+FILE_WRITE_TOOLS = {"write_file", "save_note", "generate_pdf", "create_docx", "create_xlsx"}
+
+
+async def send_file_list(ws, conn):
+    """Send the current project file list (files/ + workspace/) to the client."""
+    entries = []
+
+    # Project files (persistent uploads)
+    memory.active_project = conn.active_project
+    for f in files.list_project_files():
+        entries.append({"name": f["name"], "dir": "files"})
+
+    # Workspace files (tool-written)
+    workspace_dir = memory.get_workspace_dir()
+    try:
+        for name in sorted(os.listdir(workspace_dir)):
+            path = os.path.join(workspace_dir, name)
+            if os.path.isfile(path):
+                entries.append({"name": name, "dir": "workspace"})
+    except OSError:
+        pass
+
+    await ws.send(json.dumps({"type": "file_list", "files": entries}))
+
+
 async def handler(ws):
     """Handle a single WebSocket connection."""
     conn = Connection()
@@ -484,6 +516,9 @@ async def handler(ws):
             "models": {tier: model_id for tier, model_id in model_map.items()},
             "active": conn.active_model,
         }))
+
+        # Send current project files for sidebar
+        await send_file_list(ws, conn)
 
         # Show suggested workflows on first connection after onboarding
         config = memory.load_config()
@@ -536,6 +571,7 @@ async def handler(ws):
 
             elif msg_type == "file_upload":
                 await handle_file_upload(ws, conn, data)
+                await send_file_list(ws, conn)
 
             elif msg_type == "confirm_response":
                 approved = data.get("approved", False)

@@ -118,6 +118,10 @@ function handleServerMessage(data) {
             // Handled by index.html's richer UI; no-op here
             break;
 
+        case "file_list":
+            // Handled by index.html's sidebar; no-op here
+            break;
+
         case "response":
             // Finalize the current bubble with the complete response
             if (currentBubble && data.content) {
