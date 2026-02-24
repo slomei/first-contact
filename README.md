@@ -20,7 +20,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 
 **Four interfaces, one agent.** Talk to First Contact through the terminal, a standalone web UI, Discord, or Telegram. All four share the same brain, memory, and tools.
 
-**Multi-provider support.** Supports Anthropic (default), OpenAI, and Google Gemini. Set `"provider": "openai"` in `config.json` to switch. Model tiers (fast/standard/quality) map to each provider's equivalent models. Anthropic-specific optimizations (prompt caching, batch API) work when available and degrade gracefully for other providers.
+**Multi-provider support.** Supports Anthropic (default), OpenAI, and Google Gemini. Set `"provider": "openai"` in `config.json` to switch. Model tiers (fast/standard/quality) map to each provider's equivalent models. The web UI model selector and per-message badges display the actual model names from the active provider — not hardcoded Anthropic names. Anthropic-specific optimizations (prompt caching, batch API) work when available and degrade gracefully for other providers.
 
 **Search providers.** First Contact searches the web out of the box with DuckDuckGo (no API key needed). For better results, swap to Brave Search (free, 2,000 queries/month), Google Custom Search (best quality, 100 free/day), or SerpAPI (paid). Change one config key and add your API key — that's it.
 

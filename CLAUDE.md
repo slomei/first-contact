@@ -381,7 +381,7 @@ The system prompt enforces these behaviors (see System Prompt Behaviors above):
 - WebSocket server on `ws://localhost:8765` (configurable port)
 - Per-connection isolation — each browser tab gets its own conversation history, model, project, and token counters
 - Vanilla HTML/CSS/JS frontend — no framework, no build step
-- Streaming responses, tool activity indicators, model switching, project switching (`set_project` message), accent color picker
+- Streaming responses, tool activity indicators, model switching, project switching (`set_project` message), accent color picker. Model selector dropdown and per-message badges are provider-aware — populated dynamically from the server via a `models` message on connect, displaying actual model IDs (e.g. `gpt-4o` not `sonnet`) from the active provider
 - `/prompt [text|clear]` command — view, set, or clear custom system prompt instructions
 - Context compression at 20K tokens (same threshold as terminal, via shared `models.compress_conversation()`)
 - Conversation auto-save on new chat and disconnect (via shared `models.save_conversation()`)
