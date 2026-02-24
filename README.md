@@ -26,7 +26,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 
 **Smart model routing.** Every request is routed to the right model for the job. The fast tier handles research and summaries. The standard tier handles conversation and code. The quality tier handles cover letters, deep analysis, and creative writing. A director model evaluates each message and can delegate to specialist agents (researcher, writer, coder, analyst) when the task calls for it.
 
-**Extensible skills system.** Specialists can be augmented with skills — markdown files with YAML front matter that get injected into specialist system prompts when keyword-matched. Ships with 5 built-in skills (cover letters, research, code review, email drafting, job analysis). Drop a `.md` file into `skills/` to create your own.
+**Extensible skills system.** Specialists can be augmented with skills — markdown files with YAML front matter that get injected into specialist system prompts when keyword-matched. Ships with 9 built-in skills: 4 base specialist skills (researcher, writer, coder, analyst) + 5 task skills (cover letters, research, code review, email drafting, job analysis). Drop a `.md` file into `skills/` to create your own.
 
 **Plugin system.** Add new tools without modifying core code. Drop a Python file into `plugins/` with a tool definition and handler function, and it's auto-discovered on startup. Plugins receive read-only copies of config and conversation history. Ships with an example dice-roller plugin. See `plugins/README.md` for the full spec.
 
@@ -47,9 +47,15 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 - **Persistent memory** — Two-layer memory system: global facts persist across all projects, project-specific memories stay scoped. Semantic search retrieves the most relevant memories per query instead of loading all (requires optional `sentence-transformers` — works on CPU, uses GPU if available)
 - **File operations** — Read, write, and manage files in sandboxed project workspaces
 - **Code execution** — Run Python in a sandboxed workspace with timeout protection
-- **PDF generation** — Professional cover letters with formatted headers, or general documents from any text
+- **Document generation** — Professional cover letters as formatted PDFs, Word documents (.docx), and spreadsheets (.xlsx). Also parses and reads binary documents (PDF, DOCX, XLSX) via `parsers.py`
 - **Notification routing** — Background email monitoring with priority filtering, delivered to Discord, Telegram, email, or all three
 - **Markdown notes** — Capture timestamped thoughts, research, and links organized as daily markdown files. Searchable across your project
+
+**File attachments.** Attach files directly in conversation on all four interfaces — terminal (`/attach <path>`), web UI (drag-and-drop or paperclip button), Discord (file attachments), Telegram (document attachments). Text files are injected as context; binary documents (PDF, DOCX, XLSX) are parsed to text via `parsers.py`. Attachments are temporary per-conversation, not persisted.
+
+**Image input.** Send images to the agent across all four interfaces for visual analysis. Supports PNG, JPG, GIF, and WebP. Images are encoded as multimodal content blocks for Claude's vision capability. Works via `/attach` (terminal), drag-and-drop (web UI), file attachments (Discord), and photo messages (Telegram).
+
+**Persistent user model.** The agent learns about you over time — extracting facts, preferences, patterns, and goals from conversations. Extraction runs post-conversation in a background thread (Haiku, fire-and-forget) with no added latency. The daemon runs deeper pattern detection every 24 hours (Sonnet). Profile is split into two tiers: core identity (preferences, high-confidence facts, goals) cached in the stable prompt, and contextual knowledge (patterns, lower-confidence facts) filtered by keyword relevance per-turn. View and manage with `/profile`, `/profile clear`, `/profile remove`.
 
 **Background daemon.** A lightweight scheduler (`daemon.py`) that runs in the background and executes scheduled tasks — daily briefings, email monitoring, job scans, and reminder delivery — without keeping the chat open. Manages its own PID file, handles graceful shutdown, and routes notifications to Discord, Telegram, or email based on your config. Enable `--hot-reload` or set `"hot_reload": true` in your daemon config to auto-restart subprocesses when Python files change — useful for plugin development and iterating on core modules.
 
@@ -103,6 +109,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
                     │  notifications · files     │
                     │  help_data · creative      │
                     │  job_scanner · daemon      │
+                    │  user_model · parsers      │
                     └────────────┬───────────────┘
                                  │
               ┌──────────┬───────┼───────┬──────────┐
@@ -113,7 +120,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
          └────────┘ └────────┘ └───┘ └────────┘ └────────┘
 ```
 
-**37 Python modules:**
+**46 Python modules:**
 
 | File | Purpose |
 |------|---------|
@@ -139,12 +146,14 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 | `help_data.py` | Shared help categories and per-interface formatters |
 | `creative.py` | Creative project tools (world bible, characters, locations) |
 | `skills_loader.py` | Extensible skills system (keyword matching, specialist prompt injection) |
-| `files.py` | Project file management (import, list, remove, validation) |
+| `files.py` | Project file management (import, list, remove, validation, image/binary support) |
 | `parsers.py` | Binary document text extraction (PDF, DOCX, XLSX) |
+| `user_model.py` | Persistent user model — learns facts, preferences, patterns, goals from conversations |
 | `service_registry.py` | Centralized integration status checks (6 built-in services) |
 | `plugin_generator.py` | Plugin template generator (scaffolds new plugins with metadata and docs) |
 | `plugins/` | Plugin loader — auto-discovers user-installable tool packages |
 | `mcp_server.py` | MCP server — exposes tools to Claude Desktop, Cursor, and other MCP clients |
+| `interfaces/` | Interface adapter pattern — ABC, adapters for all 4 interfaces, example implementation |
 | `sync.py` | File sync with version conflict resolution |
 
 The four interfaces are thin layers. All logic lives in the shared core — model routing, tool execution, memory, notifications. Adding a new interface means writing the I/O adapter; all tools and capabilities come for free.
@@ -271,7 +280,7 @@ SERPAPI_KEY=your-key                        # optional, for serpapi search provi
 }
 ```
 
-Set `"provider"` to `"openai"` or `"gemini"` to switch LLM providers. Override individual model tiers with `"model_tiers": {"fast": "...", "standard": "...", "quality": "..."}`. Set `"search_provider"` to `"brave"`, `"google"`, or `"serpapi"` to switch search engines (default: `"duckduckgo"`).
+Set `"provider"` to `"openai"` or `"gemini"` to switch LLM providers. Override individual model tiers with `"model_tiers": {"fast": "...", "standard": "...", "quality": "..."}`. Set `"search_provider"` to `"brave"`, `"google"`, or `"serpapi"` to switch search engines (default: `"duckduckgo"`). The `"user_model"` block controls persistent profile learning: `"enabled"` (prompt injection), `"extraction_enabled"` (post-conversation extraction), `"pattern_detection_enabled"` (daemon analysis), `"selective_injection"` (tiered filtering), `"max_contextual_entries"` (tier 2 budget).
 
 ## Security Model
 
@@ -339,15 +348,15 @@ First Contact responds to natural conversation and also supports direct commands
 
 | Category | Commands |
 |----------|----------|
-| **Chat** | `/opus`, `/sonnet`, `/haiku`, `/challenge on\|off`, `/prompt [text\|clear]`, `/new`, `/load`, `/conversations`, `/delete`, `/clear` |
+| **Chat** | `/opus`, `/sonnet`, `/haiku`, `/challenge on\|off`, `/prompt [text\|clear]`, `/new`, `/load`, `/conversations`, `/delete`, `/clear`, `/attach <path>` |
 | **Memory** | `/remember`, `/remember -p`, `/forget`, `/memories`, `/memories search`, `/note`, `/notes`, `/notes search` |
 | **Email** | `/email check`, `/email read`, `/email search`, `/draft reply`, `/draft new`, `/draft work`, `/drafts`, `/email setup` |
 | **Calendar** | `/cal`, `/cal tomorrow`, `/cal week`, `/cal add`, `/cal setup` |
 | **Jobs** | `/work search`, `/work save`, `/work list`, `/work remove`, `/work apply`, `/work track`, `/work status`, `/resume`, `/cover` |
 | **Scanning** | `/scan`, `/scan results`, `/scan status`, `/scan queries`, `/scan query add\|remove`, `/scan on\|off` |
 | **Tasks** | `/task add`, `/tasks`, `/task done`, `/task remove`, `/task edit`, `/task note`, `/tasks done`, `/remind`, `/reminders`, `/remind cancel` |
-| **Web** | `/web`, `/fetch`, `/read`, `/write`, `/run`, `/pdf` |
-| **System** | `/help`, `/status`, `/briefing`, `/notify`, `/project`, `/watch`, `/digest`, `/tokens`, `/billing`, `/delegates`, `/skills`, `/plugins`, `/setup`, `/update`, `/reset`, `/characters`, `/locations` |
+| **Web & Files** | `/web`, `/fetch`, `/read`, `/write`, `/run`, `/pdf`, `/file <path>`, `/files`, `/file remove`, `/file clear` |
+| **System** | `/help`, `/status`, `/briefing`, `/notify`, `/project`, `/watch`, `/digest`, `/tokens`, `/billing`, `/delegates`, `/skills`, `/plugins`, `/profile`, `/setup`, `/update`, `/reset`, `/characters`, `/locations` |
 
 Claude also uses tools autonomously when they'd help — searching the web mid-conversation, saving facts to memory, checking your calendar when you ask about availability.
 

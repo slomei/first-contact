@@ -41,7 +41,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `user_model.py` | Persistent user model — learns facts, preferences, patterns, goals from conversations. Post-conversation extraction (Haiku, fire-and-forget background thread), daemon pattern detection (Sonnet, 24hr). Stored in `user_profile.json`. Two-tier prompt injection: tier 1 (preferences, high-confidence facts, goals) in stable/cached block, tier 2 (patterns, lower-confidence facts) filtered by keyword relevance in dynamic block. `/profile` command on all interfaces. |
 | `job_scanner.py` | Proactive job scanning — multi-platform search via search provider abstraction, Haiku fit assessment against user profile, dedup via seen_jobs.json, rate limiting (3 manual scans/day). Batch API for >=5 jobs (50% cost). |
 | `batch_api.py` | Batch API wrapper — submit, poll, retrieve for Anthropic Messages Batches endpoint. Used by job_scanner for fit assessments at 50% cost. |
-| `daemon.py` | Single entry point for all services. Spawns and supervises web_ui, discord, and telegram as subprocesses (auto-restart on crash). Also runs scheduled tasks: daily briefings, email checks (30 min), job scans (12 hr), reminder checks (5 min), insights analysis (6 hr). PID management, graceful SIGTERM/SIGINT, notification routing. Hot reload via watchdog (opt-in, `--hot-reload` or `config.hot_reload`). Configurable via `auto_start_*` keys. |
+| `daemon.py` | Single entry point for all services. Spawns and supervises web_ui, discord, and telegram as subprocesses (auto-restart on crash). Also runs scheduled tasks: daily briefings, email checks (30 min), job scans (12 hr), reminder checks (5 min), insights analysis (6 hr), user model pattern detection (24 hr). PID management, graceful SIGTERM/SIGINT, notification routing. Hot reload via watchdog (opt-in, `--hot-reload` or `config.hot_reload`). Configurable via `auto_start_*` keys. |
 | `onboarding.py` | 21-step interactive setup wizard. Covers profile, communication style, integrations (Discord, Telegram, Gmail, Calendar, search provider), notification preferences, and Haiku-driven personality calibration. Works across all interfaces. `get_suggested_workflows()` returns config-aware suggestions for post-onboarding guidance. |
 | `help_data.py` | Single source of truth for all help text. `HELP_CATEGORIES` dict with per-interface formatters (terminal ANSI box-drawing, Discord markdown, Telegram plain text). Fuzzy prefix matching. |
 | `creative.py` | Creative project tools — world bible PDF parsing via pdfplumber, character/location JSON lookup. Used for the First Light screenplay project. |
@@ -85,7 +85,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `tests/test_insights.py` | Insights engine — source gathering, minimum-source gate, model tier, system prompt, response parsing (NO_INSIGHTS + insight text), error handling. |
 | `tests/test_documents.py` | Document creation — DOCX (paragraphs, headings, fallback), XLSX (data rows, headers, column widths, fallback), tool dispatch for both. |
 | `tests/test_chat_attachments.py` | Chat attachments — web UI extension validation, server-side binary/text extraction, Discord/Telegram injection format, terminal `/attach` command, temp file cleanup, image attachment multimodal format, Telegram photo handler, read_file image support. |
-| `tests/test_user_model.py` | User model — storage (add/remove/clear/roundtrip), extraction (parse response, NOTHING_NEW, skip short, config disable), format (category grouping, empty), pattern detection (returns tuple, config disable), dedup/prune (merge duplicates, enforce cap). |
+| `tests/test_user_model.py` | User model — storage (add/remove/clear/roundtrip), extraction (parse response, NOTHING_NEW, skip short, config disable), format (category grouping, empty), pattern detection (returns tuple, config disable), dedup/prune (merge duplicates, enforce cap), relevance scoring (keyword overlap, empty inputs), tiered injection (stable tier 1, contextual tier 2, high-confidence always included, selective config toggle). |
 
 ### Config & Data Files
 
@@ -212,8 +212,8 @@ first-contact/
 
 | Model | ID (Anthropic default) | Used For |
 |-------|----|----------|
-| Haiku | `claude-haiku-4-5` | Research, summaries, conversation titles, briefings, fit assessment, context compression |
-| Sonnet | `claude-sonnet-4-6` | Routing decisions, coding, general conversation, director model |
+| Haiku | `claude-haiku-4-5` | Research, summaries, conversation titles, briefings, fit assessment, context compression, user model extraction |
+| Sonnet | `claude-sonnet-4-6` | Routing decisions, coding, general conversation, director model, user model pattern detection |
 | Opus | `claude-opus-4-6` | Cover letters, deep analysis, creative writing (always used for cover letters regardless of active model) |
 
 ### Specialist Delegation
@@ -258,8 +258,8 @@ Specialists can be augmented with skills — `.md` files in the `skills/` direct
 
 The system prompt is split into two content blocks for Anthropic prompt caching:
 
-- **Stable block** (`_build_stable_prompt()`) — Behavioral directives, identity, tool parameter guidance, challenge mode, custom prompt, resume reference, cross-project summary, integration status. Marked with `cache_control: {"type": "ephemeral"}`. Changes only on explicit user action, not per-turn.
-- **Dynamic block** (`_build_dynamic_prompt()`) — Date/time, memories (semantic or all), creative context. Rebuilt every turn.
+- **Stable block** (`_build_stable_prompt()`) — Behavioral directives, identity, tool parameter guidance, challenge mode, custom prompt, resume reference, cross-project summary, integration status, user model tier 1 profile (preferences, high-confidence facts, goals). Marked with `cache_control: {"type": "ephemeral"}`. Changes only on explicit user action, not per-turn.
+- **Dynamic block** (`_build_dynamic_prompt()`) — Date/time, memories (semantic or all), user model tier 2 profile (patterns, lower-confidence facts filtered by conversation context), creative context. Rebuilt every turn.
 
 Tool definitions also use prompt caching: `get_cached_tools()` returns `TOOLS` with `cache_control` on the last tool. Tool schemas are kept minimal — behavioral guidance and parameter usage notes are in the stable system prompt block where they benefit from caching instead of being re-sent as uncached schema tokens.
 
@@ -429,7 +429,7 @@ All four interfaces share these features via the shared core:
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 446 tests across 27 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 446 tests across 26 test files.
 
 ---
 
