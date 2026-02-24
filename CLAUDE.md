@@ -267,12 +267,13 @@ Tool definitions also use prompt caching: `get_cached_tools()` returns `TOOLS` w
 
 ### System Prompt Behaviors
 
-The system prompt (`memory.py`) includes five behavioral directives built from actual usage patterns:
+The system prompt (`memory.py`) includes six behavioral directives built from actual usage patterns:
 
 - **Calibrated honesty** — Evaluate work accurately. Praise when earned, critique when warranted. Never default to enthusiasm, sugarcoat bad news, or inflate quality to be supportive.
 - **Act-don't-ask** — When the user asks to do something, do it immediately. Don't ask for confirmation, optional fields, or clarifying questions unless the request is truly ambiguous. Programmatic confirmation gates (calendar events, file overwrites) handle their own confirmation — the agent doesn't add a second layer.
 - **Typo tolerance** — Never ask if something is a typo unless it affects a concrete output like a calendar event, email draft, file name, or cover letter. If the intent is interpretable, just act on it.
 - **Memory restraint** — Never use `remember` or `forget` unless the user explicitly asks. No unsolicited memory reorganization, consolidation, or updates — not when reading files, not when learning new info mid-conversation. Profile learning is handled post-conversation by `user_model.py`.
+- **Format preservation** — When a user attaches a file and asks to save it, preserve the original format. Don't offer to save a PDF as text/markdown or convert a spreadsheet to CSV. If only extracted text is available, tell the user and ask how to proceed.
 - **Self-knowledge** — Dynamic section describing First Contact's own identity, capabilities, tool count, skill count, and architecture. Rebuilt each turn so the agent can accurately answer "what are you?" questions.
 - **Tool parameter notes** — Consolidated guidance for tool usage (memory defaults, date/time parameter format, generate_pdf modes, calendar confirmation) in the stable block so the model has context without bloating tool schemas.
 - **Search restraint** — Explicit "when NOT to search" rules: don't search when the answer is in conversation/memories, when the user asks about their own data (use the right tool instead), or when following up on an already-discussed topic.
