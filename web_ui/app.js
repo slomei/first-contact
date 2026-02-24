@@ -317,9 +317,13 @@ const ALLOWED_EXTENSIONS = new Set([
     ".txt", ".md", ".py", ".js", ".json", ".csv", ".html", ".css",
     ".yml", ".yaml", ".toml", ".cfg", ".log", ".xml", ".sh", ".bat",
     ".sql", ".r", ".dart", ".pdf", ".docx", ".xlsx",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp",
 ]);
 
-const BINARY_EXTENSIONS = new Set([".pdf", ".docx", ".xlsx"]);
+const BINARY_EXTENSIONS = new Set([
+    ".pdf", ".docx", ".xlsx",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp",
+]);
 
 function getExtension(filename) {
     const dot = filename.lastIndexOf(".");

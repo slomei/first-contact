@@ -512,11 +512,16 @@ def save_conversation(history):
                     if isinstance(block, dict):
                         if block.get("type") == "text":
                             parts.append(block["text"])
+                        elif block.get("type") == "image":
+                            media = block.get("source", {}).get("media_type", "image")
+                            parts.append(f"[image: {media}]")
                         elif block.get("type") == "tool_use":
                             args = json.dumps(block.get("input", {}))
                             parts.append(f"[tool call: {block['name']}({args})]")
                         elif block.get("type") == "tool_result":
                             snippet = block.get("content", "")
+                            if isinstance(snippet, list):
+                                snippet = "[multimodal content]"
                             if len(snippet) > 200:
                                 snippet = snippet[:200] + "..."
                             parts.append(f"[tool result: {snippet}]")

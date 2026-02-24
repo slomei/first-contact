@@ -632,6 +632,19 @@ if __name__ == "__main__":
                 print(f"{memory.DIM}File not found: {path_arg}{memory.RESET}\n")
                 continue
 
+            # Image files — encode as multimodal content block
+            if files.is_image_file(resolved):
+                try:
+                    image_block = files.encode_image_for_api(resolved)
+                except ValueError as e:
+                    print(f"{memory.DIM}{e}{memory.RESET}\n")
+                    continue
+                filename = os.path.basename(resolved)
+                content = [image_block, {"type": "text", "text": f"[Attached image: {filename}]"}]
+                models.conversation_history.append({"role": "user", "content": content})
+                print(f"{memory.DIM}Attached image {filename}{memory.RESET}\n")
+                continue
+
             try:
                 msg, filename, line_count = files.extract_file_for_chat(resolved)
             except ValueError as e:

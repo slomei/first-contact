@@ -4,6 +4,7 @@ Project file management — import, list, remove, and inject files into conversa
 Shared core module. All interfaces call these functions and format output themselves.
 """
 
+import base64
 import os
 import shutil
 
@@ -14,7 +15,21 @@ ALLOWED_EXTENSIONS = {
     ".txt", ".md", ".py", ".js", ".json", ".csv", ".html", ".css",
     ".yml", ".yaml", ".toml", ".cfg", ".log", ".xml", ".sh", ".bat",
     ".sql", ".r", ".dart", ".pdf", ".docx", ".xlsx",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp",
 }
+
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+
+IMAGE_MEDIA_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
+# Max image size for chat attachments (5MB)
+MAX_IMAGE_SIZE = 5 * 1024 * 1024
 
 # Files larger than this get a warning before injection
 LARGE_FILE_THRESHOLD = 50 * 1024  # 50 KB
@@ -28,6 +43,41 @@ def validate_extension(filename):
     _, ext = os.path.splitext(filename)
     ext = ext.lower()
     return ext in ALLOWED_EXTENSIONS, ext
+
+
+def is_image_file(filepath):
+    """True if the file extension is a supported image format."""
+    _, ext = os.path.splitext(filepath)
+    return ext.lower() in IMAGE_EXTENSIONS
+
+
+def encode_image_for_api(filepath):
+    """Encode an image file as an Anthropic API image content block.
+
+    Returns {"type": "image", "source": {"type": "base64", "media_type": "...", "data": "..."}}.
+    Raises ValueError if file is too large or unsupported format.
+    """
+    _, ext = os.path.splitext(filepath)
+    ext = ext.lower()
+    media_type = IMAGE_MEDIA_TYPES.get(ext)
+    if not media_type:
+        raise ValueError(f"Unsupported image format: {ext}")
+
+    size = os.path.getsize(filepath)
+    if size > MAX_IMAGE_SIZE:
+        raise ValueError(f"Image too large ({size // 1024}KB). Maximum: {MAX_IMAGE_SIZE // (1024 * 1024)}MB")
+
+    with open(filepath, "rb") as f:
+        data = base64.b64encode(f.read()).decode("ascii")
+
+    return {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": media_type,
+            "data": data,
+        },
+    }
 
 
 def resolve_file_path(path_or_name):
@@ -64,6 +114,13 @@ def check_file_importable(filepath):
     ok, ext = validate_extension(os.path.basename(filepath))
     if not ok:
         return False, f"Unsupported file type: {ext or '(no extension)'}. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
+
+    # Image files — binary, validated by extension only
+    if is_image_file(filepath):
+        size = os.path.getsize(filepath)
+        if size > MAX_IMAGE_SIZE:
+            return False, f"Image too large ({size // 1024}KB). Maximum: {MAX_IMAGE_SIZE // (1024 * 1024)}MB"
+        return True, None
 
     # Binary document formats — validate via extraction
     if parsers.is_binary_document(filepath):

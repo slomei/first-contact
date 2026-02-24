@@ -97,6 +97,9 @@ async def call_tool(name, arguments):
         result, is_error = await asyncio.to_thread(
             tools.execute_tool, name, arguments, None
         )
+        if isinstance(result, list):
+            import json as _json
+            return _json.dumps(result), is_error
         return str(result), is_error
     except Exception as e:
         return f"Tool execution error: {e}", True

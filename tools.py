@@ -1734,8 +1734,12 @@ def execute_tool(name, tool_input, confirm_fn=None):
                     f"Path '{filepath}' is outside the allowed area."), True
 
         try:
+            import files
             import parsers
-            if parsers.is_binary_document(filepath):
+            if files.is_image_file(filepath):
+                image_block = files.encode_image_for_api(filepath)
+                return [image_block, {"type": "text", "text": f"[Image file: {os.path.basename(filepath)}]"}], False
+            elif parsers.is_binary_document(filepath):
                 contents = parsers.extract_text(filepath)
                 return contents, False
             with open(filepath, "r") as f:

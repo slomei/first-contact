@@ -2921,12 +2921,12 @@ async def on_message(message):
             return
 
     # Process file attachments (temporary chat injection)
-    file_context = []
+    attachment_blocks = []
     for att in message.attachments:
         ok, ext = files.validate_extension(att.filename)
         if not ok:
             continue
-        if att.size > 1024 * 1024:  # 1MB limit for chat attachments
+        if att.size > files.MAX_IMAGE_SIZE:
             await send_reply(dm, f"*Skipped {att.filename}: too large ({att.size // 1024}KB)*")
             continue
 
@@ -2935,10 +2935,15 @@ async def on_message(message):
         try:
             await att.save(tmp.name)
             tmp.close()
-            msg, _, line_count = files.extract_file_for_chat(tmp.name)
-            extracted = files.read_file_contents(tmp.name)
-            file_context.append(f"[Attached file: {att.filename}]\n```\n{extracted}\n```")
-            await send_reply(dm, f"*Attached {att.filename} ({line_count} lines)*")
+            if files.is_image_file(tmp.name):
+                image_block = files.encode_image_for_api(tmp.name)
+                attachment_blocks.append(("image", att.filename, image_block))
+                await send_reply(dm, f"*Attached image {att.filename}*")
+            else:
+                extracted = files.read_file_contents(tmp.name)
+                _, _, line_count = files.extract_file_for_chat(tmp.name)
+                attachment_blocks.append(("text", att.filename, f"[Attached file: {att.filename}]\n```\n{extracted}\n```"))
+                await send_reply(dm, f"*Attached {att.filename} ({line_count} lines)*")
         except Exception as e:
             await send_reply(dm, f"*Failed to read {att.filename}: {e}*")
         finally:
@@ -2947,13 +2952,29 @@ async def on_message(message):
             except Exception:
                 pass
 
-    if file_context:
-        content = "\n\n".join(file_context) + ("\n\n" + content if content else "")
-
-    if not content:
+    if attachment_blocks:
+        has_images = any(r[0] == "image" for r in attachment_blocks)
+        if has_images:
+            # Build multimodal content list
+            content_blocks = []
+            for kind, name, data in attachment_blocks:
+                if kind == "image":
+                    content_blocks.append(data)
+                else:
+                    content_blocks.append({"type": "text", "text": data})
+            if content:
+                content_blocks.append({"type": "text", "text": content})
+            state.conversation_history.append({"role": "user", "content": content_blocks})
+            if not content:
+                content = f"[User attached {len(attachment_blocks)} file(s)]"
+        else:
+            file_block = "\n\n".join(r[2] for r in attachment_blocks)
+            content = file_block + ("\n\n" + content if content else "")
+            state.conversation_history.append({"role": "user", "content": content})
+    elif not content:
         return
-
-    state.conversation_history.append({"role": "user", "content": content})
+    else:
+        state.conversation_history.append({"role": "user", "content": content})
 
     async with dm.typing():
         reply = await get_response(state, dm)

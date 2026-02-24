@@ -101,8 +101,12 @@ def make_web_confirm_fn(ws, conn, loop):
 
 
 def _extract_attached_files(attached_files):
-    """Process attached files from a message, return list of context strings."""
-    file_context = []
+    """Process attached files from a message.
+
+    Returns list of tuples: (kind, name, content) where kind is "image" or "text".
+    Image items have an API image block dict as content; text items have a string.
+    """
+    results = []
     for item in attached_files:
         name = item.get("name", "")
         contents = item.get("contents", "")
@@ -123,8 +127,12 @@ def _extract_attached_files(attached_files):
                 tmp.write(contents)
                 tmp.close()
 
-            extracted = files.read_file_contents(tmp.name)
-            file_context.append(f"[Attached file: {name}]\n```\n{extracted}\n```")
+            if files.is_image_file(tmp.name):
+                image_block = files.encode_image_for_api(tmp.name)
+                results.append(("image", name, image_block))
+            else:
+                extracted = files.read_file_contents(tmp.name)
+                results.append(("text", name, f"[Attached file: {name}]\n```\n{extracted}\n```"))
         except Exception:
             pass  # Skip files that fail extraction
         finally:
@@ -133,7 +141,7 @@ def _extract_attached_files(attached_files):
             except Exception:
                 pass
 
-    return file_context
+    return results
 
 
 async def handle_message(ws, conn, data):
@@ -142,13 +150,31 @@ async def handle_message(ws, conn, data):
     attached_files = data.get("files", [])
 
     # Process any attached files
+    multimodal_appended = False
     if attached_files:
-        file_context = _extract_attached_files(attached_files)
-        if file_context:
-            file_block = "\n\n".join(file_context)
-            user_msg = file_block + ("\n\n" + user_msg if user_msg else "")
+        extracted = _extract_attached_files(attached_files)
+        if extracted:
+            has_images = any(r[0] == "image" for r in extracted)
+            if has_images:
+                # Build multimodal content list
+                content_blocks = []
+                for kind, name, data_item in extracted:
+                    if kind == "image":
+                        content_blocks.append(data_item)  # image block dict
+                    else:
+                        content_blocks.append({"type": "text", "text": data_item})
+                if user_msg:
+                    content_blocks.append({"type": "text", "text": user_msg})
+                conn.history.append({"role": "user", "content": content_blocks})
+                multimodal_appended = True
+                if not user_msg:
+                    user_msg = f"[User attached {len(extracted)} file(s)]"
+            else:
+                # Text-only attachments
+                file_block = "\n\n".join(r[2] for r in extracted)
+                user_msg = file_block + ("\n\n" + user_msg if user_msg else "")
 
-    if not user_msg:
+    if not user_msg and not multimodal_appended:
         return
 
     # Sync project state so system prompt uses the right project's memories
@@ -179,7 +205,8 @@ async def handle_message(ws, conn, data):
         await ws.send(json.dumps({"type": "status", "content": msg}))
         return
 
-    conn.history.append({"role": "user", "content": user_msg})
+    if not multimodal_appended:
+        conn.history.append({"role": "user", "content": user_msg})
 
     loop = asyncio.get_event_loop()
     confirm_fn = make_web_confirm_fn(ws, conn, loop)
@@ -355,18 +382,30 @@ async def handle_file_upload(ws, conn, data):
             error_count += 1
             continue
 
-        # Read back via read_file_contents (routes binary to parsers)
-        try:
-            text = files.read_file_contents(filepath)
-        except Exception as e:
-            results.append(f"Saved {name} but could not extract text: {e}")
-            error_count += 1
-            continue
+        # Inject into conversation — images as multimodal, text as before
+        if files.is_image_file(filepath):
+            try:
+                image_block = files.encode_image_for_api(filepath)
+                content = [image_block, {"type": "text", "text": f"[File: {name}] (image uploaded to project files)"}]
+                conn.history.append({"role": "user", "content": content})
+                results.append(f"Loaded {name} (image)")
+                success_count += 1
+            except ValueError as e:
+                results.append(f"Failed to process {name}: {e}")
+                error_count += 1
+        else:
+            # Read back via read_file_contents (routes binary to parsers)
+            try:
+                text = files.read_file_contents(filepath)
+            except Exception as e:
+                results.append(f"Saved {name} but could not extract text: {e}")
+                error_count += 1
+                continue
 
-        msg, filename, line_count = files.format_file_for_injection(filepath, text)
-        conn.history.append({"role": "user", "content": msg})
-        results.append(f"Loaded {filename} ({line_count} lines)")
-        success_count += 1
+            msg, filename, line_count = files.format_file_for_injection(filepath, text)
+            conn.history.append({"role": "user", "content": msg})
+            results.append(f"Loaded {filename} ({line_count} lines)")
+            success_count += 1
 
     summary = "\n".join(results)
     await ws.send(json.dumps({

@@ -691,15 +691,16 @@ async def scan_job(context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle all incoming messages — commands, free text, and document attachments."""
+    """Handle all incoming messages — commands, free text, document/photo attachments."""
     if not update.message:
         return
 
     has_text = bool(update.message.text)
     has_document = bool(update.message.document)
     has_caption = bool(update.message.caption)
+    has_photo = bool(update.message.photo)
 
-    if not has_text and not has_document:
+    if not has_text and not has_document and not has_photo:
         return
 
     user_id = update.message.from_user.id
@@ -720,7 +721,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text = (update.message.text or update.message.caption or "").strip()
-    if not text and not has_document:
+    if not text and not has_document and not has_photo:
         return
 
     # Strip @botname from commands (e.g. /help@MyBot -> /help)
@@ -2871,27 +2872,55 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- Regular message (not a command) ---
     if text.startswith("/"):
-        # Unknown slash command — ignore unless it has a document
-        if not has_document:
+        # Unknown slash command — ignore unless it has a document or photo
+        if not has_document and not has_photo:
             return
 
-    # Process document attachments (temporary chat injection)
-    file_context = []
+    # Process document/photo attachments (temporary chat injection)
+    attachment_blocks = []
+
+    # Handle photo messages (Telegram sends multiple sizes; grab largest)
+    if update.message.photo:
+        photo = update.message.photo[-1]
+        if photo.file_size and photo.file_size <= files.MAX_IMAGE_SIZE:
+            import tempfile
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+            try:
+                tg_file = await context.bot.get_file(photo.file_id)
+                await tg_file.download_to_drive(tmp.name)
+                tmp.close()
+                image_block = files.encode_image_for_api(tmp.name)
+                attachment_blocks.append(("image", "photo.jpg", image_block))
+                await send_reply(chat_id, "Attached photo", bot)
+            except Exception as e:
+                await send_reply(chat_id, f"Failed to process photo: {e}", bot)
+            finally:
+                try:
+                    os.unlink(tmp.name)
+                except Exception:
+                    pass
+
+    # Handle document attachments
     if update.message.document:
         doc = update.message.document
         doc_name = doc.file_name or "document"
         ok, ext = files.validate_extension(doc_name)
-        if ok and doc.file_size <= 1024 * 1024:  # 1MB limit
+        if ok and doc.file_size <= files.MAX_IMAGE_SIZE:
             import tempfile
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
             try:
                 tg_file = await context.bot.get_file(doc.file_id)
                 await tg_file.download_to_drive(tmp.name)
                 tmp.close()
-                extracted = files.read_file_contents(tmp.name)
-                line_count = extracted.count("\n") + 1
-                file_context.append(f"[Attached file: {doc_name}]\n```\n{extracted}\n```")
-                await send_reply(chat_id, f"Attached {doc_name} ({line_count} lines)", bot)
+                if files.is_image_file(tmp.name):
+                    image_block = files.encode_image_for_api(tmp.name)
+                    attachment_blocks.append(("image", doc_name, image_block))
+                    await send_reply(chat_id, f"Attached image {doc_name}", bot)
+                else:
+                    extracted = files.read_file_contents(tmp.name)
+                    line_count = extracted.count("\n") + 1
+                    attachment_blocks.append(("text", doc_name, f"[Attached file: {doc_name}]\n```\n{extracted}\n```"))
+                    await send_reply(chat_id, f"Attached {doc_name} ({line_count} lines)", bot)
             except Exception as e:
                 await send_reply(chat_id, f"Failed to read {doc_name}: {e}", bot)
             finally:
@@ -2902,13 +2931,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif ok:
             await send_reply(chat_id, f"Skipped {doc_name}: too large ({doc.file_size // 1024}KB)", bot)
 
-    if file_context:
-        text = "\n\n".join(file_context) + ("\n\n" + text if text else "")
-
-    if not text:
+    # Build conversation history entry
+    if attachment_blocks:
+        has_images = any(r[0] == "image" for r in attachment_blocks)
+        if has_images:
+            content_blocks = []
+            for kind, name, data in attachment_blocks:
+                if kind == "image":
+                    content_blocks.append(data)
+                else:
+                    content_blocks.append({"type": "text", "text": data})
+            if text:
+                content_blocks.append({"type": "text", "text": text})
+            state.conversation_history.append({"role": "user", "content": content_blocks})
+            if not text:
+                text = f"[User attached {len(attachment_blocks)} file(s)]"
+        else:
+            file_block = "\n\n".join(r[2] for r in attachment_blocks)
+            text = file_block + ("\n\n" + text if text else "")
+            state.conversation_history.append({"role": "user", "content": text})
+    elif not text:
         return
-
-    state.conversation_history.append({"role": "user", "content": text})
+    else:
+        state.conversation_history.append({"role": "user", "content": text})
 
     await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
     reply = await get_response(state, channel)
@@ -2936,8 +2981,8 @@ if __name__ == "__main__":
     # Register callback handler for confirmation inline buttons (before MessageHandler)
     app.add_handler(CallbackQueryHandler(handle_confirm_callback))
 
-    # Register the single message handler for all text and documents
-    app.add_handler(MessageHandler(filters.TEXT | filters.Document.ALL, handle_message))
+    # Register the single message handler for all text, documents, and photos
+    app.add_handler(MessageHandler(filters.TEXT | filters.Document.ALL | filters.PHOTO, handle_message))
 
     # Schedule background jobs
     if ALLOWED_USER_ID:

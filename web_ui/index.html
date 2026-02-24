@@ -1265,8 +1265,12 @@ const UPLOAD_ALLOWED_EXTENSIONS = new Set([
   ".txt", ".md", ".py", ".js", ".json", ".csv", ".html", ".css",
   ".yml", ".yaml", ".toml", ".cfg", ".log", ".xml", ".sh", ".bat",
   ".sql", ".r", ".dart", ".pdf", ".docx", ".xlsx",
+  ".png", ".jpg", ".jpeg", ".gif", ".webp",
 ]);
-const UPLOAD_BINARY_EXTENSIONS = new Set([".pdf", ".docx", ".xlsx"]);
+const UPLOAD_BINARY_EXTENSIONS = new Set([
+  ".pdf", ".docx", ".xlsx",
+  ".png", ".jpg", ".jpeg", ".gif", ".webp",
+]);
 
 function getUploadExtension(filename) {
   const dot = filename.lastIndexOf(".");

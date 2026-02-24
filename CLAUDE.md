@@ -8,7 +8,7 @@
 
 First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Four interfaces (terminal, web UI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
 
-**Status:** Shipped. All 406 tests passing. Live on GitHub.
+**Status:** Shipped. All 421 tests passing. Live on GitHub.
 
 ---
 
@@ -45,7 +45,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `help_data.py` | Single source of truth for all help text. `HELP_CATEGORIES` dict with per-interface formatters (terminal ANSI box-drawing, Discord markdown, Telegram plain text). Fuzzy prefix matching. |
 | `creative.py` | Creative project tools — world bible PDF parsing via pdfplumber, character/location JSON lookup. Used for the First Light screenplay project. |
 | `skills_loader.py` | Extensible skills system — loads `.md` skill files from `skills/` directory, keyword matching, default base skills per specialist, injects matched skill content into specialist system prompts during delegation. |
-| `files.py` | Project file management — import, list, remove files. Validation, large-file detection, conversation injection formatting. `extract_file_for_chat()` for temporary attachment injection, `write_binary_file_contents()` for binary uploads. Used by all interfaces and web UI drag-and-drop. Binary documents (PDF, DOCX, XLSX) routed through `parsers.py`. |
+| `files.py` | Project file management — import, list, remove files. Validation, large-file detection, conversation injection formatting. `extract_file_for_chat()` for temporary attachment injection, `write_binary_file_contents()` for binary uploads. Image support: `is_image_file()`, `encode_image_for_api()` for multimodal content blocks (PNG, JPG, JPEG, GIF, WebP). Used by all interfaces and web UI drag-and-drop. Binary documents (PDF, DOCX, XLSX) routed through `parsers.py`. |
 | `parsers.py` | Binary document text extraction — PDF (pdfplumber), DOCX (python-docx), XLSX (openpyxl). Optional deps with clear error messages. Used by `files.py` and `tools.py` read_file. |
 | `plugin_generator.py` | Plugin template generator — scaffolds new plugins with correct directory structure, metadata (`plugin.json`), stub tools, and documentation. CLI via argparse, also importable. Validates names, prevents overwrites. |
 | `plugins/` | Plugin system — `__init__.py` loader discovers `.py` files and packages (directories with `__init__.py`), validates required attributes (`PLUGIN_NAME`, `TOOLS`, `execute`), routes tool calls. `example_plugin.py` reference implementation (dice roller). `DIRECTORY.md` community plugin registry. `README.md` for plugin authors. |
@@ -69,7 +69,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `tests/test_help_data.py` | Help system — categories, fuzzy matching, all 3 interface formatters. |
 | `tests/test_notes_status.py` | Notes, reminders, draft rate limits, daemon PID, config loading. |
 | `tests/test_skills.py` | Skills system — skill loading, keyword matching, default skills, specialist prompt injection. |
-| `tests/test_files.py` | File management — extension validation, import/list/remove, large file detection, path resolution, binary document parsing (PDF/DOCX/XLSX). |
+| `tests/test_files.py` | File management — extension validation, import/list/remove, large file detection, path resolution, binary document parsing (PDF/DOCX/XLSX), image file detection and encoding. |
 | `tests/test_daemon_caching.py` | Daemon caching — prompt caching in job scanner, briefing watchlist, digest; track_usage cache token accounting. |
 | `tests/test_batch_api.py` | Batch API — module loads, functions exist. |
 | `tests/test_adapters.py` | Interface adapters — subclass validation, interface names, formatting support, confirm defaults. |
@@ -83,7 +83,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `tests/test_search_providers.py` | Search providers — ABC compliance, registry/factory, config selection, all 4 provider request/response format, missing key errors. |
 | `tests/test_insights.py` | Insights engine — source gathering, minimum-source gate, model tier, system prompt, response parsing (NO_INSIGHTS + insight text), error handling. |
 | `tests/test_documents.py` | Document creation — DOCX (paragraphs, headings, fallback), XLSX (data rows, headers, column widths, fallback), tool dispatch for both. |
-| `tests/test_chat_attachments.py` | Chat attachments — web UI extension validation, server-side binary/text extraction, Discord/Telegram injection format, terminal `/attach` command, temp file cleanup. |
+| `tests/test_chat_attachments.py` | Chat attachments — web UI extension validation, server-side binary/text extraction, Discord/Telegram injection format, terminal `/attach` command, temp file cleanup, image attachment multimodal format, Telegram photo handler, read_file image support. |
 
 ### Config & Data Files
 
@@ -426,7 +426,7 @@ All four interfaces share these features via the shared core:
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 406 tests across 26 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 421 tests across 26 test files.
 
 ---
 

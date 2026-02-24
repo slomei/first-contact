@@ -18,7 +18,7 @@ class TestValidateExtension:
             assert got_ext == ext
 
     def test_blocked_extensions(self):
-        for ext in [".exe", ".zip", ".png", ".dll", ".so"]:
+        for ext in [".exe", ".zip", ".dll", ".so"]:
             ok, got_ext = files.validate_extension(f"test{ext}")
             assert not ok, f"{ext} should be blocked"
             assert got_ext == ext
@@ -473,3 +473,61 @@ class TestParsersModule:
 
         with pytest.raises(ImportError, match="openpyxl"):
             parsers.extract_text("test.xlsx")
+
+
+class TestImageFile:
+    """Test image file detection and encoding."""
+
+    def test_is_image_file_positive(self):
+        for ext in [".png", ".jpg", ".jpeg", ".gif", ".webp"]:
+            assert files.is_image_file(f"photo{ext}"), f"{ext} should be detected as image"
+
+    def test_is_image_file_negative(self):
+        for ext in [".py", ".txt", ".pdf", ".docx", ".html"]:
+            assert not files.is_image_file(f"file{ext}"), f"{ext} should not be detected as image"
+
+    def test_encode_image_for_api(self, isolated_env):
+        """Encoding returns valid API block with correct media type."""
+        path = os.path.join(isolated_env, "test.png")
+        with open(path, "wb") as f:
+            f.write(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+        block = files.encode_image_for_api(path)
+        assert block["type"] == "image"
+        assert block["source"]["type"] == "base64"
+        assert block["source"]["media_type"] == "image/png"
+        assert len(block["source"]["data"]) > 0
+
+    def test_encode_image_rejects_oversized(self, isolated_env):
+        """Files exceeding MAX_IMAGE_SIZE are rejected."""
+        path = os.path.join(isolated_env, "huge.jpg")
+        with open(path, "wb") as f:
+            f.write(b"\xff" * (files.MAX_IMAGE_SIZE + 1))
+
+        with pytest.raises(ValueError, match="too large"):
+            files.encode_image_for_api(path)
+
+    def test_image_extensions_in_allowed(self):
+        """All image extensions are in ALLOWED_EXTENSIONS."""
+        for ext in files.IMAGE_EXTENSIONS:
+            assert ext in files.ALLOWED_EXTENSIONS, f"{ext} should be in ALLOWED_EXTENSIONS"
+
+    def test_check_importable_image(self, isolated_env):
+        """Image files pass import check."""
+        path = os.path.join(isolated_env, "photo.png")
+        with open(path, "wb") as f:
+            f.write(b"\x89PNG\r\n\x1a\n" + b"\x00" * 50)
+
+        ok, err = files.check_file_importable(path)
+        assert ok
+        assert err is None
+
+    def test_check_importable_oversized_image(self, isolated_env):
+        """Oversized images fail import check."""
+        path = os.path.join(isolated_env, "huge.png")
+        with open(path, "wb") as f:
+            f.write(b"\x89PNG" + b"\x00" * (files.MAX_IMAGE_SIZE + 1))
+
+        ok, err = files.check_file_importable(path)
+        assert not ok
+        assert "too large" in err.lower()
