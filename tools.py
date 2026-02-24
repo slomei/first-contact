@@ -721,8 +721,9 @@ def parse_job_posting(text, title, url):
     """Extract structured job data from page text. Returns a dict."""
     import models
     try:
+        fast_model = models.get_tier("fast")
         response = models.get_client().messages.create(
-            model="claude-haiku-4-5",
+            model=fast_model,
             max_tokens=500,
             messages=[{"role": "user", "content":
                 "Extract from this job posting. Return ONLY valid JSON:\n"
@@ -1681,6 +1682,10 @@ def execute_tool(name, tool_input, confirm_fn=None):
                     f"Path '{filepath}' is outside the allowed area."), True
 
         try:
+            import parsers
+            if parsers.is_binary_document(filepath):
+                contents = parsers.extract_text(filepath)
+                return contents, False
             with open(filepath, "r") as f:
                 contents = f.read()
             return contents, False
@@ -1690,6 +1695,8 @@ def execute_tool(name, tool_input, confirm_fn=None):
             return f"Path is a directory: {filepath}", True
         except UnicodeDecodeError:
             return f"Cannot read binary file: {filepath}", True
+        except (ImportError, ValueError) as e:
+            return str(e), True
 
     elif name == "write_file":
         filename = tool_input["filename"]
@@ -2199,9 +2206,10 @@ def run_digest(progress_fn=None):
         progress_fn("Summarizing findings...")
 
     cost_str = "$0.0000"
+    fast_model = models.get_tier("fast")
     try:
         response = models.get_client().messages.create(
-            model="claude-haiku-4-5",
+            model=fast_model,
             max_tokens=1500,
             system=[{
                 "type": "text",
@@ -2217,7 +2225,7 @@ def run_digest(progress_fn=None):
         digest = response.content[0].text
         cost = models.track_usage(response.usage.input_tokens,
                                   response.usage.output_tokens,
-                                  "claude-haiku-4-5",
+                                  fast_model,
                                   cache_creation_input_tokens=getattr(response.usage, 'cache_creation_input_tokens', 0) or 0,
                                   cache_read_input_tokens=getattr(response.usage, 'cache_read_input_tokens', 0) or 0)
         cost_str = f"${cost:.4f}"

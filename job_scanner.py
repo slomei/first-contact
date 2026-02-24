@@ -407,7 +407,7 @@ def run_scan(queries=None, progress_fn=None, scan_type="manual"):
 
 
 def _assess_fit_batch(jobs, progress_fn=None):
-    """Assess fit for a batch of jobs using Haiku.
+    """Assess fit for a batch of jobs using the fast tier model.
 
     Returns (assessed_jobs_list, total_cost).
     Each job dict gets 'score', 'reason', 'clean_title', 'company', 'location' added.
@@ -417,6 +417,7 @@ def _assess_fit_batch(jobs, progress_fn=None):
     assessed = []
     total_cost = 0.0
     fit_prompt = _build_fit_prompt()
+    fast_model = models.get_tier("fast")
 
     # Cache the fit prompt as a system message — stable across all jobs in
     # a scan, so Anthropic's prompt caching reuses it after the first call.
@@ -437,7 +438,7 @@ def _assess_fit_batch(jobs, progress_fn=None):
 
             try:
                 response = models.get_client().messages.create(
-                    model="claude-haiku-4-5",
+                    model=fast_model,
                     max_tokens=200,
                     system=fit_system,
                     messages=[{"role": "user", "content": text}],
@@ -446,7 +447,7 @@ def _assess_fit_batch(jobs, progress_fn=None):
                 cost = models.track_usage(
                     response.usage.input_tokens,
                     response.usage.output_tokens,
-                    "claude-haiku-4-5",
+                    fast_model,
                     cache_creation_input_tokens=getattr(response.usage, 'cache_creation_input_tokens', 0) or 0,
                     cache_read_input_tokens=getattr(response.usage, 'cache_read_input_tokens', 0) or 0,
                 )
@@ -494,6 +495,7 @@ def _assess_fit_batch_api(jobs, progress_fn=None):
     import batch_api
 
     fit_prompt = _build_fit_prompt()
+    fast_model = models.get_tier("fast")
     assessed = []
     total_cost = 0.0
 
@@ -503,7 +505,7 @@ def _assess_fit_batch_api(jobs, progress_fn=None):
         text = f"Title: {job['title']}\nURL: {job['url']}\n\n{job['body'][:1500]}"
         requests.append({
             "custom_id": f"job_{i}",
-            "model": "claude-haiku-4-5",
+            "model": fast_model,
             "max_tokens": 200,
             "system": fit_prompt,
             "messages": [{"role": "user", "content": text}],
@@ -538,7 +540,7 @@ def _assess_fit_batch_api(jobs, progress_fn=None):
             cost = models.track_usage(
                 message.usage.input_tokens,
                 message.usage.output_tokens,
-                "claude-haiku-4-5",
+                fast_model,
                 batch_discount=True,
             )
             total_cost += cost

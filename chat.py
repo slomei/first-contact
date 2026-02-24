@@ -1636,8 +1636,9 @@ if __name__ == "__main__":
                 # Use Haiku to parse the natural language event description
                 import models as _models
                 try:
+                    _fast_model = _models.get_tier("fast")
                     parse_response = _models.get_client().messages.create(
-                        model="claude-haiku-4-5",
+                        model=_fast_model,
                         max_tokens=200,
                         messages=[{"role": "user", "content":
                             "Extract event details from this text. Return ONLY valid JSON:\n"
@@ -1653,7 +1654,7 @@ if __name__ == "__main__":
                     _models.track_usage(
                         parse_response.usage.input_tokens,
                         parse_response.usage.output_tokens,
-                        "claude-haiku-4-5")
+                        _fast_model)
 
                     parse_text = parse_response.content[0].text.strip()
                     if parse_text.startswith("```"):

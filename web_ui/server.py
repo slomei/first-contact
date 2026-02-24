@@ -34,12 +34,13 @@ except ImportError:
     sys.exit(1)
 
 
-# Short name -> full model ID (matches the <select> values in the new UI)
-MODEL_MAP = {
-    "sonnet": "claude-sonnet-4-6",
-    "haiku": "claude-haiku-4-5",
-    "opus": "claude-opus-4-6",
-}
+# Short name -> full model ID (resolved from active provider's tiers)
+def _get_model_map():
+    return {
+        "sonnet": models.get_tier("standard"),
+        "haiku": models.get_tier("fast"),
+        "opus": models.get_tier("quality"),
+    }
 
 
 class Connection:
@@ -47,7 +48,7 @@ class Connection:
 
     def __init__(self):
         self.history = []
-        self.active_model = "claude-sonnet-4-6"
+        self.active_model = models.get_tier("standard")
         self.active_project = "general"
         self.session_input_tokens = 0
         self.session_output_tokens = 0
@@ -109,7 +110,7 @@ async def handle_message(ws, conn, data):
 
     # Override model if client sent one (accept short names or full IDs)
     if data.get("model"):
-        resolved = MODEL_MAP.get(data["model"], data["model"])
+        resolved = _get_model_map().get(data["model"], data["model"])
         if resolved in models.MODELS.values():
             conn.active_model = resolved
 
@@ -391,7 +392,7 @@ async def handler(ws):
             elif msg_type == "set_model":
                 model_id = data.get("model", "")
                 # Accept short names (sonnet/haiku/opus) or full IDs
-                resolved = MODEL_MAP.get(model_id, model_id)
+                resolved = _get_model_map().get(model_id, model_id)
                 if resolved in models.MODELS.values():
                     conn.active_model = resolved
                     short = models.MODEL_SHORT_NAMES.get(resolved, resolved)

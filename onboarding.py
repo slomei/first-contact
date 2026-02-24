@@ -443,7 +443,7 @@ class OnboardingWizard:
                 f"{ex['role'].title()}: {ex['content']}" for ex in exchanges
             )
             response = models.get_client().messages.create(
-                model="claude-sonnet-4-5-20250514",
+                model=models.get_tier("standard"),
                 max_tokens=256,
                 system=(
                     "You're getting to know a new user during onboarding. Here's the "
@@ -469,7 +469,7 @@ class OnboardingWizard:
                 f"{ex['role'].title()}: {ex['content']}" for ex in exchanges
             )
             response = models.get_client().messages.create(
-                model="claude-opus-4-5-20250414",
+                model=models.get_tier("quality"),
                 max_tokens=512,
                 system=(
                     "You just had a short conversation with a new user. Based on how "
@@ -954,7 +954,7 @@ class OnboardingWizard:
         try:
             summary = self._build_summary()
             response = models.get_client().messages.create(
-                model="claude-haiku-4-5",
+                model=models.get_tier("fast"),
                 max_tokens=512,
                 system=(
                     "You are checking user-provided profile data for inconsistencies. "

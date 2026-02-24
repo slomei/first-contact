@@ -88,8 +88,9 @@ def _extract_characters_via_haiku(bible_text):
         "World Bible Text:\n\n" + bible_text
     )
 
+    fast_model = models.get_tier("fast")
     response = models.get_client().messages.create(
-        model="claude-haiku-4-5",
+        model=fast_model,
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -97,7 +98,7 @@ def _extract_characters_via_haiku(bible_text):
     cost = models.track_usage(
         response.usage.input_tokens,
         response.usage.output_tokens,
-        "claude-haiku-4-5",
+        fast_model,
     )
 
     text = response.content[0].text.strip()
@@ -131,8 +132,9 @@ def _extract_locations_via_haiku(bible_text):
         "World Bible Text:\n\n" + bible_text
     )
 
+    fast_model = models.get_tier("fast")
     response = models.get_client().messages.create(
-        model="claude-haiku-4-5",
+        model=fast_model,
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -140,7 +142,7 @@ def _extract_locations_via_haiku(bible_text):
     cost = models.track_usage(
         response.usage.input_tokens,
         response.usage.output_tokens,
-        "claude-haiku-4-5",
+        fast_model,
     )
 
     text = response.content[0].text.strip()

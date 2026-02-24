@@ -40,11 +40,10 @@ ALLOWED_USER_ID = int(os.environ.get("DISCORD_USER_ID", "0"))
 # Configurable command prefix for server channels (read from config.json)
 COMMAND_PREFIX = memory.load_config().get("discord_prefix", "!fc")
 
-MODEL_DISPLAY_NAMES = {
-    "claude-sonnet-4-6": "Sonnet",
-    "claude-opus-4-6": "Opus",
-    "claude-haiku-4-5": "Haiku",
-}
+def _get_display_name(model_id):
+    """Get display name for a model ID via the provider abstraction."""
+    name = models.MODEL_SHORT_NAMES.get(model_id, "")
+    return name.title() if name else model_id
 
 
 def _should_notify():
@@ -58,7 +57,7 @@ class UserState:
 
     def __init__(self):
         self.conversation_history = []
-        self.active_model = "claude-sonnet-4-6"
+        self.active_model = models.get_tier("standard")
         self.active_project = "general"
         self.challenge_mode = False
         self.last_job_results = []
@@ -377,7 +376,7 @@ async def run_digest_discord(state, channel):
     try:
         response = await asyncio.to_thread(
             models.get_client().messages.create,
-            model="claude-haiku-4-5",
+            model=models.get_tier("fast"),
             max_tokens=1500,
             messages=[{"role": "user", "content":
                 "You are a research digest writer. Summarize the following web search results "
@@ -418,7 +417,7 @@ async def load_conversation_discord(state, filepath, channel):
     try:
         summary_response = await asyncio.to_thread(
             models.get_client().messages.create,
-            model="claude-haiku-4-5",
+            model=models.get_tier("fast"),
             max_tokens=500,
             messages=[{"role": "user", "content":
                 "Summarize this conversation into a concise recap (3-5 sentences). "
@@ -774,12 +773,12 @@ async def on_message(message):
 
     if command_lower in ("!opus", "!sonnet", "!haiku"):
         model_map = {
-            "!opus": "claude-opus-4-6",
-            "!sonnet": "claude-sonnet-4-6",
-            "!haiku": "claude-haiku-4-5",
+            "!opus": models.get_tier("quality"),
+            "!sonnet": models.get_tier("standard"),
+            "!haiku": models.get_tier("fast"),
         }
         state.active_model = model_map[command_lower]
-        name = MODEL_DISPLAY_NAMES[state.active_model]
+        name = _get_display_name(state.active_model)
         await send_reply(dm, f"*Switched to {name}.*")
         return
 
@@ -1266,7 +1265,7 @@ async def on_message(message):
                 try:
                     parse_response = await asyncio.to_thread(
                         models.get_client().messages.create,
-                        model="claude-haiku-4-5",
+                        model=models.get_tier("fast"),
                         max_tokens=200,
                         messages=[{"role": "user", "content":
                             "Extract event details from this text. Return ONLY valid JSON:\n"
@@ -2546,7 +2545,7 @@ async def on_message(message):
         lines = ["**Agent Status**", ""]
 
         # Model
-        name = MODEL_DISPLAY_NAMES.get(state.active_model, state.active_model)
+        name = _get_display_name(state.active_model)
         lines.append(f"**Model:** {name}")
         lines.append(f"**Project:** {state.active_project}")
         lines.append(f"**Challenge mode:** {'ON' if state.challenge_mode else 'OFF'}")

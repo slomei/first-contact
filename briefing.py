@@ -231,11 +231,12 @@ def _gather_watchlist():
 
         combined = "\n\n".join(search_results)
 
-        # Summarize with Haiku — stable instruction as cached system prompt
+        # Summarize with fast tier — stable instruction as cached system prompt
         import models
+        fast_model = models.get_tier("fast")
         try:
             response = models.get_client().messages.create(
-                model="claude-haiku-4-5",
+                model=fast_model,
                 max_tokens=500,
                 system=[{
                     "type": "text",
@@ -251,7 +252,7 @@ def _gather_watchlist():
             cost = models.track_usage(
                 response.usage.input_tokens,
                 response.usage.output_tokens,
-                "claude-haiku-4-5",
+                fast_model,
                 cache_creation_input_tokens=getattr(response.usage, 'cache_creation_input_tokens', 0) or 0,
                 cache_read_input_tokens=getattr(response.usage, 'cache_read_input_tokens', 0) or 0,
             )

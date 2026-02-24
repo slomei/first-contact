@@ -113,7 +113,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
          └────────┘ └────────┘ └───┘ └────────┘ └────────┘
 ```
 
-**36 Python modules:**
+**37 Python modules:**
 
 | File | Purpose |
 |------|---------|
@@ -140,6 +140,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 | `creative.py` | Creative project tools (world bible, characters, locations) |
 | `skills_loader.py` | Extensible skills system (keyword matching, specialist prompt injection) |
 | `files.py` | Project file management (import, list, remove, validation) |
+| `parsers.py` | Binary document text extraction (PDF, DOCX, XLSX) |
 | `service_registry.py` | Centralized integration status checks (6 built-in services) |
 | `plugin_generator.py` | Plugin template generator (scaffolds new plugins with metadata and docs) |
 | `plugins/` | Plugin loader — auto-discovers user-installable tool packages |

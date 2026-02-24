@@ -286,9 +286,10 @@ def generate_cover_letter_pdf(
 def _shorten_with_opus(text):
     """Ask Opus to tighten a cover letter to fit one page."""
     import models
+    quality_model = models.get_tier("quality")
     try:
         response = models.get_client().messages.create(
-            model="claude-opus-4-6",
+            model=quality_model,
             max_tokens=800,
             messages=[{"role": "user", "content":
                 "This cover letter is too long for one page. Tighten it to fit "
@@ -299,7 +300,7 @@ def _shorten_with_opus(text):
         )
         models.track_usage(response.usage.input_tokens,
                            response.usage.output_tokens,
-                           "claude-opus-4-6")
+                           quality_model)
         return response.content[0].text
     except Exception:
         # If API fails, just truncate to first 4 paragraphs

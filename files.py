@@ -8,11 +8,12 @@ import os
 import shutil
 
 import memory
+import parsers
 
 ALLOWED_EXTENSIONS = {
     ".txt", ".md", ".py", ".js", ".json", ".csv", ".html", ".css",
     ".yml", ".yaml", ".toml", ".cfg", ".log", ".xml", ".sh", ".bat",
-    ".sql", ".r", ".dart",
+    ".sql", ".r", ".dart", ".pdf", ".docx", ".xlsx",
 }
 
 # Files larger than this get a warning before injection
@@ -64,6 +65,16 @@ def check_file_importable(filepath):
     if not ok:
         return False, f"Unsupported file type: {ext or '(no extension)'}. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
 
+    # Binary document formats — validate via extraction
+    if parsers.is_binary_document(filepath):
+        try:
+            text = parsers.extract_text(filepath)
+            return True, None
+        except ImportError as e:
+            return False, str(e)
+        except (ValueError, Exception) as e:
+            return False, str(e)
+
     # Check it's readable as text
     try:
         with open(filepath, "r") as f:
@@ -101,7 +112,12 @@ def import_file(source_path):
 
 
 def read_file_contents(filepath):
-    """Read and return the text contents of a file."""
+    """Read and return the text contents of a file.
+
+    Binary document formats (PDF, DOCX, XLSX) are extracted to plain text.
+    """
+    if parsers.is_binary_document(filepath):
+        return parsers.extract_text(filepath)
     with open(filepath, "r") as f:
         return f.read()
 

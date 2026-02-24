@@ -140,6 +140,13 @@ def test_import_insights():
     assert hasattr(insights, "generate_insights")
 
 
+def test_import_parsers():
+    import parsers
+    assert hasattr(parsers, "extract_text")
+    assert hasattr(parsers, "is_binary_document")
+    assert hasattr(parsers, "BINARY_EXTENSIONS")
+
+
 def test_import_batch_api():
     import batch_api
     assert hasattr(batch_api, "submit_batch")
