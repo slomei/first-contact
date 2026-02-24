@@ -391,6 +391,7 @@ The system prompt enforces these behaviors (see System Prompt Behaviors above):
 - Specific Anthropic API error handling (rate limit, auth, context overflow, connection)
 - Designed as foundation for eventual Tauri desktop app
 - Suggested workflows shown on first connection after onboarding (same `suggestions_shown` config flag as terminal)
+- **`memory.active_project` sync:** All handlers that touch project-scoped files (`handle_message`, `handle_file_upload`, `file_delete`, `send_file_list`) set `memory.active_project = conn.active_project` before calling into shared core modules. This is required because `memory.active_project` is a module-level global and `handle_message` runs concurrently via `asyncio.create_task()`
 - Confirmation flow: `make_web_confirm_fn()` sends `{"type": "confirm"}` over WebSocket, client shows Approve/Deny buttons, user response sent back as `{"type": "confirm_response"}`. Server-side uses `threading.Event` to block the executor thread (60s timeout). `handle_message` runs via `asyncio.create_task()` so the dispatch loop continues processing `confirm_response` frames during tool execution
 
 **Discord (`discord_bot.py`):**
