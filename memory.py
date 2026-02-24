@@ -824,10 +824,10 @@ def _build_stable_prompt():
     if connected:
         base += f"\n\nConnected integrations: {', '.join(connected)}"
 
-    # User model — persistent learned profile
+    # User model — stable tier (cached): preferences, high-confidence facts, goals
     try:
         import user_model
-        profile_text = user_model.format_for_prompt()
+        profile_text = user_model.format_stable_profile()
         if profile_text:
             base += f"\n\n{profile_text}"
     except Exception:
@@ -869,6 +869,16 @@ def _build_dynamic_prompt(mems, creative_context="", query=None):
         if mems:
             project_block = "\n".join(f"- {m}" for m in mems)
             parts.append(f"Project memories ({active_project}):\n{project_block}")
+
+    # User model — contextual tier (per-turn): lower-confidence facts, patterns filtered by query
+    if query:
+        try:
+            import user_model
+            contextual_text = user_model.format_contextual_profile(query)
+            if contextual_text:
+                parts.append(contextual_text)
+        except Exception:
+            pass
 
     if creative_context:
         parts.append(

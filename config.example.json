@@ -86,6 +86,8 @@
   "user_model": {
     "enabled": true,
     "extraction_enabled": true,
-    "pattern_detection_enabled": true
+    "pattern_detection_enabled": true,
+    "selective_injection": true,
+    "max_contextual_entries": 20
   }
 }

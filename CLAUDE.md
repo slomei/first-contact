@@ -8,7 +8,7 @@
 
 First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Four interfaces (terminal, web UI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
 
-**Status:** Shipped. All 438 tests passing. Live on GitHub.
+**Status:** Shipped. All 446 tests passing. Live on GitHub.
 
 ---
 
@@ -38,7 +38,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `briefing.py` | Daily briefing aggregation — 7 data sources: email, calendar, tasks, jobs, reminders, watchlist, scan results. Formats for Discord, Telegram, and terminal. |
 | `notifications.py` | Email classification (high/medium/low priority by sender domain + keywords), rate limiting (20/hour), seen-message dedup (7-day prune), audit logging, Discord/Telegram/email formatters. |
 | `insights.py` | Proactive insights engine — cross-references tasks, email, calendar, jobs, reminders via Sonnet to surface actionable connections. 6 data-gathering functions, minimum-source gate (≥2), NO_INSIGHTS parsing. Daemon-only (every 6 hours). |
-| `user_model.py` | Persistent user model — learns facts, preferences, patterns, goals from conversations. Post-conversation extraction (Haiku, fire-and-forget background thread), daemon pattern detection (Sonnet, 24hr). Stored in `user_profile.json`. Injected into stable system prompt block. `/profile` command on all interfaces. |
+| `user_model.py` | Persistent user model — learns facts, preferences, patterns, goals from conversations. Post-conversation extraction (Haiku, fire-and-forget background thread), daemon pattern detection (Sonnet, 24hr). Stored in `user_profile.json`. Two-tier prompt injection: tier 1 (preferences, high-confidence facts, goals) in stable/cached block, tier 2 (patterns, lower-confidence facts) filtered by keyword relevance in dynamic block. `/profile` command on all interfaces. |
 | `job_scanner.py` | Proactive job scanning — multi-platform search via search provider abstraction, Haiku fit assessment against user profile, dedup via seen_jobs.json, rate limiting (3 manual scans/day). Batch API for >=5 jobs (50% cost). |
 | `batch_api.py` | Batch API wrapper — submit, poll, retrieve for Anthropic Messages Batches endpoint. Used by job_scanner for fit assessments at 50% cost. |
 | `daemon.py` | Single entry point for all services. Spawns and supervises web_ui, discord, and telegram as subprocesses (auto-restart on crash). Also runs scheduled tasks: daily briefings, email checks (30 min), job scans (12 hr), reminder checks (5 min), insights analysis (6 hr). PID management, graceful SIGTERM/SIGINT, notification routing. Hot reload via watchdog (opt-in, `--hot-reload` or `config.hot_reload`). Configurable via `auto_start_*` keys. |
@@ -429,7 +429,7 @@ All four interfaces share these features via the shared core:
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 438 tests across 27 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 446 tests across 27 test files.
 
 ---
 

@@ -150,28 +150,109 @@ def get_entries(category=None):
     return entries
 
 
-# --- Formatting ---
+# --- Relevance Scoring ---
 
-def format_for_prompt():
-    """Format profile entries for system prompt injection.
+def score_relevance(entry_text, context):
+    """Score how relevant an entry is to the given context.
 
-    Returns empty string if disabled or no entries.
+    Uses Jaccard similarity on word sets with category boosts.
+    Returns 0.0 to 1.0.
+    """
+    if not entry_text or not context:
+        return 0.0
+
+    entry_words = set(entry_text.lower().split())
+    context_words = set(context.lower().split())
+
+    # Strip very short words (articles, prepositions) to reduce noise
+    entry_words = {w for w in entry_words if len(w) > 2}
+    context_words = {w for w in context_words if len(w) > 2}
+
+    if not entry_words or not context_words:
+        return 0.0
+
+    intersection = entry_words & context_words
+    union = entry_words | context_words
+
+    return len(intersection) / len(union) if union else 0.0
+
+
+def _is_tier1(entry):
+    """Check if an entry belongs in the stable/cached prompt (tier 1).
+
+    Tier 1: preferences (always active), high-confidence entries (>= 0.9),
+    and all goals.
+    """
+    if entry.get("category") == "preferences":
+        return True
+    if entry.get("confidence", 0) >= 0.9:
+        return True
+    if entry.get("category") == "goals":
+        return True
+    return False
+
+
+def get_relevant_profile(context=None, max_entries=None):
+    """Get profile entries filtered by relevance to context.
+
+    If context is None/empty: returns all entries (backward compatible).
+    If context provided: scores entries, returns top max_entries sorted by relevance.
+    High-confidence entries (>= 0.9) and preferences are always included.
     """
     config = memory.load_config()
-    if not config.get("user_model", {}).get("enabled", True):
-        return ""
+    um_config = config.get("user_model", {})
+    if max_entries is None:
+        max_entries = um_config.get("max_contextual_entries", 20)
 
     entries = load_profile()
     if not entries:
+        return []
+
+    if not context or not um_config.get("selective_injection", True):
+        return entries
+
+    # Score all entries
+    scored = []
+    for e in entries:
+        score = score_relevance(e.get("text", ""), context)
+        # Boost goals and preferences
+        if e.get("category") in ("goals", "preferences"):
+            score += 0.2
+        scored.append((score, e))
+
+    # Always include high-confidence and preferences regardless of score
+    always_include = []
+    rest = []
+    for score, e in scored:
+        if e.get("confidence", 0) >= 0.9 or e.get("category") == "preferences":
+            always_include.append(e)
+        else:
+            rest.append((score, e))
+
+    # Sort remaining by score descending, take up to remaining budget
+    rest.sort(key=lambda x: x[0], reverse=True)
+    budget = max(0, max_entries - len(always_include))
+    selected = always_include + [e for _, e in rest[:budget]]
+
+    return selected
+
+
+# --- Formatting ---
+
+def _format_entries(entries, header):
+    """Format a list of entries into a labeled text block.
+
+    Returns empty string if no entries.
+    """
+    if not entries:
         return ""
 
-    # Group by category
     groups = {}
     for e in entries:
         cat = e.get("category", "facts")
         groups.setdefault(cat, []).append(e)
 
-    lines = ["Learned user profile:"]
+    lines = [header]
     category_order = ["facts", "preferences", "patterns", "goals"]
     labels = {"facts": "Facts", "preferences": "Preferences", "patterns": "Patterns", "goals": "Goals"}
 
@@ -179,7 +260,6 @@ def format_for_prompt():
         items = groups.get(cat, [])
         if not items:
             continue
-        # Sort by confidence descending
         items.sort(key=lambda x: x.get("confidence", 0), reverse=True)
         lines.append(f"  {labels[cat]}:")
         for item in items:
@@ -189,6 +269,74 @@ def format_for_prompt():
         return ""
 
     return "\n".join(lines)
+
+
+def format_for_prompt(context=None):
+    """Format profile entries for system prompt injection.
+
+    When context is provided and selective_injection is enabled, filters
+    by relevance. Returns empty string if disabled or no entries.
+    """
+    config = memory.load_config()
+    if not config.get("user_model", {}).get("enabled", True):
+        return ""
+
+    entries = get_relevant_profile(context)
+    return _format_entries(entries, "Learned user profile:")
+
+
+def format_stable_profile():
+    """Format tier 1 entries for the stable/cached system prompt block.
+
+    Tier 1: preferences, high-confidence facts (>= 0.9), goals.
+    These represent core user identity and are always injected.
+    Returns empty string if disabled or no tier 1 entries.
+    """
+    config = memory.load_config()
+    if not config.get("user_model", {}).get("enabled", True):
+        return ""
+
+    entries = load_profile()
+    tier1 = [e for e in entries if _is_tier1(e)]
+    return _format_entries(tier1, "Learned user profile:")
+
+
+def format_contextual_profile(context):
+    """Format tier 2 entries filtered by conversation context.
+
+    Tier 2: everything NOT in tier 1 — lower-confidence facts, patterns,
+    situational knowledge. Filtered by keyword relevance to the context.
+    Returns empty string if disabled, no context, or no relevant entries.
+    """
+    config = memory.load_config()
+    um_config = config.get("user_model", {})
+    if not um_config.get("enabled", True):
+        return ""
+    if not um_config.get("selective_injection", True):
+        return ""
+    if not context:
+        return ""
+
+    entries = load_profile()
+    tier2 = [e for e in entries if not _is_tier1(e)]
+    if not tier2:
+        return ""
+
+    max_entries = um_config.get("max_contextual_entries", 20)
+
+    # Score and filter
+    scored = []
+    for e in tier2:
+        score = score_relevance(e.get("text", ""), context)
+        if e.get("category") in ("goals", "preferences"):
+            score += 0.2
+        scored.append((score, e))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    # Only include entries with non-zero relevance
+    relevant = [e for score, e in scored[:max_entries] if score > 0]
+    return _format_entries(relevant, "Contextual user profile:")
 
 
 # --- Deduplication & Pruning ---
