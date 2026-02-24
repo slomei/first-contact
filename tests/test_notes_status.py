@@ -90,3 +90,55 @@ def test_load_config_has_briefing_key(isolated_env):
     # Briefing key may or may not exist, but access shouldn't crash
     briefing = config.get("briefing", {})
     assert isinstance(briefing, dict)
+
+
+# --- clear_all_conversations tests ---
+
+def test_clear_all_conversations_removes_files(isolated_env):
+    """clear_all_conversations removes all .txt files from conversation dirs."""
+    # Create conversation files in the active project
+    conv_dir = memory.get_conversations_dir()
+    for name in ["2026-01-01_hello.txt", "2026-01-02_world.txt"]:
+        with open(os.path.join(conv_dir, name), "w") as f:
+            f.write("test conversation")
+
+    assert len(memory.list_conversations()) == 2
+
+    count = memory.clear_all_conversations()
+    assert count == 2
+    assert len(memory.list_conversations()) == 0
+
+
+def test_clear_all_conversations_preserves_other_data(isolated_env):
+    """clear_all_conversations does not touch memories, tasks, or profile."""
+    # Create a conversation
+    conv_dir = memory.get_conversations_dir()
+    with open(os.path.join(conv_dir, "2026-01-01_test.txt"), "w") as f:
+        f.write("test")
+
+    # Create a memory
+    memory.memories.append("test memory")
+    memory.save_memories(memory.memories)
+
+    # Create a task
+    tasks.add_task("test task")
+
+    # Create a user profile
+    import user_model
+    profile_path = os.path.join(isolated_env, "user_profile.json")
+    user_model.save_profile([{"id": "x", "category": "facts", "text": "test", "confidence": 0.9,
+                              "source": "test", "created": "2026-01-01", "updated": "2026-01-01",
+                              "supersedes": None}])
+
+    # Clear conversations
+    memory.clear_all_conversations()
+
+    # Verify other data is untouched
+    assert len(memory.load_memories()) > 0
+    assert len(tasks.get_open_tasks()) > 0
+
+
+def test_clear_all_conversations_empty(isolated_env):
+    """clear_all_conversations returns 0 when no conversations exist."""
+    count = memory.clear_all_conversations()
+    assert count == 0

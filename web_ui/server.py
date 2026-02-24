@@ -243,6 +243,12 @@ async def handle_message(ws, conn, data):
         await ws.send(json.dumps({"type": "status", "content": msg}))
         return
 
+    if user_msg.strip().lower() == "/conversations clear":
+        count = memory.clear_all_conversations()
+        msg = f"Cleared {count} conversation{'s' if count != 1 else ''}."
+        await ws.send(json.dumps({"type": "status", "content": msg}))
+        return
+
     if not multimodal_appended:
         conn.history.append({"role": "user", "content": user_msg})
 

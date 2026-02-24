@@ -15,6 +15,7 @@ HELP_CATEGORIES = {
             ("/new", "Save conversation and start fresh"),
             ("/load", "Load a previous conversation"),
             ("/conversations", "List saved conversations"),
+            ("/conversations clear", "Delete all saved conversations"),
             ("/delete", "Delete a saved conversation"),
             ("/clear", "Clear the screen"),
         ],

@@ -1105,6 +1105,26 @@ def list_conversations():
     return files
 
 
+def clear_all_conversations():
+    """Remove all saved conversations across all projects.
+
+    Does NOT touch memories, tasks, reminders, config, or user_profile.json.
+    Returns the total number of files removed.
+    """
+    count = 0
+    for project in list_projects():
+        conv_dir = os.path.join(PROJECTS_DIR, project, "conversations")
+        if os.path.isdir(conv_dir):
+            for f in os.listdir(conv_dir):
+                if f.endswith(".txt"):
+                    try:
+                        os.remove(os.path.join(conv_dir, f))
+                        count += 1
+                    except OSError:
+                        pass
+    return count
+
+
 def slugify(text):
     """Convert text to a filename-safe slug."""
     text = text.lower().strip()

@@ -1740,6 +1740,11 @@ async def on_message(message):
         return
 
     # --- Conversations ---
+    if command_lower == "!conversations clear":
+        count = memory.clear_all_conversations()
+        await send_reply(dm, f"*Cleared {count} conversation{'s' if count != 1 else ''}.*")
+        return
+
     if command_lower == "!conversations":
         await send_reply(dm, build_conversations_list(state))
         return

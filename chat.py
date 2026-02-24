@@ -2644,14 +2644,23 @@ if __name__ == "__main__":
                 print(f"  Use: search, save, list, remove, apply, track, status{memory.RESET}\n")
             continue
 
-        if command_lower == "/conversations":
-            files = memory.list_conversations()
-            if files:
-                print(f"{memory.DIM}Previous conversations ({memory.active_project}):")
-                print_conversations(files)
-                print(memory.RESET)
+        if command_lower == "/conversations" or command_lower.startswith("/conversations "):
+            conv_arg = command[14:].strip().lower() if len(command) > 14 else ""
+            if conv_arg == "clear":
+                confirm = terminal_confirm("Delete all saved conversations across all projects? (y/n) ")
+                if confirm:
+                    count = memory.clear_all_conversations()
+                    print(f"{memory.DIM}Cleared {count} conversation{'s' if count != 1 else ''}.{memory.RESET}\n")
+                else:
+                    print(f"{memory.DIM}Cancelled.{memory.RESET}\n")
             else:
-                print(f"{memory.DIM}No saved conversations yet.{memory.RESET}\n")
+                files = memory.list_conversations()
+                if files:
+                    print(f"{memory.DIM}Previous conversations ({memory.active_project}):")
+                    print_conversations(files)
+                    print(memory.RESET)
+                else:
+                    print(f"{memory.DIM}No saved conversations yet.{memory.RESET}\n")
             continue
 
         if command_lower == "/load":

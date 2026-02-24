@@ -8,7 +8,7 @@
 
 First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Four interfaces (terminal, web UI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
 
-**Status:** Shipped. All 446 tests passing. Live on GitHub.
+**Status:** Shipped. All 449 tests passing. Live on GitHub.
 
 ---
 
@@ -68,7 +68,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `tests/test_tasks.py` | Tasks — add/roundtrip, natural date parsing. |
 | `tests/test_onboarding.py` | Onboarding — calibration flow, step ordering, error handling, suggested workflows. |
 | `tests/test_help_data.py` | Help system — categories, fuzzy matching, all 3 interface formatters. |
-| `tests/test_notes_status.py` | Notes, reminders, draft rate limits, daemon PID, config loading. |
+| `tests/test_notes_status.py` | Notes, reminders, draft rate limits, daemon PID, config loading, conversation clearing. |
 | `tests/test_skills.py` | Skills system — skill loading, keyword matching, default skills, specialist prompt injection. |
 | `tests/test_files.py` | File management — extension validation, import/list/remove, large file detection, path resolution, binary document parsing (PDF/DOCX/XLSX), image file detection and encoding. |
 | `tests/test_daemon_caching.py` | Daemon caching — prompt caching in job scanner, briefing watchlist, digest; track_usage cache token accounting. |
@@ -318,7 +318,7 @@ First Contact's security is built on a core assumption: safety that depends on a
 
 ## All Commands
 
-**Chat:** `/opus`, `/sonnet`, `/haiku`, `/challenge on|off`, `/prompt [text|clear]`, `/new`, `/load`, `/conversations`, `/delete`, `/clear`, `/attach <path>`
+**Chat:** `/opus`, `/sonnet`, `/haiku`, `/challenge on|off`, `/prompt [text|clear]`, `/new`, `/load`, `/conversations`, `/conversations clear`, `/delete`, `/clear`, `/attach <path>`
 
 **Memory & Notes:** `/remember [-p] <fact>`, `/forget <fact>`, `/memories`, `/memories search <q>`, `/note <text>`, `/notes`, `/notes search <q>`
 
@@ -429,7 +429,7 @@ All four interfaces share these features via the shared core:
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 446 tests across 26 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 449 tests across 26 test files.
 
 ---
 

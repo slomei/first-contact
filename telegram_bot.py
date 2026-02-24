@@ -1725,6 +1725,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # --- Conversations ---
+    if content_lower == "/conversations clear":
+        count = memory.clear_all_conversations()
+        await send_reply(chat_id, f"Cleared {count} conversation{'s' if count != 1 else ''}.", bot)
+        return
+
     if content_lower == "/conversations":
         await send_reply(chat_id, build_conversations_list(state), bot)
         return
