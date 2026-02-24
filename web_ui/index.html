@@ -241,11 +241,26 @@ body {
   position: relative;
   z-index: 2;
 }
-.chat-container.drag-over {
+.input-wrapper.drag-over {
   outline: 2px dashed var(--accent, #888);
-  outline-offset: -4px;
-  background: rgba(128,128,128,0.06);
+  outline-offset: -2px;
+  border-radius: 10px;
 }
+
+.attachment-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.attachment-chips:empty { display: none; }
+.attachment-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; background: var(--bg-elevated);
+  border: 1px solid var(--border); border-radius: 4px;
+  font-size: 0.7rem; color: var(--text-dim);
+  font-family: 'JetBrains Mono', monospace;
+}
+.attachment-chip button {
+  background: none; border: none; color: var(--text-faint);
+  cursor: pointer; padding: 0 2px; font-size: 0.8rem; line-height: 1;
+}
+.attachment-chip button:hover { color: #ef4444; }
 
 .chat-messages {
   width: 100%;
@@ -836,6 +851,7 @@ body {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
           </button>
         </div>
+        <div class="attachment-chips" id="attachmentChips"></div>
         <div class="input-controls">
           <select class="model-select" id="modelSelect"></select>
           <span class="input-hint">enter to send · shift+enter new line</span>
@@ -1218,18 +1234,31 @@ function setStreaming(value) {
 function sendMessage() {
   const input = document.getElementById('messageInput');
   const text = input.value.trim();
-  if (!text || isStreaming || !ws || ws.readyState !== WebSocket.OPEN) return;
+  const hasAttachments = pendingAttachments.length > 0;
+  if ((!text && !hasAttachments) || isStreaming || !ws || ws.readyState !== WebSocket.OPEN) return;
 
-  addMessage('user', text);
+  // Show user bubbles for attachments
+  for (const f of pendingAttachments) {
+    addMessage('user', `[Attached: ${f.name}]`);
+  }
+  if (text) addMessage('user', text);
+
   input.value = '';
   input.style.height = 'auto';
   setStreaming(true);
 
-  ws.send(JSON.stringify({
+  const payload = {
     type: 'message',
     content: text,
     model: document.getElementById('modelSelect').value,
-  }));
+  };
+  if (hasAttachments) {
+    payload.files = pendingAttachments;
+  }
+  ws.send(JSON.stringify(payload));
+
+  pendingAttachments = [];
+  renderAttachmentChips();
 }
 
 function handleKey(e) {
@@ -1276,27 +1305,67 @@ document.getElementById('modelSelect').addEventListener('change', () => {
   }
 });
 
-// ═══ CHAT AREA DROP ═══
-const chatContainer = document.getElementById('chatContainer');
-chatContainer.addEventListener('dragover', (e) => {
+// ═══ CHAT INPUT DROP (temporary attachments) ═══
+const inputWrapper = document.querySelector('.input-wrapper');
+let pendingAttachments = [];
+
+inputWrapper.addEventListener('dragover', (e) => {
   e.preventDefault();
   e.stopPropagation();
-  chatContainer.classList.add('drag-over');
+  inputWrapper.classList.add('drag-over');
 });
-chatContainer.addEventListener('dragleave', (e) => {
+inputWrapper.addEventListener('dragleave', (e) => {
   e.stopPropagation();
-  if (!chatContainer.contains(e.relatedTarget)) {
-    chatContainer.classList.remove('drag-over');
-  }
+  if (!inputWrapper.contains(e.relatedTarget)) inputWrapper.classList.remove('drag-over');
 });
-chatContainer.addEventListener('drop', (e) => {
+inputWrapper.addEventListener('drop', (e) => {
   e.preventDefault();
   e.stopPropagation();
-  chatContainer.classList.remove('drag-over');
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  inputWrapper.classList.remove('drag-over');
   const files = Array.from(e.dataTransfer.files);
-  if (files.length) uploadFiles(files);
+  if (files.length) queueAttachments(files);
 });
+
+function queueAttachments(files) {
+  const valid = [];
+  for (const file of files) {
+    const ext = getUploadExtension(file.name);
+    if (UPLOAD_ALLOWED_EXTENSIONS.has(ext)) {
+      valid.push(file);
+    } else {
+      addStatusMessage(`Skipped ${file.name}: unsupported type`);
+    }
+  }
+  if (!valid.length) return;
+
+  for (const file of valid) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      pendingAttachments.push({ name: file.name, contents: reader.result });
+      renderAttachmentChips();
+    };
+    reader.onerror = () => {
+      addStatusMessage(`Failed to read: ${file.name}`);
+    };
+    if (UPLOAD_BINARY_EXTENSIONS.has(getUploadExtension(file.name))) {
+      reader.readAsDataURL(file);
+    } else {
+      reader.readAsText(file);
+    }
+  }
+}
+
+function renderAttachmentChips() {
+  const container = document.getElementById('attachmentChips');
+  container.innerHTML = pendingAttachments.map((f, i) =>
+    `<span class="attachment-chip">${escapeHtml(f.name)}<button onclick="removeAttachment(${i})" title="Remove">&times;</button></span>`
+  ).join('');
+}
+
+function removeAttachment(index) {
+  pendingAttachments.splice(index, 1);
+  renderAttachmentChips();
+}
 
 // ═══ SIDEBAR FILE DROP ═══
 const dropZone = document.getElementById('dropZone');
@@ -1398,65 +1467,13 @@ function renderConversationList(conversations) {
 
 // ═══ ATTACH FILE ═══
 function attachFile() {
-  if (isStreaming || !ws || ws.readyState !== WebSocket.OPEN) return;
+  if (isStreaming) return;
   const input = document.createElement('input');
   input.type = 'file';
   input.multiple = true;
   input.onchange = () => {
     const picked = Array.from(input.files);
-    if (!picked.length) return;
-
-    const valid = [];
-    for (const file of picked) {
-      const ext = getUploadExtension(file.name);
-      if (UPLOAD_ALLOWED_EXTENSIONS.has(ext)) {
-        valid.push(file);
-      } else {
-        addStatusMessage(`Skipped ${file.name}: unsupported type`);
-      }
-    }
-    if (!valid.length) return;
-
-    let pending = valid.length;
-    const fileData = [];
-
-    for (const file of valid) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        fileData.push({ name: file.name, contents: reader.result });
-        pending--;
-        if (pending === 0) {
-          // Show user bubbles for attached files
-          for (const f of fileData) {
-            addMessage('user', `[Attached: ${f.name}]`);
-          }
-
-          const text = document.getElementById('messageInput').value.trim();
-          if (text) addMessage('user', text);
-
-          setStreaming(true);
-
-          ws.send(JSON.stringify({
-            type: 'message',
-            content: text,
-            model: document.getElementById('modelSelect').value,
-            files: fileData,
-          }));
-
-          document.getElementById('messageInput').value = '';
-          autoResize(document.getElementById('messageInput'));
-        }
-      };
-      reader.onerror = () => {
-        addStatusMessage(`Failed to read: ${file.name}`);
-        pending--;
-      };
-      if (UPLOAD_BINARY_EXTENSIONS.has(getUploadExtension(file.name))) {
-        reader.readAsDataURL(file);
-      } else {
-        reader.readAsText(file);
-      }
-    }
+    if (picked.length) queueAttachments(picked);
   };
   input.click();
 }

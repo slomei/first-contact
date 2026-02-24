@@ -257,27 +257,41 @@ function autoScroll() {
 
 function sendMessage() {
     const text = messageInput.value.trim();
-    if (!text || isStreaming || !ws || ws.readyState !== WebSocket.OPEN) return;
+    const hasAttachments = pendingAttachments.length > 0;
+    if ((!text && !hasAttachments) || isStreaming || !ws || ws.readyState !== WebSocket.OPEN) return;
 
     // Clear welcome message
     const welcome = chatArea.querySelector(".welcome-message");
     if (welcome) welcome.remove();
 
-    // User bubble
-    const bubble = createBubble("user");
-    bubble.textContent = text;
+    // Show user bubbles for attachments
+    for (const f of pendingAttachments) {
+        const bubble = createBubble("user");
+        bubble.textContent = `[Attached: ${f.name}]`;
+    }
+
+    // User bubble for text
+    if (text) {
+        const bubble = createBubble("user");
+        bubble.textContent = text;
+    }
 
     messageInput.value = "";
     autoResizeInput();
     setStreaming(true);
-    showTypingIndicator("Thinking...");
+    showTypingIndicator(hasAttachments ? "Processing files..." : "Thinking...");
 
-    ws.send(JSON.stringify({
+    const payload = {
         type: "message",
         content: text,
         model: modelSelect.value,
-    }));
+    };
+    if (hasAttachments) {
+        payload.files = pendingAttachments;
+    }
+    ws.send(JSON.stringify(payload));
 
+    pendingAttachments = [];
     autoScroll();
 }
 
@@ -341,7 +355,7 @@ accentPicker.addEventListener("input", (e) => {
     localStorage.setItem("fc-accent", e.target.value);
 });
 
-// --- Drag-and-Drop File Upload ---
+// --- Drag-and-Drop File Attachment (temporary, sent with next message) ---
 
 const ALLOWED_EXTENSIONS = new Set([
     ".txt", ".md", ".py", ".js", ".json", ".csv", ".html", ".css",
@@ -360,34 +374,37 @@ function getExtension(filename) {
     return dot >= 0 ? filename.slice(dot).toLowerCase() : "";
 }
 
-chatArea.addEventListener("dragover", (e) => {
+let pendingAttachments = [];
+
+// Target the input area for drag-and-drop (temporary attachments)
+const inputArea = messageInput.closest(".input-area") || messageInput.parentElement;
+
+inputArea.addEventListener("dragover", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    chatArea.closest("main").classList.add("drag-over");
+    inputArea.classList.add("drag-over");
 });
 
-chatArea.addEventListener("dragleave", (e) => {
+inputArea.addEventListener("dragleave", (e) => {
     e.stopPropagation();
-    // Only remove if we're leaving the main area entirely
-    if (!e.relatedTarget || !chatArea.closest("main").contains(e.relatedTarget)) {
-        chatArea.closest("main").classList.remove("drag-over");
+    if (!inputArea.contains(e.relatedTarget)) {
+        inputArea.classList.remove("drag-over");
     }
 });
 
-chatArea.addEventListener("drop", (e) => {
+inputArea.addEventListener("drop", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    chatArea.closest("main").classList.remove("drag-over");
-
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    inputArea.classList.remove("drag-over");
 
     const droppedFiles = Array.from(e.dataTransfer.files);
-    if (!droppedFiles.length) return;
+    if (droppedFiles.length) queueAttachments(droppedFiles);
+});
 
-    // Filter valid files
+function queueAttachments(files) {
     const valid = [];
     const rejected = [];
-    for (const file of droppedFiles) {
+    for (const file of files) {
         const ext = getExtension(file.name);
         if (ALLOWED_EXTENSIONS.has(ext)) {
             valid.push(file);
@@ -399,59 +416,16 @@ chatArea.addEventListener("drop", (e) => {
     if (rejected.length) {
         showStatus(`Skipped unsupported: ${rejected.join(", ")}`);
     }
-
     if (!valid.length) return;
-
-    // Show user bubble for each file
-    for (const file of valid) {
-        const bubble = createBubble("user");
-        bubble.textContent = `[File: ${file.name}]`;
-    }
-
-    // Read all files and send as chat attachment (temporary, not persisted)
-    let pending = valid.length;
-    const fileData = [];
 
     for (const file of valid) {
         const reader = new FileReader();
         reader.onload = () => {
-            fileData.push({ name: file.name, contents: reader.result });
-            pending--;
-            if (pending === 0) {
-                // Clear welcome message
-                const welcome = chatArea.querySelector(".welcome-message");
-                if (welcome) welcome.remove();
-
-                // Show user bubble for attached files
-                for (const f of fileData) {
-                    const bubble = createBubble("user");
-                    bubble.textContent = `[Attached: ${f.name}]`;
-                }
-
-                const text = messageInput.value.trim();
-                if (text) {
-                    const bubble = createBubble("user");
-                    bubble.textContent = text;
-                }
-
-                setStreaming(true);
-                showTypingIndicator("Processing files...");
-
-                ws.send(JSON.stringify({
-                    type: "message",
-                    content: text,
-                    model: modelSelect.value,
-                    files: fileData,
-                }));
-
-                messageInput.value = "";
-                autoResizeInput();
-                autoScroll();
-            }
+            pendingAttachments.push({ name: file.name, contents: reader.result });
+            showStatus(`Attached: ${file.name} (will send with next message)`);
         };
         reader.onerror = () => {
             showStatus(`Failed to read: ${file.name}`);
-            pending--;
         };
         if (BINARY_EXTENSIONS.has(getExtension(file.name))) {
             reader.readAsDataURL(file);
@@ -459,7 +433,7 @@ chatArea.addEventListener("drop", (e) => {
             reader.readAsText(file);
         }
     }
-});
+}
 
 // Handle file_upload_result from server
 const _origHandler = handleServerMessage;
