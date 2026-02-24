@@ -585,13 +585,16 @@ async def handler(ws):
                 if os.path.isfile(fpath):
                     size = os.path.getsize(fpath)
                     preview = None
+                    preview_type = None
                     text_exts = {
                         '.txt', '.md', '.json', '.py', '.csv', '.js', '.html',
                         '.css', '.xml', '.yaml', '.yml', '.toml', '.ini',
                         '.cfg', '.log', '.sh', '.bash', '.zsh',
                     }
+                    image_exts = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
                     ext = os.path.splitext(fname)[1].lower()
                     if ext in text_exts:
+                        preview_type = "text"
                         try:
                             with open(fpath, "r", encoding="utf-8") as f:
                                 lines = []
@@ -602,13 +605,33 @@ async def handler(ws):
                                     lines.append(line)
                             preview = "".join(lines)
                         except (UnicodeDecodeError, OSError, StopIteration):
-                            pass
+                            preview_type = None
+                    elif ext == '.pdf':
+                        preview_type = "pdf"
+                        try:
+                            with open(fpath, "rb") as f:
+                                preview = base64.b64encode(f.read()).decode("ascii")
+                        except OSError:
+                            preview_type = None
+                    elif ext in image_exts:
+                        preview_type = "image"
+                        mime = {
+                            '.png': 'image/png', '.jpg': 'image/jpeg',
+                            '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+                            '.webp': 'image/webp',
+                        }.get(ext, 'image/png')
+                        try:
+                            with open(fpath, "rb") as f:
+                                preview = f"data:{mime};base64," + base64.b64encode(f.read()).decode("ascii")
+                        except OSError:
+                            preview_type = None
                     await ws.send(json.dumps({
                         "type": "file_preview_result",
                         "name": fname,
                         "dir": fdir,
                         "size": size,
                         "preview": preview,
+                        "preview_type": preview_type,
                     }))
                 else:
                     await ws.send(json.dumps({

@@ -1613,6 +1613,7 @@ function showFilePreview(data) {
   const dir = data.dir || 'files';
   const size = data.size || 0;
   const preview = data.preview;
+  const previewType = data.preview_type;
 
   let sizeStr;
   if (size < 1024) sizeStr = size + ' B';
@@ -1620,9 +1621,17 @@ function showFilePreview(data) {
   else sizeStr = (size / 1048576).toFixed(1) + ' MB';
 
   const dirLabel = dir === 'workspace' ? 'workspace' : 'files';
-  const previewHtml = preview != null
-    ? `<div class="file-preview-content">${escapeHtml(preview)}</div>`
-    : '';
+  let previewHtml = '';
+  if (previewType === 'text' && preview != null) {
+    previewHtml = `<div class="file-preview-content">${escapeHtml(preview)}</div>`;
+  } else if (previewType === 'pdf' && preview != null) {
+    const bytes = Uint8Array.from(atob(preview), c => c.charCodeAt(0));
+    const blob = new Blob([bytes], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    previewHtml = `<iframe src="${url}" style="width:100%;height:40vh;border:1px solid var(--border-subtle);border-radius:6px;margin-bottom:14px"></iframe>`;
+  } else if (previewType === 'image' && preview != null) {
+    previewHtml = `<img src="${preview}" style="max-width:100%;max-height:40vh;border-radius:6px;margin-bottom:14px;object-fit:contain">`;
+  }
 
   const overlay = document.createElement('div');
   overlay.className = 'file-preview-overlay';
