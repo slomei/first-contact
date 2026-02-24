@@ -1172,6 +1172,17 @@ function addStatusMessage(text) {
   scrollToBottom();
 }
 
+function formatConfirmPrompt(prompt) {
+  const codeMatch = prompt.match(/\[code\]\n([\s\S]*?)\n\[\/code\]/);
+  if (codeMatch) {
+    const before = escapeHtml(prompt.substring(0, prompt.indexOf('[code]')).trim());
+    const after = escapeHtml(prompt.substring(prompt.indexOf('[/code]') + 7).trim());
+    const code = escapeHtml(codeMatch[1]);
+    return `${before}<details><summary>Show code</summary><pre style="margin:8px 0;padding:8px;background:var(--bg-secondary);border-radius:4px;overflow-x:auto;white-space:pre-wrap">${code}</pre></details>${after}`;
+  }
+  return escapeHtml(prompt);
+}
+
 function showConfirmDialog(prompt) {
   const container = document.getElementById('chatMessages');
   const welcome = container.querySelector('.welcome');
@@ -1185,7 +1196,7 @@ function showConfirmDialog(prompt) {
       <div class="message-role assistant">confirmation required</div>
     </div>
     <div class="message-body assistant-body">
-      <div class="confirm-prompt">${escapeHtml(prompt)}</div>
+      <div class="confirm-prompt">${formatConfirmPrompt(prompt)}</div>
       <div class="confirm-actions">
         <button class="confirm-btn confirm-yes" onclick="respondConfirm(true)">Approve</button>
         <button class="confirm-btn confirm-no" onclick="respondConfirm(false)">Deny</button>

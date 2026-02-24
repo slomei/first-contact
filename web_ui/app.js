@@ -258,13 +258,24 @@ function escapeHtml(str) {
 
 // --- Confirmation Dialog ---
 
+function formatConfirmPrompt(prompt) {
+    const codeMatch = prompt.match(/\[code\]\n([\s\S]*?)\n\[\/code\]/);
+    if (codeMatch) {
+        const before = escapeHtml(prompt.substring(0, prompt.indexOf("[code]")).trim());
+        const after = escapeHtml(prompt.substring(prompt.indexOf("[/code]") + 7).trim());
+        const code = escapeHtml(codeMatch[1]);
+        return `${before}<details><summary>Show code</summary><pre style="margin:8px 0;padding:8px;background:#1a1a2e;border-radius:4px;overflow-x:auto;white-space:pre-wrap">${code}</pre></details>${after}`;
+    }
+    return escapeHtml(prompt);
+}
+
 function showConfirmDialog(prompt) {
     removeTypingIndicator();
     const el = document.createElement("div");
     el.className = "message assistant";
     el.id = "confirmDialog";
     el.style.whiteSpace = "pre-wrap";
-    el.innerHTML = `<strong>Confirmation required</strong>\n${escapeHtml(prompt)}\n` +
+    el.innerHTML = `<strong>Confirmation required</strong>\n${formatConfirmPrompt(prompt)}\n` +
         `<button onclick="respondConfirm(true)" style="margin-right:8px;cursor:pointer">Approve</button>` +
         `<button onclick="respondConfirm(false)" style="cursor:pointer">Deny</button>`;
     chatArea.appendChild(el);

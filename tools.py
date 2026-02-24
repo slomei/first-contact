@@ -1654,6 +1654,11 @@ def tool_status_text(name, tool_input):
 
 # --- Confirmation prompt utility ---
 
+def strip_code_block(text):
+    """Remove [code]...[/code] blocks from confirmation prompts."""
+    return re.sub(r'\n*\[code\]\n.*?\n\[/code\]\n*', '\n', text, flags=re.DOTALL).strip()
+
+
 def clean_confirm_prompt(prompt):
     """Strip terminal-oriented suffixes from confirmation prompts for non-terminal interfaces."""
     text = prompt.rstrip()
@@ -1827,7 +1832,7 @@ def execute_tool(name, tool_input, confirm_fn=None):
         code = tool_input["code"]
         desc = tool_input.get("description", "Run Python code")
         if confirm_fn is not None:
-            prompt = f"{desc}\n\nCode:\n{code}\n\nRun this code? [y/N]: "
+            prompt = f"{desc}\n\n[code]\n{code}\n[/code]\n\nRun this code? [y/N]: "
             if not confirm_fn(prompt):
                 return "User declined to run this code.", False
         return run_code_in_workspace(code)

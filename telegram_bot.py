@@ -98,6 +98,7 @@ def make_telegram_confirm_fn(chat_id, bot, loop):
 
     def confirm_fn(prompt):
         clean_prompt = tools.clean_confirm_prompt(prompt)
+        clean_prompt = tools.strip_code_block(clean_prompt)
         event = threading.Event()
         holder = {"approved": False}
         _pending_confirms[chat_id] = {"event": event, "holder": holder}

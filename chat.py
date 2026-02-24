@@ -127,8 +127,9 @@ def _clean_exit():
 
 def terminal_confirm(prompt):
     """Wrap input() for execute_tool's confirm_fn."""
+    display = prompt.replace('[code]\n', 'Code:\n').replace('\n[/code]', '')
     try:
-        confirm = input(f"\n{memory.CYAN}{prompt}{memory.RESET}")
+        confirm = input(f"\n{memory.CYAN}{display}{memory.RESET}")
     except (EOFError, KeyboardInterrupt):
         print()
         return False

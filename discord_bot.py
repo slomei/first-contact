@@ -92,6 +92,7 @@ def make_discord_confirm_fn(state, channel, loop):
 
     def confirm_fn(prompt):
         clean_prompt = tools.clean_confirm_prompt(prompt)
+        clean_prompt = tools.strip_code_block(clean_prompt)
         event = threading.Event()
         holder = {"approved": False}
         state._pending_confirm = {"event": event, "holder": holder}
