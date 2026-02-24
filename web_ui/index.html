@@ -497,6 +497,23 @@ body {
 }
 .input-row textarea::placeholder { color: var(--text-faint); }
 
+.attach-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+.attach-btn:hover { color: var(--text-secondary); }
+.attach-btn svg { width: 16px; height: 16px; }
+
 .send-btn {
   width: 34px;
   height: 34px;
@@ -806,6 +823,9 @@ body {
     <div class="input-area">
       <div class="input-wrapper">
         <div class="input-row">
+          <button class="attach-btn" id="attachBtn" onclick="attachFile()" title="Attach file">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+          </button>
           <textarea id="messageInput" placeholder="Type a message..." rows="1" onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
           <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Send">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
@@ -1241,12 +1261,36 @@ dropZone.addEventListener('click', () => {
   input.click();
 });
 
+const UPLOAD_ALLOWED_EXTENSIONS = new Set([
+  ".txt", ".md", ".py", ".js", ".json", ".csv", ".html", ".css",
+  ".yml", ".yaml", ".toml", ".cfg", ".log", ".xml", ".sh", ".bat",
+  ".sql", ".r", ".dart", ".pdf", ".docx", ".xlsx",
+]);
+const UPLOAD_BINARY_EXTENSIONS = new Set([".pdf", ".docx", ".xlsx"]);
+
+function getUploadExtension(filename) {
+  const dot = filename.lastIndexOf(".");
+  return dot >= 0 ? filename.slice(dot).toLowerCase() : "";
+}
+
 function uploadFiles(files) {
-  let pending = files.length;
+  // Filter valid files
+  const valid = [];
+  for (const file of files) {
+    const ext = getUploadExtension(file.name);
+    if (UPLOAD_ALLOWED_EXTENSIONS.has(ext)) {
+      valid.push(file);
+    } else {
+      addStatusMessage(`Skipped ${file.name}: unsupported type`);
+    }
+  }
+  if (!valid.length) return;
+
+  let pending = valid.length;
   const fileData = [];
   const list = document.getElementById('fileList');
 
-  for (const file of files) {
+  for (const file of valid) {
     // Add to sidebar file list
     const div = document.createElement('div');
     div.className = 'file-item';
@@ -1269,7 +1313,11 @@ function uploadFiles(files) {
       addStatusMessage(`Failed to read: ${file.name}`);
       pending--;
     };
-    reader.readAsText(file);
+    if (UPLOAD_BINARY_EXTENSIONS.has(getUploadExtension(file.name))) {
+      reader.readAsDataURL(file);
+    } else {
+      reader.readAsText(file);
+    }
   }
 }
 
@@ -1286,6 +1334,71 @@ function renderConversationList(conversations) {
       <div class="chat-item-date">${escapeHtml(c.date)}</div>
     </div>
   `).join('');
+}
+
+// ═══ ATTACH FILE ═══
+function attachFile() {
+  if (isStreaming || !ws || ws.readyState !== WebSocket.OPEN) return;
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.multiple = true;
+  input.onchange = () => {
+    const picked = Array.from(input.files);
+    if (!picked.length) return;
+
+    const valid = [];
+    for (const file of picked) {
+      const ext = getUploadExtension(file.name);
+      if (UPLOAD_ALLOWED_EXTENSIONS.has(ext)) {
+        valid.push(file);
+      } else {
+        addStatusMessage(`Skipped ${file.name}: unsupported type`);
+      }
+    }
+    if (!valid.length) return;
+
+    let pending = valid.length;
+    const fileData = [];
+
+    for (const file of valid) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        fileData.push({ name: file.name, contents: reader.result });
+        pending--;
+        if (pending === 0) {
+          // Show user bubbles for attached files
+          for (const f of fileData) {
+            addMessage('user', `[Attached: ${f.name}]`);
+          }
+
+          const text = document.getElementById('messageInput').value.trim();
+          if (text) addMessage('user', text);
+
+          setStreaming(true);
+
+          ws.send(JSON.stringify({
+            type: 'message',
+            content: text,
+            model: document.getElementById('modelSelect').value,
+            files: fileData,
+          }));
+
+          document.getElementById('messageInput').value = '';
+          autoResize(document.getElementById('messageInput'));
+        }
+      };
+      reader.onerror = () => {
+        addStatusMessage(`Failed to read: ${file.name}`);
+        pending--;
+      };
+      if (UPLOAD_BINARY_EXTENSIONS.has(getUploadExtension(file.name))) {
+        reader.readAsDataURL(file);
+      } else {
+        reader.readAsText(file);
+      }
+    }
+  };
+  input.click();
 }
 
 // ═══ INIT ═══

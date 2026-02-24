@@ -298,6 +298,53 @@ class TestBinaryDocumentParsing:
         assert result == "hello world"
 
 
+class TestWriteBinaryFileContents:
+    def test_writes_bytes(self, isolated_env):
+        data = b"\x00\x01\x02\xff\xfe"
+        filepath = files.write_binary_file_contents("test.pdf", data)
+        assert os.path.isfile(filepath)
+        with open(filepath, "rb") as f:
+            assert f.read() == data
+
+    def test_path_in_project(self, isolated_env):
+        filepath = files.write_binary_file_contents("doc.docx", b"PK\x03\x04")
+        assert memory.get_files_dir() in filepath
+        assert os.path.basename(filepath) == "doc.docx"
+
+
+class TestExtractFileForChat:
+    def test_text_file(self, isolated_env):
+        path = os.path.join(isolated_env, "readme.txt")
+        with open(path, "w") as f:
+            f.write("Hello world\nLine two\n")
+        msg, filename, line_count = files.extract_file_for_chat(path)
+        assert filename == "readme.txt"
+        assert line_count == 2
+        assert "[File: readme.txt]" in msg
+        assert "Hello world" in msg
+
+    def test_unsupported_extension(self, isolated_env):
+        path = os.path.join(isolated_env, "data.exe")
+        with open(path, "w") as f:
+            f.write("nope")
+        with pytest.raises(ValueError, match="Unsupported file type"):
+            files.extract_file_for_chat(path)
+
+    def test_binary_file(self, isolated_env, monkeypatch):
+        """Binary files route through parsers for extraction."""
+        import parsers
+        monkeypatch.setattr(parsers, "is_binary_document", lambda p: p.endswith(".docx"))
+        monkeypatch.setattr(parsers, "extract_text", lambda p: "Extracted DOCX content")
+
+        path = os.path.join(isolated_env, "letter.docx")
+        with open(path, "wb") as f:
+            f.write(b"PK\x03\x04 fake docx")
+
+        msg, filename, line_count = files.extract_file_for_chat(path)
+        assert filename == "letter.docx"
+        assert "Extracted DOCX content" in msg
+
+
 class TestParsersModule:
     """Test parsers.py directly."""
 

@@ -691,7 +691,7 @@ async def on_message(message):
         return
 
     content = message.content.strip()
-    if not content:
+    if not content and not message.attachments:
         return
 
     is_dm = isinstance(message.channel, discord.DMChannel)
@@ -2919,6 +2919,39 @@ async def on_message(message):
         else:
             # Unknown !-command in DM — ignore to avoid treating as chat
             return
+
+    # Process file attachments (temporary chat injection)
+    file_context = []
+    for att in message.attachments:
+        ok, ext = files.validate_extension(att.filename)
+        if not ok:
+            continue
+        if att.size > 1024 * 1024:  # 1MB limit for chat attachments
+            await send_reply(dm, f"*Skipped {att.filename}: too large ({att.size // 1024}KB)*")
+            continue
+
+        import tempfile
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+        try:
+            await att.save(tmp.name)
+            tmp.close()
+            msg, _, line_count = files.extract_file_for_chat(tmp.name)
+            extracted = files.read_file_contents(tmp.name)
+            file_context.append(f"[Attached file: {att.filename}]\n```\n{extracted}\n```")
+            await send_reply(dm, f"*Attached {att.filename} ({line_count} lines)*")
+        except Exception as e:
+            await send_reply(dm, f"*Failed to read {att.filename}: {e}*")
+        finally:
+            try:
+                os.unlink(tmp.name)
+            except Exception:
+                pass
+
+    if file_context:
+        content = "\n\n".join(file_context) + ("\n\n" + content if content else "")
+
+    if not content:
+        return
 
     state.conversation_history.append({"role": "user", "content": content})
 

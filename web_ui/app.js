@@ -316,8 +316,10 @@ accentPicker.addEventListener("input", (e) => {
 const ALLOWED_EXTENSIONS = new Set([
     ".txt", ".md", ".py", ".js", ".json", ".csv", ".html", ".css",
     ".yml", ".yaml", ".toml", ".cfg", ".log", ".xml", ".sh", ".bat",
-    ".sql", ".r", ".dart",
+    ".sql", ".r", ".dart", ".pdf", ".docx", ".xlsx",
 ]);
+
+const BINARY_EXTENSIONS = new Set([".pdf", ".docx", ".xlsx"]);
 
 function getExtension(filename) {
     const dot = filename.lastIndexOf(".");
@@ -369,7 +371,7 @@ chatArea.addEventListener("drop", (e) => {
         bubble.textContent = `[File: ${file.name}]`;
     }
 
-    // Read all files and send as batch
+    // Read all files and send as chat attachment (temporary, not persisted)
     let pending = valid.length;
     const fileData = [];
 
@@ -379,17 +381,46 @@ chatArea.addEventListener("drop", (e) => {
             fileData.push({ name: file.name, contents: reader.result });
             pending--;
             if (pending === 0) {
+                // Clear welcome message
+                const welcome = chatArea.querySelector(".welcome-message");
+                if (welcome) welcome.remove();
+
+                // Show user bubble for attached files
+                for (const f of fileData) {
+                    const bubble = createBubble("user");
+                    bubble.textContent = `[Attached: ${f.name}]`;
+                }
+
+                const text = messageInput.value.trim();
+                if (text) {
+                    const bubble = createBubble("user");
+                    bubble.textContent = text;
+                }
+
+                setStreaming(true);
+                showTypingIndicator("Processing files...");
+
                 ws.send(JSON.stringify({
-                    type: "file_upload",
+                    type: "message",
+                    content: text,
+                    model: modelSelect.value,
                     files: fileData,
                 }));
+
+                messageInput.value = "";
+                autoResizeInput();
+                autoScroll();
             }
         };
         reader.onerror = () => {
             showStatus(`Failed to read: ${file.name}`);
             pending--;
         };
-        reader.readAsText(file);
+        if (BINARY_EXTENSIONS.has(getExtension(file.name))) {
+            reader.readAsDataURL(file);
+        } else {
+            reader.readAsText(file);
+        }
     }
 });
 

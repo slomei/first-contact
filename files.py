@@ -213,3 +213,30 @@ def write_file_contents(filename, contents):
     with open(filepath, "w") as f:
         f.write(contents)
     return filepath
+
+
+def write_binary_file_contents(filename, raw_bytes):
+    """Write binary bytes to a file in the project files/ directory.
+
+    Used by the web upload path for PDF/DOCX/XLSX files.
+    Returns the destination path.
+    """
+    files_dir = memory.get_files_dir()
+    filepath = os.path.join(files_dir, filename)
+    with open(filepath, "wb") as f:
+        f.write(raw_bytes)
+    return filepath
+
+
+def extract_file_for_chat(filepath):
+    """Extract file content for temporary chat injection (not persisted).
+
+    Returns (formatted_message, filename, line_count) or raises ValueError.
+    Validates extension and reads content (binary files routed through parsers).
+    """
+    ok, ext = validate_extension(os.path.basename(filepath))
+    if not ok:
+        raise ValueError(f"Unsupported file type: {ext or '(no extension)'}")
+
+    contents = read_file_contents(filepath)
+    return format_file_for_injection(filepath, contents)

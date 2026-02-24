@@ -10,10 +10,12 @@ load_dotenv()
 
 import argparse
 import asyncio
+import base64
 import json
 import os
 import re
 import sys
+import tempfile
 import threading
 
 # Add parent dir to path so we can import shared core
@@ -98,9 +100,54 @@ def make_web_confirm_fn(ws, conn, loop):
     return confirm_fn
 
 
+def _extract_attached_files(attached_files):
+    """Process attached files from a message, return list of context strings."""
+    file_context = []
+    for item in attached_files:
+        name = item.get("name", "")
+        contents = item.get("contents", "")
+        ok, ext = files.validate_extension(name)
+        if not ok:
+            continue
+
+        # Write to temp file for extraction (especially binary formats)
+        try:
+            if contents.startswith("data:") and ";base64," in contents:
+                b64_data = contents.split(";base64,", 1)[1]
+                raw_bytes = base64.b64decode(b64_data)
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+                tmp.write(raw_bytes)
+                tmp.close()
+            else:
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext, mode="w")
+                tmp.write(contents)
+                tmp.close()
+
+            extracted = files.read_file_contents(tmp.name)
+            file_context.append(f"[Attached file: {name}]\n```\n{extracted}\n```")
+        except Exception:
+            pass  # Skip files that fail extraction
+        finally:
+            try:
+                os.unlink(tmp.name)
+            except Exception:
+                pass
+
+    return file_context
+
+
 async def handle_message(ws, conn, data):
     """Handle an incoming 'message' request — stream API response, handle tool loop."""
     user_msg = data.get("content", "").strip()
+    attached_files = data.get("files", [])
+
+    # Process any attached files
+    if attached_files:
+        file_context = _extract_attached_files(attached_files)
+        if file_context:
+            file_block = "\n\n".join(file_context)
+            user_msg = file_block + ("\n\n" + user_msg if user_msg else "")
+
     if not user_msg:
         return
 
@@ -297,14 +344,26 @@ async def handle_file_upload(ws, conn, data):
             continue
 
         try:
-            filepath = files.write_file_contents(name, contents)
+            if contents.startswith("data:") and ";base64," in contents:
+                b64_data = contents.split(";base64,", 1)[1]
+                raw_bytes = base64.b64decode(b64_data)
+                filepath = files.write_binary_file_contents(name, raw_bytes)
+            else:
+                filepath = files.write_file_contents(name, contents)
         except Exception as e:
             results.append(f"Failed to save {name}: {e}")
             error_count += 1
             continue
 
-        # Inject into conversation history
-        msg, filename, line_count = files.format_file_for_injection(filepath, contents)
+        # Read back via read_file_contents (routes binary to parsers)
+        try:
+            text = files.read_file_contents(filepath)
+        except Exception as e:
+            results.append(f"Saved {name} but could not extract text: {e}")
+            error_count += 1
+            continue
+
+        msg, filename, line_count = files.format_file_for_injection(filepath, text)
         conn.history.append({"role": "user", "content": msg})
         results.append(f"Loaded {filename} ({line_count} lines)")
         success_count += 1

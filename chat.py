@@ -617,6 +617,31 @@ if __name__ == "__main__":
             print(f"{memory.DIM}Loaded {filename} ({line_count} lines){memory.RESET}\n")
             continue
 
+        # --- Attach file (temporary, not persisted to project) ---
+        if command_lower.startswith("/attach "):
+            path_arg = command[8:].strip()
+            if not path_arg:
+                print(f"{memory.DIM}Usage: /attach <path>{memory.RESET}\n")
+                continue
+
+            resolved = os.path.expanduser(path_arg)
+            if not os.path.isfile(resolved):
+                # Also check project files
+                resolved, _ = files.resolve_file_path(path_arg)
+            if not resolved:
+                print(f"{memory.DIM}File not found: {path_arg}{memory.RESET}\n")
+                continue
+
+            try:
+                msg, filename, line_count = files.extract_file_for_chat(resolved)
+            except ValueError as e:
+                print(f"{memory.DIM}{e}{memory.RESET}\n")
+                continue
+
+            models.conversation_history.append({"role": "user", "content": msg})
+            print(f"{memory.DIM}Attached {filename} ({line_count} lines){memory.RESET}\n")
+            continue
+
         if command_lower.startswith("/web "):
             query = command[5:].strip()
             if not query:

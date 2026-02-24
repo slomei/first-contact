@@ -8,7 +8,7 @@
 
 First Contact is a personal AI agent built from scratch with the Anthropic API. It connects to Gmail, Google Calendar, job boards, and the web through natural conversation. Four interfaces (terminal, web UI, Discord, Telegram) share a single core. Everything runs locally. Security-first: draft-only email, sandboxed files, untrusted web isolation, human-in-the-loop for writes.
 
-**Status:** Shipped. All 389 tests passing. Live on GitHub.
+**Status:** Shipped. All 406 tests passing. Live on GitHub.
 
 ---
 
@@ -18,10 +18,10 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 
 | File | Description |
 |------|-------------|
-| `chat.py` | Terminal chatbot — primary interface. Streaming output, markdown stripping, session cost tracking, startup diagnostics. |
-| `web_ui/` | WebSocket-based web frontend (server.py + vanilla HTML/CSS/JS). Per-connection state, streaming responses, tool loop, token tracking, context compression, conversation persistence, `/prompt` command, project switching (`set_project`). Designed as Tauri desktop app foundation. |
-| `discord_bot.py` | Discord bot (prefix: `!fc`). Background loops for reminders, email, briefing, scans. Async with typing indicators. |
-| `telegram_bot.py` | Telegram bot. Same command set as Discord, adapted for Telegram's API. |
+| `chat.py` | Terminal chatbot — primary interface. Streaming output, markdown stripping, session cost tracking, startup diagnostics, `/attach` for temporary file injection. |
+| `web_ui/` | WebSocket-based web frontend (server.py + vanilla HTML/CSS/JS). Per-connection state, streaming responses, tool loop, token tracking, context compression, conversation persistence, `/prompt` command, project switching (`set_project`), chat-area file attachments (drag-drop + paperclip button), binary file upload support (PDF/DOCX/XLSX). Designed as Tauri desktop app foundation. |
+| `discord_bot.py` | Discord bot (prefix: `!fc`). Background loops for reminders, email, briefing, scans. Async with typing indicators. File attachment handling (temporary chat injection). |
+| `telegram_bot.py` | Telegram bot. Same command set as Discord, adapted for Telegram's API. Document attachment handling (temporary chat injection). |
 | `interfaces/` | Interface adapter pattern. `InterfaceAdapter` ABC in `base_adapter.py`, adapters for all 4 interfaces (terminal, discord, telegram, web), example implementation, README. |
 
 ### Shared Core
@@ -45,7 +45,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `help_data.py` | Single source of truth for all help text. `HELP_CATEGORIES` dict with per-interface formatters (terminal ANSI box-drawing, Discord markdown, Telegram plain text). Fuzzy prefix matching. |
 | `creative.py` | Creative project tools — world bible PDF parsing via pdfplumber, character/location JSON lookup. Used for the First Light screenplay project. |
 | `skills_loader.py` | Extensible skills system — loads `.md` skill files from `skills/` directory, keyword matching, default base skills per specialist, injects matched skill content into specialist system prompts during delegation. |
-| `files.py` | Project file management — import, list, remove files. Validation, large-file detection, conversation injection formatting. Used by all interfaces and web UI drag-and-drop. Binary documents (PDF, DOCX, XLSX) routed through `parsers.py`. |
+| `files.py` | Project file management — import, list, remove files. Validation, large-file detection, conversation injection formatting. `extract_file_for_chat()` for temporary attachment injection, `write_binary_file_contents()` for binary uploads. Used by all interfaces and web UI drag-and-drop. Binary documents (PDF, DOCX, XLSX) routed through `parsers.py`. |
 | `parsers.py` | Binary document text extraction — PDF (pdfplumber), DOCX (python-docx), XLSX (openpyxl). Optional deps with clear error messages. Used by `files.py` and `tools.py` read_file. |
 | `plugin_generator.py` | Plugin template generator — scaffolds new plugins with correct directory structure, metadata (`plugin.json`), stub tools, and documentation. CLI via argparse, also importable. Validates names, prevents overwrites. |
 | `plugins/` | Plugin system — `__init__.py` loader discovers `.py` files and packages (directories with `__init__.py`), validates required attributes (`PLUGIN_NAME`, `TOOLS`, `execute`), routes tool calls. `example_plugin.py` reference implementation (dice roller). `DIRECTORY.md` community plugin registry. `README.md` for plugin authors. |
@@ -83,6 +83,7 @@ First Contact is a personal AI agent built from scratch with the Anthropic API. 
 | `tests/test_search_providers.py` | Search providers — ABC compliance, registry/factory, config selection, all 4 provider request/response format, missing key errors. |
 | `tests/test_insights.py` | Insights engine — source gathering, minimum-source gate, model tier, system prompt, response parsing (NO_INSIGHTS + insight text), error handling. |
 | `tests/test_documents.py` | Document creation — DOCX (paragraphs, headings, fallback), XLSX (data rows, headers, column widths, fallback), tool dispatch for both. |
+| `tests/test_chat_attachments.py` | Chat attachments — web UI extension validation, server-side binary/text extraction, Discord/Telegram injection format, terminal `/attach` command, temp file cleanup. |
 
 ### Config & Data Files
 
@@ -314,7 +315,7 @@ First Contact's security is built on a core assumption: safety that depends on a
 
 ## All Commands
 
-**Chat:** `/opus`, `/sonnet`, `/haiku`, `/challenge on|off`, `/prompt [text|clear]`, `/new`, `/load`, `/conversations`, `/delete`, `/clear`
+**Chat:** `/opus`, `/sonnet`, `/haiku`, `/challenge on|off`, `/prompt [text|clear]`, `/new`, `/load`, `/conversations`, `/delete`, `/clear`, `/attach <path>`
 
 **Memory & Notes:** `/remember [-p] <fact>`, `/forget <fact>`, `/memories`, `/memories search <q>`, `/note <text>`, `/notes`, `/notes search <q>`
 
@@ -425,7 +426,7 @@ All four interfaces share these features via the shared core:
 - **File I/O**: Always `os.makedirs(exist_ok=True)` before writing. Check `os.path.exists()` before reading. JSON loads wrapped in try/except.
 - **Errors** produce helpful messages, not tracebacks.
 - **Interfaces are thin**: All business logic in shared core modules. Interface files handle only I/O adaptation.
-- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 389 tests across 25 test files.
+- **Tests**: pytest with monkeypatched paths (isolated temp dirs). 406 tests across 26 test files.
 
 ---
 

@@ -691,8 +691,15 @@ async def scan_job(context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle all incoming messages — commands and free text."""
-    if not update.message or not update.message.text:
+    """Handle all incoming messages — commands, free text, and document attachments."""
+    if not update.message:
+        return
+
+    has_text = bool(update.message.text)
+    has_document = bool(update.message.document)
+    has_caption = bool(update.message.caption)
+
+    if not has_text and not has_document:
         return
 
     user_id = update.message.from_user.id
@@ -700,7 +707,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot = context.bot
 
     # Log user ID for initial setup
-    print(f"[Telegram] Message from user_id={user_id}: {update.message.text[:80]}")
+    preview = (update.message.text or update.message.caption or "[document]")[:80]
+    print(f"[Telegram] Message from user_id={user_id}: {preview}")
 
     # Only respond to allowed user (0 = log only mode for setup)
     if ALLOWED_USER_ID and user_id != ALLOWED_USER_ID:
@@ -711,8 +719,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                  f"Set TELEGRAM_USER_ID={user_id} in your environment and restart.")
         return
 
-    text = update.message.text.strip()
-    if not text:
+    text = (update.message.text or update.message.caption or "").strip()
+    if not text and not has_document:
         return
 
     # Strip @botname from commands (e.g. /help@MyBot -> /help)
@@ -2863,7 +2871,41 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- Regular message (not a command) ---
     if text.startswith("/"):
-        # Unknown slash command — ignore
+        # Unknown slash command — ignore unless it has a document
+        if not has_document:
+            return
+
+    # Process document attachments (temporary chat injection)
+    file_context = []
+    if update.message.document:
+        doc = update.message.document
+        doc_name = doc.file_name or "document"
+        ok, ext = files.validate_extension(doc_name)
+        if ok and doc.file_size <= 1024 * 1024:  # 1MB limit
+            import tempfile
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+            try:
+                tg_file = await context.bot.get_file(doc.file_id)
+                await tg_file.download_to_drive(tmp.name)
+                tmp.close()
+                extracted = files.read_file_contents(tmp.name)
+                line_count = extracted.count("\n") + 1
+                file_context.append(f"[Attached file: {doc_name}]\n```\n{extracted}\n```")
+                await send_reply(chat_id, f"Attached {doc_name} ({line_count} lines)", bot)
+            except Exception as e:
+                await send_reply(chat_id, f"Failed to read {doc_name}: {e}", bot)
+            finally:
+                try:
+                    os.unlink(tmp.name)
+                except Exception:
+                    pass
+        elif ok:
+            await send_reply(chat_id, f"Skipped {doc_name}: too large ({doc.file_size // 1024}KB)", bot)
+
+    if file_context:
+        text = "\n\n".join(file_context) + ("\n\n" + text if text else "")
+
+    if not text:
         return
 
     state.conversation_history.append({"role": "user", "content": text})
@@ -2894,8 +2936,8 @@ if __name__ == "__main__":
     # Register callback handler for confirmation inline buttons (before MessageHandler)
     app.add_handler(CallbackQueryHandler(handle_confirm_callback))
 
-    # Register the single message handler for all text (commands + free text)
-    app.add_handler(MessageHandler(filters.TEXT, handle_message))
+    # Register the single message handler for all text and documents
+    app.add_handler(MessageHandler(filters.TEXT | filters.Document.ALL, handle_message))
 
     # Schedule background jobs
     if ALLOWED_USER_ID:
