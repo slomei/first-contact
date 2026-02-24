@@ -1487,8 +1487,10 @@ function renderFileList(files) {
 }
 
 function removeProjectFile(btn, name, dir) {
-  // Remove from DOM immediately; server-side removal could be added later
   btn.parentElement.remove();
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'file_delete', name: name, dir: dir }));
+  }
 }
 
 // ═══ ATTACH FILE ═══

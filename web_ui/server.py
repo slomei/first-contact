@@ -573,6 +573,19 @@ async def handler(ws):
                 await handle_file_upload(ws, conn, data)
                 await send_file_list(ws, conn)
 
+            elif msg_type == "file_delete":
+                fname = data.get("name", "")
+                fdir = data.get("dir", "")
+                memory.active_project = conn.active_project
+                if fdir == "workspace":
+                    workspace_dir = memory.get_workspace_dir()
+                    fpath = os.path.join(workspace_dir, os.path.basename(fname))
+                    if os.path.isfile(fpath):
+                        os.remove(fpath)
+                else:
+                    files.remove_file(fname)
+                await send_file_list(ws, conn)
+
             elif msg_type == "confirm_response":
                 approved = data.get("approved", False)
                 print(f"[confirm] Received confirm_response: approved={approved}, pending={conn._pending_confirm is not None}")
