@@ -100,7 +100,7 @@ def search_notes(query):
 TOOLS = [
     {
         "name": "web_search",
-        "description": "Search the web via DuckDuckGo.",
+        "description": "Search the web.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -217,7 +217,7 @@ TOOLS = [
     },
     {
         "name": "job_search",
-        "description": "Search for job listings via DuckDuckGo.",
+        "description": "Search for job listings.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -581,8 +581,19 @@ TOOLS = [
 ]
 
 
+_cached_search_provider_name = None
+
+
 def get_cached_tools():
     """Return TOOLS (core + plugin) with cache_control on the last tool for prompt caching."""
+    global _cached_search_provider_name
+    try:
+        current = get_search_provider().name
+    except Exception:
+        current = "DuckDuckGo"
+    if current != _cached_search_provider_name:
+        _cached_search_provider_name = current
+        _rebuild_cached_tools()
     return _CACHED_TOOLS
 
 
@@ -591,6 +602,18 @@ def _rebuild_cached_tools():
     global _CACHED_TOOLS
     import copy
     _CACHED_TOOLS = copy.deepcopy(TOOLS)
+    # Patch search tool descriptions with the active provider name
+    try:
+        provider_name = get_search_provider().name
+    except Exception:
+        provider_name = "DuckDuckGo"
+    _SEARCH_DESCRIPTIONS = {
+        "web_search": f"Search the web via {provider_name}.",
+        "job_search": f"Search for job listings via {provider_name}.",
+    }
+    for tool in _CACHED_TOOLS:
+        if tool["name"] in _SEARCH_DESCRIPTIONS:
+            tool["description"] = _SEARCH_DESCRIPTIONS[tool["name"]]
     try:
         import plugins
         plugin_tools = plugins.get_all_plugin_tools()
