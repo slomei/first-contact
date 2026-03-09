@@ -36,7 +36,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 
 **28 core tools** (plus any from plugins):
 
-- **Web search** — configurable search provider (DuckDuckGo default, Brave/Google/SerpAPI), with page fetching and content extraction
+- **Web search** — configurable search provider (DuckDuckGo default, Brave/Tavily/Google/SerpAPI), with page fetching and content extraction
 - **Gmail** — Read your inbox, search emails, draft replies. Multi-account support. Draft-only: the agent creates drafts, you send them
 - **Google Calendar** — View events, create new ones (with confirmation). Read and create only — no delete, no modify
 - **Job search pipeline** — Search boards, save listings, track application status, auto-generate cover letters as formatted PDFs
@@ -132,7 +132,7 @@ First Contact is a personal AI agent that connects to your email, calendar, job 
 | `memory.py` | Persistent memory, semantic search, system prompt, projects |
 | `models.py` | Model routing, provider dispatch, API calls, pricing, context compression, specialists |
 | `providers/` | Provider abstraction — Anthropic, OpenAI, Gemini with Anthropic-compatible wrapper |
-| `search_providers/` | Search provider abstraction — DuckDuckGo, Brave, Google, SerpAPI |
+| `search_providers/` | Search provider abstraction — DuckDuckGo, Brave, Tavily, Google, SerpAPI |
 | `tools.py` | 28 core tool definitions + plugin routing |
 | `tasks.py` | Task and reminder system with natural language dates |
 | `documents.py` | Document generation — PDF (cover letters, generic), DOCX, XLSX |
@@ -259,6 +259,7 @@ GEMINI_API_KEY=your-gemini-key              # optional, for gemini provider
 BRAVE_SEARCH_API_KEY=your-key              # optional, for brave search provider
 GOOGLE_SEARCH_API_KEY=your-key             # optional, for google search provider
 GOOGLE_SEARCH_CX=your-search-engine-id     # optional, for google search provider
+TAVILY_API_KEY=your-key                    # optional, for tavily search provider
 SERPAPI_KEY=your-key                        # optional, for serpapi search provider
 ```
 
@@ -280,7 +281,7 @@ SERPAPI_KEY=your-key                        # optional, for serpapi search provi
 }
 ```
 
-Set `"provider"` to `"openai"` or `"gemini"` to switch LLM providers. Override individual model tiers with `"model_tiers": {"fast": "...", "standard": "...", "quality": "..."}`. Set `"search_provider"` to `"brave"`, `"google"`, or `"serpapi"` to switch search engines (default: `"duckduckgo"`). The `"user_model"` block controls persistent profile learning: `"enabled"` (prompt injection), `"extraction_enabled"` (post-conversation extraction), `"pattern_detection_enabled"` (daemon analysis), `"selective_injection"` (tiered filtering), `"max_contextual_entries"` (tier 2 budget).
+Set `"provider"` to `"openai"` or `"gemini"` to switch LLM providers. Override individual model tiers with `"model_tiers": {"fast": "...", "standard": "...", "quality": "..."}`. Set `"search_provider"` to `"brave"`, `"tavily"`, `"google"`, or `"serpapi"` to switch search engines (default: `"duckduckgo"`). The `"user_model"` block controls persistent profile learning: `"enabled"` (prompt injection), `"extraction_enabled"` (post-conversation extraction), `"pattern_detection_enabled"` (daemon analysis), `"selective_injection"` (tiered filtering), `"max_contextual_entries"` (tier 2 budget).
 
 ## Security Model
 

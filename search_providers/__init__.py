@@ -1,8 +1,8 @@
 """Search provider abstraction layer.
 
 Defines the SearchProvider ABC, registry, and factory for swapping between
-DuckDuckGo, Brave, Google, and SerpAPI without changes outside the calling
-modules (tools.py, job_scanner.py).
+DuckDuckGo, Brave, Google, SerpAPI, and Tavily without changes outside the
+calling modules (tools.py, job_scanner.py).
 
 Same pattern as providers/__init__.py for LLM providers.
 """
@@ -96,8 +96,10 @@ from search_providers.duckduckgo_provider import DuckDuckGoProvider
 from search_providers.brave_provider import BraveProvider
 from search_providers.google_provider import GoogleProvider
 from search_providers.serpapi_provider import SerpAPIProvider
+from search_providers.tavily_provider import TavilyProvider
 
 register_search_provider("duckduckgo", DuckDuckGoProvider)
 register_search_provider("brave", BraveProvider)
 register_search_provider("google", GoogleProvider)
 register_search_provider("serpapi", SerpAPIProvider)
+register_search_provider("tavily", TavilyProvider)

@@ -1,4 +1,4 @@
-"""Tests for search provider abstraction — ABC, registry, all 4 providers."""
+"""Tests for search provider abstraction — ABC, registry, all 5 providers."""
 
 import pytest
 
@@ -9,8 +9,9 @@ class TestSearchProviderABC:
     def test_all_providers_implement_abc(self):
         from search_providers import (
             DuckDuckGoProvider, BraveProvider, GoogleProvider, SerpAPIProvider,
+            TavilyProvider,
         )
-        for cls in (DuckDuckGoProvider, BraveProvider, GoogleProvider, SerpAPIProvider):
+        for cls in (DuckDuckGoProvider, BraveProvider, GoogleProvider, SerpAPIProvider, TavilyProvider):
             provider = cls()
             assert hasattr(provider, "name")
             assert hasattr(provider, "search")
@@ -19,9 +20,10 @@ class TestSearchProviderABC:
     def test_all_providers_have_name(self):
         from search_providers import (
             DuckDuckGoProvider, BraveProvider, GoogleProvider, SerpAPIProvider,
+            TavilyProvider,
         )
-        names = {cls().name for cls in (DuckDuckGoProvider, BraveProvider, GoogleProvider, SerpAPIProvider)}
-        assert names == {"duckduckgo", "brave", "google", "serpapi"}
+        names = {cls().name for cls in (DuckDuckGoProvider, BraveProvider, GoogleProvider, SerpAPIProvider, TavilyProvider)}
+        assert names == {"duckduckgo", "brave", "google", "serpapi", "tavily"}
 
 
 class TestRegistry:
@@ -60,6 +62,7 @@ class TestRegistry:
         assert "brave" in providers
         assert "google" in providers
         assert "serpapi" in providers
+        assert "tavily" in providers
 
     def test_caching(self, monkeypatch):
         import search_providers
@@ -226,3 +229,72 @@ class TestSerpAPIProvider:
         monkeypatch.delenv("SERPAPI_KEY", raising=False)
         with pytest.raises(ValueError, match="SERPAPI_KEY"):
             SerpAPIProvider().search("test")
+
+
+# --- Tavily ---
+
+class TestTavilyProvider:
+    def test_constructs_correct_request(self, monkeypatch):
+        from search_providers.tavily_provider import TavilyProvider
+        from search_providers import tavily_provider
+        monkeypatch.setenv("TAVILY_API_KEY", "tvly-test-key")
+
+        captured = {}
+
+        class FakeTavilyClient:
+            def __init__(self, api_key):
+                captured["api_key"] = api_key
+
+            def search(self, query, max_results=5, search_depth="basic"):
+                captured["query"] = query
+                captured["max_results"] = max_results
+                captured["search_depth"] = search_depth
+                return {"results": [
+                    {"title": "Tavily Result", "url": "https://tavily.com", "content": "A tavily result"},
+                ]}
+
+        monkeypatch.setattr(tavily_provider, "TavilyClient", FakeTavilyClient)
+
+        provider = TavilyProvider()
+        results = provider.search("test query", max_results=3)
+
+        assert captured["api_key"] == "tvly-test-key"
+        assert captured["query"] == "test query"
+        assert captured["max_results"] == 3
+        assert captured["search_depth"] == "basic"
+        assert len(results) == 1
+        assert results[0] == {"title": "Tavily Result", "url": "https://tavily.com", "snippet": "A tavily result"}
+
+    def test_returns_correct_format(self, monkeypatch):
+        from search_providers.tavily_provider import TavilyProvider
+        from search_providers import tavily_provider
+        monkeypatch.setenv("TAVILY_API_KEY", "tvly-test-key")
+
+        class FakeTavilyClient:
+            def __init__(self, api_key): pass
+            def search(self, query, max_results=5, search_depth="basic"):
+                return {"results": [
+                    {"title": "First", "url": "https://one.com", "content": "First result"},
+                    {"title": "Second", "url": "https://two.com", "content": "Second result"},
+                ]}
+
+        monkeypatch.setattr(tavily_provider, "TavilyClient", FakeTavilyClient)
+
+        results = TavilyProvider().search("test")
+        assert len(results) == 2
+        for r in results:
+            assert set(r.keys()) == {"title", "url", "snippet"}
+
+    def test_missing_key_raises(self, monkeypatch):
+        from search_providers.tavily_provider import TavilyProvider
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+        with pytest.raises(ValueError, match="TAVILY_API_KEY"):
+            TavilyProvider().search("test")
+
+    def test_missing_package_raises(self, monkeypatch):
+        from search_providers.tavily_provider import TavilyProvider
+        from search_providers import tavily_provider
+        monkeypatch.setenv("TAVILY_API_KEY", "tvly-test-key")
+        monkeypatch.setattr(tavily_provider, "TavilyClient", None)
+        with pytest.raises(ValueError, match="tavily-python"):
+            TavilyProvider().search("test")
