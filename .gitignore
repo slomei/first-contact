@@ -20,6 +20,7 @@ reminders.json
 seen_jobs.json
 scan_results.json
 seen_emails.json
+user_profile.json
 
 # Project data (contains personal info)
 projects/
