@@ -2,6 +2,8 @@
 
 A personal AI agent built from scratch with the Anthropic API. Not a chatbot — an agent that actually does things.
 
+Status: This is a finished learning project. I built it in early 2026 to understand how AI agents work. It is no longer in active development.
+
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Anthropic API](https://img.shields.io/badge/Anthropic-Claude-blueviolet.svg)](https://www.anthropic.com/)
@@ -293,7 +295,7 @@ This isn't an afterthought — security is baked into the architecture.
 
 **Credential lockdown.** API keys live in `.env` (never committed). OAuth tokens are `chmod 600`. No secrets in source code.
 
-**Web content is untrusted.** Every fetched page is wrapped with isolation markers before entering the conversation. The agent is instructed to treat web content as data, never as instructions. Prompt injection from web pages can't trigger tool use.
+**Web content is untrusted.** Every fetched page is wrapped with isolation markers before entering the conversation. The agent is instructed to treat web content as data, never as instructions. This makes prompt injection from web pages much harder, and the code gates described below are the backstop.
 
 **Anti-injection on email drafts.** When drafting replies, external email content is explicitly marked as untrusted data in the system prompt. The agent drafts based on user intent, not on instructions found in incoming email.
 
@@ -370,6 +372,8 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines
 ## Built By
 
 Built by a video editor with 13 years in feature animation, not a software engineer. If I can build this, the barrier to entry is lower than you think.
+
+The code was written by Claude Code under my direction. I decided what it should do, set the safety rules, and tested it.
 
 ## License
 
