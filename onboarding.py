@@ -203,7 +203,7 @@ _PROJECT_SECTION = """\
 ## PROJECT: FIRST CONTACT (AI Agent System)
 
 **Location:** ~/first-contact/
-**What it is:** Personal AI assistant built from scratch using Anthropic API + Python
+**What it is:** Personal AI assistant built with Claude Code using Anthropic API + Python
 **Philosophy:** Draft-only email (never send), security-first, cost-conscious
 
 ### Interfaces
