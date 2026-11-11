@@ -1,6 +1,6 @@
 # First Contact
 
-A personal AI agent built from scratch with the Anthropic API. Not a chatbot — an agent that actually does things.
+A personal AI agent built with Claude Code and the Anthropic API. Not a chatbot — an agent that actually does things.
 
 Status: This is a finished learning project. I built it in early 2026 to understand how AI agents work. It is no longer in active development.
 
@@ -371,7 +371,7 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines
 
 ## Built By
 
-Built by a video editor with 13 years in feature animation, not a software engineer. If I can build this, the barrier to entry is lower than you think.
+Built by a video editor with 13 years in post-production, not a software engineer. If I can build this, the barrier to entry is lower than you think.
 
 The code was written by Claude Code under my direction. I decided what it should do, set the safety rules, and tested it.
 
